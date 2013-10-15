@@ -50,7 +50,7 @@ parseStatus = do
     let msg = case j of
                   Array (v) -> V.toList v
                   x         -> [x]
-    forM_ msg $ \m -> do -- TODO: There might be a stack space issue here with forM_
+    forM_ msg $ \m -> do
         -- We expect something that can be parsed into a StreamMessage
         let sm = fromJSON m :: Result StreamMessage
         yield $ case sm of
@@ -86,6 +86,8 @@ processStatuses uri oaClient oaCredential manager logFn smQueue = do
                 reqSigned <- OA.signOAuth oaClient oaCredential req
                 liftIO $ print reqSigned             -- DEBUG
                 res <- http reqSigned manager
+                -- TODO: Have a look at the rate limit response field
+                -- TODO: Handle network errors, error responses etc.
                 liftIO $ print $ responseStatus res  -- DEBUG
                 liftIO $ print $ responseHeaders res -- DEBUG
                 -- Finish parsing conduit

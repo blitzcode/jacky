@@ -12,7 +12,7 @@ import qualified Graphics.Rendering.OpenGL as GL
 import qualified Graphics.Rendering.OpenGL.GLU as GLU
 import qualified "GLFW-b" Graphics.UI.GLFW as GLFW -- Be explicit, we need the newer GLFW-b
 import Control.Concurrent.STM
-import Control.Monad.IO.Class
+import Control.Exception
 
 -- Various utility functions related to GL and GLFW
 
@@ -28,20 +28,21 @@ keyCallback :: TQueue GLFWEvent -> GLFW.Window -> GLFW.Key -> Int -> GLFW.KeySta
                GLFW.ModifierKeys -> IO ()
 keyCallback tc win k sc ka mk = atomically . writeTQueue tc $ GLFWEventKey win k sc ka mk
 
-withWindow :: (MonadIO m) => Int -> Int -> String -> (GLFW.Window -> m ()) -> m ()
-withWindow w h title f = do
-    -- TODO: Use bracket
-    liftIO $ do
-        GLFW.setErrorCallback $ Just simpleErrorCallback
-        True <- GLFW.init 
-        GLFW.windowHint $ GLFW.WindowHint'Resizable False
-    Just window <- liftIO $ GLFW.createWindow w h title Nothing Nothing
-    liftIO . GLFW.makeContextCurrent $ Just window
-    f window
-    liftIO $ do
-        GLFW.setErrorCallback $ Just simpleErrorCallback
-        GLFW.destroyWindow window
-        GLFW.terminate
+withWindow :: Int -> Int -> String -> (GLFW.Window -> IO ()) -> IO ()
+withWindow w h title f =
+    bracket
+        ( do GLFW.setErrorCallback $ Just simpleErrorCallback
+             True <- GLFW.init 
+             GLFW.windowHint $ GLFW.WindowHint'Resizable False
+             Just window <- GLFW.createWindow w h title Nothing Nothing
+             GLFW.makeContextCurrent $ Just window
+             return window
+        )
+        ( \window -> do GLFW.setErrorCallback $ Just simpleErrorCallback
+                        GLFW.destroyWindow window
+                        GLFW.terminate
+        )
+        f
     where
         simpleErrorCallback e s = putStrLn $ show e ++ " " ++  show s
 

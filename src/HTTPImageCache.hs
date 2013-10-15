@@ -1,4 +1,6 @@
 
+{-# LANGUAGE ScopedTypeVariables  #-}
+
 module HTTPImageCache ( HTTPImageCache
                       , HTTPImageRes(..)
                       , CacheEntry(..)
@@ -12,7 +14,7 @@ import qualified Data.ByteString.Char8 as B8
 import Data.Monoid
 import Data.Word
 import Data.Bits
-import Control.Concurrent
+import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Network.URI
 import qualified Data.Vector.Storable as VS
@@ -27,6 +29,7 @@ import Network.HTTP.Conduit
 import System.IO.Error
 import qualified Codec.Picture as JP
 import qualified Codec.Picture.Types as JPT
+import Control.Exception
 
 import BoundedStack
 
@@ -44,6 +47,7 @@ data CacheEntry p = Fetching -- We keep in-progress entries in the cache to avoi
                   | Processed p -- User specified type to be stored in the cache. This allows our
                                 -- HTTPImageRes to be processed into any custom representation
                                 -- (OpenGL texture, summed area table etc.)
+                  | CacheError  -- Failed to load / fetch / decode image
 
 -- TODO: Add 'Failed retryAfterNSec' entry to deal with failed fetches / decompression while
 --       allowing to try again at some point
@@ -54,28 +58,25 @@ mkURLCacheFn :: HTTPImageCache p -> B.ByteString -> B.ByteString
 mkURLCacheFn hic url = hicCacheFolder hic
                        <> (B8.pack . escapeURIString isUnescapedInURIComponent $ B8.unpack url)
 
-withHTTPImageCache :: (MonadIO m)
-                   => Manager
+withHTTPImageCache :: Manager
                    -> Int
                    -> String
-                   -> (HTTPImageCache p -> m ())
-                   -> m ()
+                   -> (HTTPImageCache p -> IO ())
+                   -> IO ()
 withHTTPImageCache manager numConcReq cacheFolder f = do
-    -- TODO: Use bracket
     -- Make sure our cache folder exists
-    liftIO $ createDirectoryIfMissing True cacheFolder
+    createDirectoryIfMissing True cacheFolder
     -- Build record 
-    initOutstandingReq <- liftIO . newTVarIO $ mkBoundedStack 350 -- Limit outstanding requests
-    initCacheEntries   <- liftIO . newTVarIO $ M.empty
+    initOutstandingReq <- newTVarIO $ mkBoundedStack 350 -- Limit outst. requests (TODO: hardcoded)
+    initCacheEntries   <- newTVarIO $ M.empty
     let hic = HTTPImageCache { hicCacheFolder    = B8.pack $ addTrailingPathSeparator cacheFolder
                              , hicOutstandingReq = initOutstandingReq
                              , hicCacheEntries   = initCacheEntries
                              }
-    -- Launch fetch threads
-    forM_ [1..numConcReq] $
-        \_ -> liftIO . void . forkIO $ fetchThread hic manager
-    f hic
-    -- TODO: Terminate fetch threads
+    bracket
+        (forM [1..numConcReq] $ \_ -> async $ fetchThread hic manager) -- Launch fetch threads
+        (\threads -> forM_ threads $ \thread -> cancel thread >> wait thread)
+        (\_ -> f hic)
 
 dynImgToRGBA8 :: JP.DynamicImage -> Either String (JP.Image JP.PixelRGBA8)
 dynImgToRGBA8 di =
@@ -86,6 +87,7 @@ dynImgToRGBA8 di =
         JP.ImageY8     i -> Right $ JPT.promoteImage i
         JP.ImageYA8    i -> Right $ JPT.promoteImage i
         _                -> Left "Can't convert image format to RGBA8"
+                            -- TODO: Include source format in error message
 
 toHTTPImageRes :: JP.Image JP.PixelRGBA8 -> HTTPImageRes
 toHTTPImageRes jp =
@@ -108,7 +110,7 @@ toHTTPImageRes jp =
 
 -- Pop an uncached request of the request stack
 popRequestStack :: HTTPImageCache p -> STM B.ByteString
-popRequestStack hic = do
+popRequestStack hic =
     let loop = do
         requests <- readTVar $ hicOutstandingReq hic
         let (maybeURL, requests') = popBoundedStack requests
@@ -124,10 +126,13 @@ popRequestStack hic = do
                            return url
                    else loop -- Loop till we either get a URL or can block on an empty list
                              --
-                             -- TODO: Might be better to stay in one transaction till we
-                             --       found an uncached request
+                             -- TODO: This might end up being an awfully long transaction
+                             --       if we have to pop a lot of items till we find an
+                             --       uncached request, and in the end we might retry
+                             --       anyway. Might be faster to commit after each pop...
+                             --
             Nothing  -> retry -- Empty request list, block till it makes sense to retry
-     in loop
+    in  loop
 
 -- Fetch an image into the disk cache (if not already there) and return it as a lazy ByteString
 fetchDiskCache :: Manager -> B.ByteString -> FilePath -> IO BL.ByteString 
@@ -136,7 +141,7 @@ fetchDiskCache manager url cacheFn = do
     case bs of
         Left  _ -> -- No, fetch image from server
                    runResourceT $ do
-                       req <- liftIO . parseUrl $ B8.unpack url
+                       req <- parseUrl $ B8.unpack url
                        res <- httpLbs req manager
                        -- Store in disk cache
                        liftIO . BL.writeFile cacheFn $ responseBody res
@@ -144,31 +149,47 @@ fetchDiskCache manager url cacheFn = do
         Right x -> return x
 
 fetchThread :: HTTPImageCache p -> Manager -> IO ()
-fetchThread hic manager = forever $ do
-    urlUncached <- atomically $ popRequestStack hic
-    let cacheFn = B8.unpack $ mkURLCacheFn hic urlUncached
-    imgBS <- fetchDiskCache manager urlUncached cacheFn
-    -- Decompress and convert
-    --                                             TODO: Have to use toStrict, nasty
-    di <- case dynImgToRGBA8 =<< (JP.decodeImage $ BL.toStrict imgBS) of
-              Left  err -> do putStrLn $  err
-                                       ++ " ("
-                                       ++ (B8.unpack urlUncached)
-                                       ++ " / "
-                                       ++ cacheFn
-                                       ++ ")"
-                              return $ JP.generateImage -- Dummy
-                                  (\x y -> JP.PixelRGBA8 (fromIntegral x) (fromIntegral y) 128 255)
-                                  64 64
-              Right x   -> return x
-    -- Update cache with image
-    liftIO . atomically . modifyTVar' (hicCacheEntries hic) $
-        \cache ->
-            M.adjust (\_ ->
-                Fetched $ toHTTPImageRes di)
-                urlUncached cache
+fetchThread hic manager = handle (\ThreadKilled -> putStrLn "Thread killed") . forever $ do
+    -- The inner bracket takes care of cleanup, here we decide if the exception is
+    -- recoverable or if we should stop the thread
+    catches
+      ( do
+        -- Once we pop a request from the stack we own it, either fill it with valid image data
+        -- or we'll mark it as a cache error
+        bracketOnError
+            (atomically $ popRequestStack hic)
+            (\urlUncached -> updateCacheEntry hic urlUncached CacheError)
+            (\urlUncached -> do
+                let cacheFn = B8.unpack $ mkURLCacheFn hic urlUncached
+                imgBS <- fetchDiskCache manager urlUncached cacheFn
+                -- Decompress and convert
+                --                                             TODO: Have to use toStrict, nasty
+                di <- case dynImgToRGBA8 =<< (JP.decodeImage $ BL.toStrict imgBS) of
+                          Left  err -> do
+                              putStrLn $
+                                  err ++ " (" ++ (B8.unpack urlUncached) ++ " / " ++ cacheFn ++ ")"
+                              return $ JP.generateImage (\x y ->
+                                  JP.PixelRGBA8 (fromIntegral x) (fromIntegral y) 128 255) 64 64
+                          Right x   -> return x
+                -- Update cache with image
+                -- TODO: Add strategy to retire old images from the cache
+                updateCacheEntry hic urlUncached (Fetched $! toHTTPImageRes di)
+            )
+      )
+      [ -- TODO: Trace errors and decide which are the recoverable ones
+        Handler (\(ex :: IOException  ) -> putStrLn $ show ex)
+      , Handler (\(ex :: HttpException) -> putStrLn $ show ex)
+      ]
+    where
+        updateCacheEntry :: HTTPImageCache p -> B.ByteString -> CacheEntry p -> IO ()
+        updateCacheEntry hic' url entry = -- Can't re-use hic from the outer scope (type error)
+            atomically . modifyTVar' (hicCacheEntries hic') $ \cache ->
+                M.adjust (\_ -> entry)
+                         url
+                         cache
  
 -- Return the image at the given URL from the cache, or schedule fetching if not present
+-- TODO: Change structure of the request queue to avoid adding things twice
 fetchImage :: HTTPImageCache p -> B.ByteString -> IO (Maybe (CacheEntry p))
 fetchImage hic url = atomically $ do
     cache <- readTVar $ hicCacheEntries hic

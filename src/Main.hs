@@ -46,8 +46,8 @@ import ProcessStatus
 import Util (modify')
 import GLHelpers
 
--- TODO: Use bracket or ResourceT in the various withXYZ functions
 -- TODO: Start using Lens library for records and Reader/State
+-- TODO: Finish character distribution tests
 
 {- Unicode Char Dist Test
  6537
@@ -155,6 +155,9 @@ parseCmdLineOpt = do
                            ["help"]
                            (NoArg FlagHelp)
                            "print usage information"
+                  -- TODO: Option for trace level, trace destination (stdout / file)
+                  -- TODO: Option for offline mode
+                  -- TODO: Option to discard caches
                   ]
 
 setupOAuth :: (MonadError String m, MonadIO m) => FilePath -> m (OA.OAuth, OA.Credential)
@@ -243,6 +246,7 @@ processSMEvent ev =
         SMTweet tw' ->
             do hic <- asks envHTTPImageCache
                -- Always try to fetch the higher resolution profile images
+               -- TODO: Looks like a use case for lenses...
                let tw = tw' { twUser = (twUser tw')
                                   { usrProfileImageURL =
                                         highResProfileImgURL (usrProfileImageURL . twUser $ tw')
@@ -390,13 +394,9 @@ main = do
          _                    -> r)
          defConcImgFetches
          flags
-    -- Network initialization
     withSocketsDo $
-      -- Initialize http-conduit
-      withManagerSettings (def { managerConnCount = 10 }) $ \manager ->
-        -- Initialize HTTP image cache
-        withHTTPImageCache manager concImgFetches (imgCacheFolder flags) $ \hic -> liftIO $
-          -- Initialize GLFW
+      withManagerSettings (def { managerConnCount = 10 }) $ \manager -> liftIO $
+        withHTTPImageCache manager concImgFetches (imgCacheFolder flags) $ \hic ->
           withWindow 1175 658 "Twitter" $ \window -> do
               -- Event queues filled by GLFW callbacks, stream messages
               initGLFWEventsQueue <- newTQueueIO       :: IO (TQueue  GLFWEvent)
