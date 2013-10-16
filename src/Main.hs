@@ -30,6 +30,8 @@ import Data.Int
 import Data.Maybe
 import Data.Word
 import qualified Data.Text as T
+import qualified Data.Text.IO as TI
+import qualified Data.Text.Encoding as E
 import System.Directory
 import qualified Codec.Picture as JP
 import qualified Codec.Picture.Types as JPT
@@ -37,6 +39,10 @@ import qualified Web.Authenticate.OAuth as OA
 import Network.HTTP.Conduit
 import Network.URI
 import System.FilePath
+import Data.Char
+import Text.Printf
+import Data.List
+import Data.Function
 
 import CfgFile
 import TwitterJSON
@@ -45,15 +51,9 @@ import Log
 import ProcessStatus
 import Util (modify')
 import GLHelpers
+import CharFreq
 
 -- TODO: Start using Lens library for records and Reader/State
--- TODO: Finish character distribution tests
-
-{- Unicode Char Dist Test
- 6537
- Stack space overflow: current size 8388608 bytes.
-Use `+RTS -Ksize -RTS' to increase it.
--}
 
 data LogNetworkMode = ModeNoLog | ModeLogNetwork | ModeReplayLog deriving (Eq, Enum, Show)
 
@@ -252,27 +252,9 @@ processSMEvent ev =
                                         highResProfileImgURL (usrProfileImageURL . twUser $ tw')
                                   }
                             }
-
-               --liftIO . void $ fetchImage hic (usrProfileImageURL . twUser $ tw)
+               -- liftIO . appendFile "tweet.txt" . T.unpack $ twText tw -- Write tweet to file
                modify' $ \s -> s { stTweetByID = M.insert (twID tw) tw (stTweetByID s) }
                -- TODO: Delete oldest tweet when we reached a limit
-
-{-
-               let nChars = Set.fromList . map fromEnum . T.unpack $ twText tw
-               nChars `seq` modify' $ \s ->
-                   s { stDbgChars = Set.union (stDbgChars s) nChars }
--}             
-
-               --cset <- gets stDbgChars
-               --liftIO $ (putStr $ show (Set.size cset) ++ " ") >> hFlush stdout
-
-               {-
-               modify' $ \s -> s { stTweetByCreatedAt = Set.insert
-                                       (TweetByCreatedAt tw)
-                                       (stTweetByCreatedAt s)
-                                 }
-               -}
-               --return ()
         SMDelete _ _ -> return ()
         -- Debug print all other messages
         _  -> liftIO $ (putStr $ (Prelude.head . words . show $ ev) ++ " ") >> hFlush stdout
