@@ -1,5 +1,5 @@
 
-{-# LANGUAGE PackageImports, OverloadedStrings, FlexibleContexts #-}
+{-# LANGUAGE PackageImports, OverloadedStrings, FlexibleContexts, ScopedTypeVariables #-}
 
 module Main where
 
@@ -43,6 +43,8 @@ import Data.Char
 import Text.Printf
 import Data.List
 import Data.Function
+import System.IO.Error
+import Control.Exception
 
 import CfgFile
 import TwitterJSON
@@ -76,14 +78,6 @@ data State = State
     }
 
 type AppDraw = RWST Env () State IO
-
--- Convenience function printing out information about IO file errors and
--- returning a default
-printIOError :: IO a -> a -> IO a
-printIOError io errDef =
-    catchIOError io $ \e -> do
-        putStrLn $ fromMaybe "" ((++ " ") <$> ioeGetFileName e) ++ ioeGetErrorString e
-        return errDef
 
 data Flag = FlagOAuthFile String
           | FlagHelp
@@ -163,7 +157,8 @@ parseCmdLineOpt = do
 setupOAuth :: (MonadError String m, MonadIO m) => FilePath -> m (OA.OAuth, OA.Credential)
 setupOAuth fn = do
     -- OAuth configuration file
-    oauthCfg <- liftIO $ (loadCfgFile fn) `printIOError` M.empty
+    oauthCfg <- liftIO $ (loadCfgFile fn)
+                `catch` (\(e :: IOException) -> print e >> return M.empty)
     when (M.null oauthCfg) $ throwError "Invalid OAuth configuration file"
     -- OAuth client and credentials
     let oaClient = OA.newOAuth
