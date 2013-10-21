@@ -1,5 +1,9 @@
 
-{-# LANGUAGE PackageImports, OverloadedStrings, FlexibleContexts, ScopedTypeVariables #-}
+{-# LANGUAGE   PackageImports
+             , OverloadedStrings
+             , FlexibleContexts
+             , ScopedTypeVariables
+             , LambdaCase #-}
 
 module Main where
 
@@ -49,7 +53,7 @@ import Control.Exception
 import CfgFile
 import TwitterJSON
 import HTTPImageCache
-import Log
+import Trace
 import ProcessStatus
 import Util (modify')
 import GLHelpers
@@ -72,9 +76,8 @@ data Env = Env
     }
 
 data State = State
-    { stTweetByID        :: M.Map Int64 Tweet
-    --, stTweetByCreatedAt :: Set.Set TweetByCreatedAt
-    , stDbgChars :: Set.Set Int
+    { stTweetByID :: M.Map Int64 Tweet
+    , stDbgChars  :: Set.Set Int
     }
 
 type AppDraw = RWST Env () State IO
@@ -87,11 +90,15 @@ data Flag = FlagOAuthFile String
           | FlagHTTPImageCacheFolder String
           | FlagConcImgFetches String
           | FlagVerifyImgCache
-            deriving Eq
+          | FlagTraceFile String
+          | FlagTraceLevel String
+          | FlagTraceEchoOn
+            deriving (Eq, Show)
 
-defLogFolder, defHTTPImageCacheFolder :: String
+defLogFolder, defHTTPImageCacheFolder, defTraceFn :: String
 defLogFolder = "./log/"
 defHTTPImageCacheFolder = "http_img_cache"
+defTraceFn = "./trace.log"
 defConcImgFetches :: Int
 defConcImgFetches = 50
 
@@ -142,14 +149,30 @@ parseCmdLineOpt = do
                            ("number of concurrent image fetches (default: "
                                ++ show defConcImgFetches ++ ")")
                   , Option []
+                           ["trace-file"]
+                           (ReqArg FlagTraceFile "FILE")
+                           ("file for the execution trace (default: " ++ defTraceFn ++ ")")
+                  , Option ['t']
+                           ["trace-level"]
+                           (ReqArg FlagTraceLevel "LEVEL")
+                           (  "execution trace level (default: n)\n"
+                           ++ "  n = none\n"
+                           ++ "  e = errors only\n"
+                           ++ "  w = warnings and errors\n"
+                           ++ "  i = infos, warnings and errors"
+                           )
+                  , Option ['e']
+                           ["trace-echo"]
+                           (NoArg FlagTraceEchoOn)
+                           ("echo execution trace to stdout as well")
+                  , Option []
                            ["verify-img-cache"]
                            (NoArg FlagVerifyImgCache)
-                           "Debug: Try to read & decompress all images in the cache"
+                           "debug: try to read & decompress all images in the cache"
                   , Option ['h']
                            ["help"]
                            (NoArg FlagHelp)
                            "print usage information"
-                  -- TODO: Option for trace level, trace destination (stdout / file)
                   -- TODO: Option for offline mode
                   -- TODO: Option to discard caches
                   ]
@@ -347,6 +370,9 @@ main = do
         flags <- parseCmdLineOpt
         when (FlagLogNetwork `elem` flags && FlagReplayLog `elem` flags) $
             throwError "Can't use -l and -r flags together"
+        unless ((foldr (\f r -> case f of (FlagTraceLevel lvl) -> lvl; _ -> r) "n" flags)
+                   `elem` ["n", "e", "w", "i"])
+               $ throwError "Invalid trace level option (use [newi])"
         when (FlagVerifyImgCache `elem` flags) $ do
             liftIO . verifyImgCache $ imgCacheFolder flags
             throwError "Done, exiting"
@@ -357,44 +383,56 @@ main = do
     (flags, oaClient, oaCredential) <- case res of
         Left  err  -> putStrLn ("Error: " ++ err) >> exitFailure
         Right r    -> return r
-    -- Make sure the network log file folder exists, if logging is requested
-    let logNetworkMode | FlagLogNetwork `elem` flags = ModeLogNetwork
-                       | FlagReplayLog  `elem` flags = ModeReplayLog
-                       | otherwise                   = ModeNoLog
-        logNetworkFolder =
-            foldr (\f r -> case f of FlagLogFolder folder -> folder; _ -> r) defLogFolder flags
-    when (logNetworkMode == ModeLogNetwork) $
-        createDirectoryIfMissing True logNetworkFolder
-    -- HTTP image cache concurrent fetches
-    let concImgFetches = foldr (\f r -> case f of
-         FlagConcImgFetches n -> fromMaybe r (fst <$> (listToMaybe . reads) n :: Maybe Int)
-         _                    -> r)
-         defConcImgFetches
-         flags
-    withSocketsDo $
-      withManagerSettings (def { managerConnCount = 10 }) $ \manager -> liftIO $
-        withHTTPImageCache manager concImgFetches (imgCacheFolder flags) $ \hic ->
-          withWindow 1175 658 "Twitter" $ \window -> do
-              -- Event queues filled by GLFW callbacks, stream messages
-              initGLFWEventsQueue <- newTQueueIO       :: IO (TQueue  GLFWEvent)
-              initSMQueue         <- newTBQueueIO 1024 :: IO (TBQueue StreamMessage)
-              -- Start main loop in RWS / IO monads
-              let envInit = Env
-                      { envWindow           = window
-                      , envGLFWEventsQueue  = initGLFWEventsQueue
-                      , envSMQueue          = initSMQueue
-                      , envHTTPImageCache   = hic
-                      , envLogNetworkFolder = logNetworkFolder
-                      , envLogNetworkMode   = logNetworkMode
-                      , envOAClient         = oaClient
-                      , envOACredential     = oaCredential
-                      , envManager          = manager
-                      }
-                  stateInit = State
-                      { stTweetByID        = M.empty
-                      --, stTweetByCreatedAt = Set.empty
-                      , stDbgChars = Set.empty
-                      }
-              void $ evalRWST run envInit stateInit
-    putStrLn "Done"
+    -- Tracing (TODO: Add flag to only trace to stdout)
+    let traceFn  = foldr (\f r -> case f of FlagTraceFile fn -> fn; _ -> r) defTraceFn flags
+        traceLvl = foldr (\f r -> case f of (FlagTraceLevel lvl) -> mkTraceOpt lvl
+                                            _                    -> r)
+                         TLNone flags
+        mkTraceOpt = \case "n" -> TLNone 
+                           "e" -> TLError
+                           "w" -> TLWarn 
+                           "i" -> TLInfo 
+                           _   -> TLNone 
+    withTrace (Just traceFn) (FlagTraceEchoOn `elem` flags) traceLvl $ do
+      traceS TLInfo $ show flags
+      -- Make sure the network log file folder exists, if logging is requested
+      let logNetworkMode | FlagLogNetwork `elem` flags = ModeLogNetwork
+                         | FlagReplayLog  `elem` flags = ModeReplayLog
+                         | otherwise                   = ModeNoLog
+          logNetworkFolder =
+              foldr (\f r -> case f of FlagLogFolder folder -> folder; _ -> r) defLogFolder flags
+      when (logNetworkMode == ModeLogNetwork) $
+          createDirectoryIfMissing True logNetworkFolder
+      -- HTTP image cache concurrent fetches
+      let concImgFetches = foldr (\f r -> case f of
+           FlagConcImgFetches n -> fromMaybe r (fst <$> (listToMaybe . reads) n :: Maybe Int)
+           _                    -> r)
+           defConcImgFetches
+           flags
+      withSocketsDo $
+        withManagerSettings (def { managerConnCount = 10 }) $ \manager -> liftIO $
+          withHTTPImageCache manager concImgFetches (imgCacheFolder flags) $ \hic ->
+            withWindow 1175 658 "Twitter" $ \window -> do
+                -- Event queues filled by GLFW callbacks, stream messages
+                initGLFWEventsQueue <- newTQueueIO       :: IO (TQueue  GLFWEvent)
+                initSMQueue         <- newTBQueueIO 1024 :: IO (TBQueue StreamMessage)
+                -- Start main loop in RWS / IO monads
+                let envInit = Env
+                        { envWindow           = window
+                        , envGLFWEventsQueue  = initGLFWEventsQueue
+                        , envSMQueue          = initSMQueue
+                        , envHTTPImageCache   = hic
+                        , envLogNetworkFolder = logNetworkFolder
+                        , envLogNetworkMode   = logNetworkMode
+                        , envOAClient         = oaClient
+                        , envOACredential     = oaCredential
+                        , envManager          = manager
+                        }
+                    stateInit = State
+                        { stTweetByID        = M.empty
+                        --, stTweetByCreatedAt = Set.empty
+                        , stDbgChars = Set.empty
+                        }
+                void $ evalRWST run envInit stateInit
+      putStrLn "Done"
 

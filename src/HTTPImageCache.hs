@@ -49,8 +49,8 @@ data CacheEntry p = Fetching -- We keep in-progress entries in the cache to avoi
                                 -- (OpenGL texture, summed area table etc.)
                   | CacheError  -- Failed to load / fetch / decode image
 
--- TODO: Add 'Failed retryAfterNSec' entry to deal with failed fetches / decompression while
---       allowing to try again at some point
+-- TODO: Add 'retryAfterNSec' field to CacheError to deal with failed fetches / decompression
+--       while allowing to try again at some point
 
 data HTTPImageRes = HTTPImageRes Int Int (VS.Vector Word32)
 

@@ -1,6 +1,0 @@
-
-module Log (
-           ) where
-
---
-
