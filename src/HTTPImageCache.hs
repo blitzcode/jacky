@@ -32,6 +32,7 @@ import qualified Codec.Picture.Types as JPT
 import Control.Exception
 
 import BoundedStack
+import Trace
 
 -- Caching system (disk & memory) for image fetches over HTTP
 
@@ -149,7 +150,9 @@ fetchDiskCache manager url cacheFn = do
         Right x -> return x
 
 fetchThread :: HTTPImageCache p -> Manager -> IO ()
-fetchThread hic manager = handle (\ThreadKilled -> putStrLn "Thread killed") . forever $ do
+fetchThread hic manager = handle (\ThreadKilled ->
+                                     traceS TLInfo "Fetch thread received 'ThreadKilled'")
+                          . forever $ do
     -- The inner bracket takes care of cleanup, here we decide if the exception is
     -- recoverable or if we should stop the thread
     catches

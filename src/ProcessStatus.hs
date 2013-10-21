@@ -1,5 +1,5 @@
 
-{-# LANGUAGE OverloadedStrings, FlexibleContexts #-}
+{-# LANGUAGE OverloadedStrings, FlexibleContexts, ScopedTypeVariables #-}
 
 module ProcessStatus ( processStatuses
                      ) where
@@ -18,9 +18,11 @@ import qualified Data.Vector as V
 import Control.Monad.IO.Class
 import Control.Monad.State.Strict
 import Control.Concurrent.STM
+import Control.Exception
 
 import TwitterJSON
 import Util (modify')
+import Trace
 
 -- Pick up Twitter status updates and related messages from a file or an HTTP connection
 -- and return the results as data structures from TwitterJSON
@@ -30,6 +32,7 @@ smQueueSink :: (MonadIO m, MonadResource m)
             => TBQueue StreamMessage
             -> Sink StreamMessage m ()
 smQueueSink smQueue = awaitForever $ liftIO . atomically . writeTBQueue smQueue
+-- TODO: Sent byte count messages
 
 -- Count bytes passing through using the state (need to be careful that we don't
 -- retain a reference to the ByteString in case we're not looking at the state
@@ -44,7 +47,11 @@ parseStatus :: (MonadIO m, MonadResource m) => Conduit B.ByteString m StreamMess
 parseStatus = do
     -- Use conduit adapter for attoparsec to read the next JSON
     -- object with the Aeson parser from the stream connection
-    j <- CA.sinkParser json -- TODO: Use strict json' instead?
+    --
+    -- TODO: Use strict json' instead?
+    -- TODO: This eventually fails with a ParseError / "not enough bytes", figure out
+    --       how to exit cleanly when there is no more input
+    j <- CA.sinkParser json
     -- The stream connections send individual objects we can decode into SMs,
     -- but the home timeline sends an array of such objects
     let msg = case j of
@@ -66,32 +73,48 @@ processStatuses :: String
                 -> Maybe FilePath
                 -> TBQueue StreamMessage
                 -> IO ()
-processStatuses uri oaClient oaCredential manager logFn smQueue = do
-    -- We use State to keep track of how many bytes we received
-    runResourceT . flip evalStateT (0 :: Word64) $
-        let sink' = countBytesState =$ parseStatus =$ smQueueSink smQueue
-            sink  = case logFn of Just fn -> conduitFile fn =$ sink' -- TODO: Doesn't flush on crash
-                                  Nothing -> sink'
-        in  if   isPrefixOf "http://" uri || isPrefixOf "https://" uri -- File or HTTP?
-            then do
-                -- Authenticate, connect and start receiving stream
-                req' <- liftIO $ parseUrl uri
-                let req = req' { requestHeaders =
-                                       ("Accept-Encoding", "deflate, gzip")
-                                       -- Need a User-Agent field as well to get a gzip'ed stream
-                                       -- from Twitter
-                                     : ("User-Agent", "http-conduit")
-                                     : requestHeaders req'
-                               }
-                reqSigned <- OA.signOAuth oaClient oaCredential req
-                liftIO $ print reqSigned             -- DEBUG
-                res <- http reqSigned manager
-                -- TODO: Have a look at the rate limit response field
-                -- TODO: Handle network errors, error responses etc.
-                liftIO $ print $ responseStatus res  -- DEBUG
-                liftIO $ print $ responseHeaders res -- DEBUG
-                -- Finish parsing conduit
-                responseBody res $$+- sink
-            else do
-                sourceFile uri $$ sink
+processStatuses uri oaClient oaCredential manager logFn smQueue =
+  catches
+    ( do
+     -- We use State to keep track of how many bytes we received
+     runResourceT . flip evalStateT (0 :: Word64) $
+         let sink' = countBytesState =$ parseStatus =$ smQueueSink smQueue
+             sink  = case logFn of Just fn -> conduitFile fn =$ sink' -- TODO: Doesn't flush on crash
+                                   Nothing -> sink'
+         in  if   isPrefixOf "http://" uri || isPrefixOf "https://" uri -- File or HTTP?
+             then do -- Authenticate, connect and start receiving stream
+                     req' <- liftIO $ parseUrl uri
+                     let req = req' { requestHeaders =
+                                            ("Accept-Encoding", "deflate, gzip")
+                                            -- Need a User-Agent field as well to get a
+                                            -- gzip'ed stream from Twitter
+                                          : ("User-Agent", "http-conduit")
+                                          : requestHeaders req'
+                                    }
+                     reqSigned <- OA.signOAuth oaClient oaCredential req
+                     liftIO . traceS TLInfo $ "Twitter API request:\n" ++ show reqSigned
+                     res <- http reqSigned manager
+                     -- TODO: Have a look at the rate limit response field
+                     liftIO . traceS TLInfo $ "Twitter API response from '" ++ uri ++ "'\n"
+                                              ++ case logFn of Just fn -> "Saving full log in '"
+                                                                          ++ fn ++ "'\n"
+                                                               Nothing -> ""
+                                              ++ "Status: " ++ show (responseStatus res)
+                                              ++ "\n"
+                                              ++ "Header: " ++ show (responseHeaders res)
+                     -- Finish parsing conduit
+                     responseBody res $$+- sink
+             else do liftIO . traceS TLInfo $ "Streaming Twitter API response from file: " ++ uri
+                     sourceFile uri $$ sink
+    )
+    -- TODO: Decide which errors are recoverable and retry after a waiting for a few seconds
+    [ Handler (\(ex :: HttpException) ->
+                  traceS TLError $ "HTTP / connection error while processing statuses from '"
+                                   ++ uri ++ "'\n" ++ show ex
+              )
+    , Handler (\(ex :: CA.ParseError) -> 
+                  traceS TLError $ "JSON parser error while processing statuses from '"
+                                   ++ uri ++ "'\n" ++ show ex
+              )
+    ]
 

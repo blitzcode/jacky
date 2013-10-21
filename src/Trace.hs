@@ -20,6 +20,7 @@ import qualified Data.Text.Encoding as E
 import qualified Data.ByteString as B
 import Data.Time
 import Data.List
+import Text.Printf
 
 data TraceLevel = TLNone | TLError | TLWarn | TLInfo deriving (Eq, Enum)
 
@@ -59,21 +60,21 @@ withTrace traceFn echoOn level f =
 trace :: TraceLevel -> T.Text -> IO ()
 trace lvl msg = void $ withMVar traceSettings $ \ts -> -- TODO: Have to take an MVar even if
                                                        --       tracing is off, speed this up
-        when (fromEnum lvl > 0 && fromEnum lvl <= (fromEnum $ tsLevel ts)) $ do
-            tid  <- show <$> myThreadId
-            time <- show <$> getZonedTime
-            let lvlDesc = case lvl of
-                              TLError -> "ERROR"
-                              TLWarn  -> "WARNING"
-                              TLInfo  -> "INFO"
-                              _       -> ""
-                header  = concat $ intersperse " | " [ lvlDesc, tid, time ]
-                handles = case tsFile   ts of   Just h -> [h];     _ -> []; ++
-                          if   tsEchoOn ts then           [stdout] else []
-            forM_ handles $ \h -> do
-                hPutStrLn h header
-                TI.hPutStrLn h msg
-                hPutStrLn h ""
+   when (fromEnum lvl > 0 && fromEnum lvl <= (fromEnum $ tsLevel ts)) $ do
+       tid  <- printf "%-12s" . show <$> myThreadId
+       time <- show <$> getZonedTime
+       let lvlDesc = case lvl of
+                         TLError -> "ERROR  "
+                         TLWarn  -> "WARNING"
+                         TLInfo  -> "INFO   "
+                         _       -> ""
+           header  = concat $ intersperse " | " [ lvlDesc, tid, time ]
+           handles = case tsFile   ts of   Just h -> [h];     _ -> []; ++
+                     if   tsEchoOn ts then           [stdout] else []
+       forM_ handles $ \h -> do
+           hPutStrLn h header
+           TI.hPutStrLn h msg
+           hPutStrLn h ""
 
 traceT :: TraceLevel -> T.Text -> IO ()
 traceT lvl msg = trace lvl msg

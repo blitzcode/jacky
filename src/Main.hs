@@ -77,7 +77,6 @@ data Env = Env
 
 data State = State
     { stTweetByID :: M.Map Int64 Tweet
-    , stDbgChars  :: Set.Set Int
     }
 
 type AppDraw = RWST Env () State IO
@@ -242,7 +241,7 @@ processGLFWEvent ev =
         (GLFWEventError e s) -> do
             window <- asks envWindow
             liftIO $ do
-                putStrLn $ "error " ++ show e ++ " " ++ show s
+                traceS TLError $ "GLFW Error " ++ show e ++ " " ++ show s
                 GLFW.setWindowShouldClose window True
         (GLFWEventKey window k _ ks mk) ->
             when (ks == GLFW.KeyState'Pressed) $ do
@@ -260,9 +259,10 @@ highResProfileImgURL url =
 processSMEvent :: StreamMessage -> AppDraw ()
 processSMEvent ev =
     case ev of
-        (SMParseError bs) -> liftIO . putStrLn $ "\nStream Parse Error: " ++ B8.unpack bs
+        (SMParseError bs) -> liftIO . traceS TLError $ "\nStream Parse Error: " ++ B8.unpack bs
         SMTweet tw' ->
-            do hic <- asks envHTTPImageCache
+            do liftIO $ traceT TLInfo "SMTweet Received"
+               hic <- asks envHTTPImageCache
                -- Always try to fetch the higher resolution profile images
                -- TODO: Looks like a use case for lenses...
                let tw = tw' { twUser = (twUser tw')
@@ -273,9 +273,10 @@ processSMEvent ev =
                -- liftIO . appendFile "tweet.txt" . T.unpack $ twText tw -- Write tweet to file
                modify' $ \s -> s { stTweetByID = M.insert (twID tw) tw (stTweetByID s) }
                -- TODO: Delete oldest tweet when we reached a limit
-        SMDelete _ _ -> return ()
-        -- Debug print all other messages
-        _  -> liftIO $ (putStr $ (Prelude.head . words . show $ ev) ++ " ") >> hFlush stdout
+        SMDelete _ _ -> liftIO $ traceT TLInfo "SMDelete Received"
+        -- Trace all other messages
+        _  -> liftIO . traceS TLInfo $ show ev
+              -- liftIO $ (putStr $ (Prelude.head . words . show $ ev) ++ " ") >> hFlush stdout
 
 processStatusesAsync :: String -> AppDraw ()
 processStatusesAsync uri' = do
@@ -336,7 +337,8 @@ run = do
             GLFW.swapBuffers window
             GLFW.pollEvents
             err <- GL.get GL.errors
-            mapM_ print err
+            unless (null err) .
+                traceS TLError $ "OpenGL Error: " ++ concatMap show err
         tqGLFW <- asks envGLFWEventsQueue
         processAllEvents (Left tqGLFW) processGLFWEvent
         -- Done?
@@ -384,17 +386,17 @@ main = do
         Left  err  -> putStrLn ("Error: " ++ err) >> exitFailure
         Right r    -> return r
     -- Tracing (TODO: Add flag to only trace to stdout)
-    let traceFn  = foldr (\f r -> case f of FlagTraceFile fn -> fn; _ -> r) defTraceFn flags
-        traceLvl = foldr (\f r -> case f of (FlagTraceLevel lvl) -> mkTraceOpt lvl
-                                            _                    -> r)
-                         TLNone flags
+    let traceFn    = foldr (\f r -> case f of FlagTraceFile fn -> fn; _ -> r) defTraceFn flags
+        traceLvl   = foldr (\f r -> case f of (FlagTraceLevel lvl) -> mkTraceOpt lvl
+                                              _                    -> r)
+                           TLNone flags
         mkTraceOpt = \case "n" -> TLNone 
                            "e" -> TLError
                            "w" -> TLWarn 
                            "i" -> TLInfo 
                            _   -> TLNone 
     withTrace (Just traceFn) (FlagTraceEchoOn `elem` flags) traceLvl $ do
-      traceS TLInfo $ show flags
+      mapM_ (traceS TLInfo) [ show flags, show oaClient, show oaCredential ]
       -- Make sure the network log file folder exists, if logging is requested
       let logNetworkMode | FlagLogNetwork `elem` flags = ModeLogNetwork
                          | FlagReplayLog  `elem` flags = ModeReplayLog
@@ -429,10 +431,8 @@ main = do
                         , envManager          = manager
                         }
                     stateInit = State
-                        { stTweetByID        = M.empty
-                        --, stTweetByCreatedAt = Set.empty
-                        , stDbgChars = Set.empty
+                        { stTweetByID = M.empty
                         }
                 void $ evalRWST run envInit stateInit
-      putStrLn "Done"
+      traceS TLInfo "Clean Exit"
 
