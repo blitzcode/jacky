@@ -55,7 +55,7 @@ import TwitterJSON
 import HTTPImageCache
 import Trace
 import ProcessStatus
-import Util (modify')
+import Util (modify', parseMaybeInt)
 import GLHelpers
 import CharFreq
 
@@ -318,14 +318,16 @@ run = do
         GLFW.swapInterval 1
         setup2DOpenGL w h
     -- Launch thread for parsing status updates
-    processStatusesAsync
-        twitterStatusesRandomStreamURL
+    --processStatusesAsync
+      --  twitterStatusesRandomStreamURL
     {-
     processStatusesAsync
         twitterUserStreamURL
     processStatusesAsync $
         twitterHomeTimeline ++ "?count=200"
     -}
+    processStatusesAsync $
+        twitterHomeTimeline ++ "?count=200"
     -- Main loop
     let loop = do
         -- Stream messages
@@ -407,7 +409,7 @@ main = do
           createDirectoryIfMissing True logNetworkFolder
       -- HTTP image cache concurrent fetches
       let concImgFetches = foldr (\f r -> case f of
-           FlagConcImgFetches n -> fromMaybe r (fst <$> (listToMaybe . reads) n :: Maybe Int)
+           FlagConcImgFetches n -> fromMaybe r $ parseMaybeInt n
            _                    -> r)
            defConcImgFetches
            flags

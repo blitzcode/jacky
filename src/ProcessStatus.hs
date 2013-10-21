@@ -19,9 +19,10 @@ import Control.Monad.IO.Class
 import Control.Monad.State.Strict
 import Control.Concurrent.STM
 import Control.Exception
+import Text.Printf
 
 import TwitterJSON
-import Util (modify')
+import Util (modify', parseMaybeInt)
 import Trace
 
 -- Pick up Twitter status updates and related messages from a file or an HTTP connection
@@ -94,7 +95,6 @@ processStatuses uri oaClient oaCredential manager logFn smQueue =
                      reqSigned <- OA.signOAuth oaClient oaCredential req
                      liftIO . traceS TLInfo $ "Twitter API request:\n" ++ show reqSigned
                      res <- http reqSigned manager
-                     -- TODO: Have a look at the rate limit response field
                      liftIO . traceS TLInfo $ "Twitter API response from '" ++ uri ++ "'\n"
                                               ++ case logFn of Just fn -> "Saving full log in '"
                                                                           ++ fn ++ "'\n"
@@ -102,6 +102,12 @@ processStatuses uri oaClient oaCredential manager logFn smQueue =
                                               ++ "Status: " ++ show (responseStatus res)
                                               ++ "\n"
                                               ++ "Header: " ++ show (responseHeaders res)
+                     -- Are we approaching the rate limit?
+                     case find ((== "x-rate-limit-remaining") . fst) (responseHeaders res) >>=
+                          parseMaybeInt . B8.unpack . snd of
+                              Just n  -> when (n < 5) . liftIO . traceS TLWarn $
+                                             printf "Rate limit remaining for API '%s' at %i" uri n
+                              Nothing -> return ()
                      -- Finish parsing conduit
                      responseBody res $$+- sink
              else do liftIO . traceS TLInfo $ "Streaming Twitter API response from file: " ++ uri
