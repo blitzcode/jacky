@@ -141,7 +141,7 @@ parseCmdLineOpt = do
                   , Option ['i']
                            ["http-imgcache-folder"]
                            (ReqArg FlagHTTPImageCacheFolder "FOLDER")
-                           ("location of HTTP image cache (default: '"
+                           ("HTTP image cache fldr (default: '"
                                ++ defHTTPImageCacheFolder ++ "' in HOME)")
                   , Option ['n']
                            ["conc-img-fetches"]
@@ -151,7 +151,7 @@ parseCmdLineOpt = do
                   , Option []
                            ["trace-file"]
                            (ReqArg FlagTraceFile "FILE")
-                           ("file for the execution trace (default: " ++ defTraceFn ++ ")")
+                           ("output file for execution trace (default: " ++ defTraceFn ++ ")")
                   , Option ['t']
                            ["trace-level"]
                            (ReqArg FlagTraceLevel "LEVEL")
@@ -168,7 +168,7 @@ parseCmdLineOpt = do
                   , Option []
                            ["verify-img-cache"]
                            (NoArg FlagVerifyImgCache)
-                           "debug: try to read & decompress all images in the cache"
+                           "debug: try to read & decode all cached images"
                   , Option ['h']
                            ["help"]
                            (NoArg FlagHelp)
