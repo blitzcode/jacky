@@ -1,5 +1,5 @@
 
-{-# LANGUAGE ScopedTypeVariables  #-}
+{-# LANGUAGE ScopedTypeVariables, OverloadedStrings #-}
 
 module HTTPImageCache ( HTTPImageCache
                       , HTTPImageRes(..)
@@ -30,6 +30,7 @@ import System.IO.Error
 import qualified Codec.Picture as JP
 import qualified Codec.Picture.Types as JPT
 import Control.Exception
+import Text.Printf
 
 import BoundedStack
 import Trace
@@ -76,7 +77,17 @@ withHTTPImageCache manager numConcReq cacheFolder f = do
                              }
     bracket
         (forM [1..numConcReq] $ \_ -> async $ fetchThread hic manager) -- Launch fetch threads
-        (\threads -> forM_ threads $ \thread -> cancel thread >> wait thread)
+        (\threads -> do
+            traceT TLInfo "Shutting down image fetch threads"
+            forM_ threads cancel
+            forM_ threads $ \thread -> do
+                r <- waitCatch thread
+                case r of
+                    Left ex -> traceS TLError $ printf "Exception from fetch thread '%s': %s"
+                                                       (show $ asyncThreadId thread)
+                                                       (show ex)
+                    _        -> return ()
+        )
         (\_ -> f hic)
 
 dynImgToRGBA8 :: JP.DynamicImage -> Either String (JP.Image JP.PixelRGBA8)
@@ -110,9 +121,9 @@ toHTTPImageRes jp =
     in  HTTPImageRes w h convert
 
 -- Pop an uncached request of the request stack
-popRequestStack :: HTTPImageCache p -> STM B.ByteString
-popRequestStack hic =
-    let loop = do
+popRequestStack :: HTTPImageCache p -> IO B.ByteString
+popRequestStack hic = do
+    let pop = atomically $ do
         requests <- readTVar $ hicOutstandingReq hic
         let (maybeURL, requests') = popBoundedStack requests
         case maybeURL of
@@ -124,16 +135,14 @@ popRequestStack hic =
                    if   M.notMember url cache
                    then do -- New request, mark fetch status and return URL
                            writeTVar (hicCacheEntries hic) $ M.insert url Fetching cache
-                           return url
-                   else loop -- Loop till we either get a URL or can block on an empty list
-                             --
-                             -- TODO: This might end up being an awfully long transaction
-                             --       if we have to pop a lot of items till we find an
-                             --       uncached request, and in the end we might retry
-                             --       anyway. Might be faster to commit after each pop...
-                             --
+                           return $ Just url
+                   else return Nothing -- Already in cache, commit transaction here and return
+                                       -- Nothing so the outer loop can try again
             Nothing  -> retry -- Empty request list, block till it makes sense to retry
-    in  loop
+    r <- pop
+    case r of
+        Nothing  -> popRequestStack hic
+        Just url -> return url
 
 -- Fetch an image into the disk cache (if not already there) and return it as a lazy ByteString
 fetchDiskCache :: Manager -> B.ByteString -> FilePath -> IO BL.ByteString 
@@ -150,8 +159,8 @@ fetchDiskCache manager url cacheFn = do
         Right x -> return x
 
 fetchThread :: HTTPImageCache p -> Manager -> IO ()
-fetchThread hic manager = handle (\ThreadKilled ->
-                                     traceS TLInfo "Fetch thread received 'ThreadKilled'")
+fetchThread hic manager = handle (\ThreadKilled -> -- Handle this exception here so we exit cleanly
+                                     traceT TLInfo "Fetch thread received 'ThreadKilled'")
                           . forever $ do
     -- The inner bracket takes care of cleanup, here we decide if the exception is
     -- recoverable or if we should stop the thread
@@ -160,7 +169,7 @@ fetchThread hic manager = handle (\ThreadKilled ->
         -- Once we pop a request from the stack we own it, either fill it with valid image data
         -- or we'll mark it as a cache error
         bracketOnError
-            (atomically $ popRequestStack hic)
+            (popRequestStack hic)
             (\urlUncached -> updateCacheEntry hic urlUncached CacheError)
             (\urlUncached -> do
                 let cacheFn = B8.unpack $ mkURLCacheFn hic urlUncached
@@ -169,8 +178,9 @@ fetchThread hic manager = handle (\ThreadKilled ->
                 --                                             TODO: Have to use toStrict, nasty
                 di <- case dynImgToRGBA8 =<< (JP.decodeImage $ BL.toStrict imgBS) of
                           Left  err -> do
-                              putStrLn $
-                                  err ++ " (" ++ (B8.unpack urlUncached) ++ " / " ++ cacheFn ++ ")"
+                              traceS TLError $
+                                  printf "Error decoding image\nURL: %s\nCache File: %s\n%s"
+                                         (B8.unpack urlUncached) cacheFn err
                               return $ JP.generateImage (\x y ->
                                   JP.PixelRGBA8 (fromIntegral x) (fromIntegral y) 128 255) 64 64
                           Right x   -> return x
@@ -179,9 +189,8 @@ fetchThread hic manager = handle (\ThreadKilled ->
                 updateCacheEntry hic urlUncached (Fetched $! toHTTPImageRes di)
             )
       )
-      [ -- TODO: Trace errors and decide which are the recoverable ones
-        Handler (\(ex :: IOException  ) -> putStrLn $ show ex)
-      , Handler (\(ex :: HttpException) -> putStrLn $ show ex)
+      [ Handler (\(ex :: IOException  ) -> traceS TLError $ "HTTP Image Cache: " ++ show ex)
+      , Handler (\(ex :: HttpException) -> traceS TLError $ "HTTP Image Cache: " ++ show ex)
       ]
     where
         updateCacheEntry :: HTTPImageCache p -> B.ByteString -> CacheEntry p -> IO ()
