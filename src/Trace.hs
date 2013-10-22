@@ -1,4 +1,6 @@
 
+{-# LANGUAGE OverloadedStrings #-}
+
 module Trace ( withTrace
              , TraceLevel(..)
              , traceT
@@ -20,6 +22,7 @@ import qualified Data.Text.Encoding as E
 import qualified Data.ByteString as B
 import Data.Time
 import Data.List
+import Data.Monoid
 import Text.Printf
 
 data TraceLevel = TLNone | TLError | TLWarn | TLInfo deriving (Eq, Enum)
@@ -62,9 +65,9 @@ withTrace traceFn echoOn appendOn level f =
 trace :: TraceLevel -> T.Text -> IO ()
 trace lvl msg = void $ withMVar traceSettings $ \ts -> -- TODO: Have to take an MVar even if
                                                        --       tracing is off, speed this up
-   when (fromEnum lvl > 0 && fromEnum lvl <= (fromEnum $ tsLevel ts)) $ do
+   when (lvl /= TLNone && fromEnum lvl <= (fromEnum $ tsLevel ts)) $ do
        tid  <- printf "%-12s" . show <$> myThreadId
-       time <- show <$> getZonedTime
+       time <- printf "%-32s" . show <$> getZonedTime
        let lvlDesc = case lvl of
                          TLError -> "ERROR  "
                          TLWarn  -> "WARNING"
@@ -73,10 +76,14 @@ trace lvl msg = void $ withMVar traceSettings $ \ts -> -- TODO: Have to take an 
            header  = concat $ intersperse " | " [ lvlDesc, tid, time ]
            handles = case tsFile   ts of   Just h -> [h];     _ -> []; ++
                      if   tsEchoOn ts then           [stdout] else []
+           oneLine = (not $ T.any (== '\n') msg) && T.length msg < 75
        forM_ handles $ \h -> do
-           hPutStrLn h header
-           TI.hPutStrLn h msg
-           hPutStrLn h ""
+           -- Display short, unbroken messages in a single line without padding newline
+           if   oneLine
+           then do TI.hPutStrLn h $ T.pack header <> " - " <> msg
+           else do hPutStrLn h header
+                   TI.hPutStrLn h msg
+                   hPutStrLn h ""
 
 traceT :: TraceLevel -> T.Text -> IO ()
 traceT lvl msg = trace lvl msg
