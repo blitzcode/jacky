@@ -92,6 +92,7 @@ data Flag = FlagOAuthFile String
           | FlagTraceFile String
           | FlagTraceLevel String
           | FlagTraceEchoOn
+          | FlagTraceAppend
             deriving (Eq, Show)
 
 defLogFolder, defHTTPImageCacheFolder, defTraceFn :: String
@@ -164,6 +165,10 @@ parseCmdLineOpt = do
                            ["trace-echo"]
                            (NoArg FlagTraceEchoOn)
                            ("echo execution trace to stdout as well")
+                  , Option []
+                           ["trace-append"]
+                           (NoArg FlagTraceAppend)
+                           ("append execution trace file instead of overwriting")
                   , Option []
                            ["verify-img-cache"]
                            (NoArg FlagVerifyImgCache)
@@ -318,16 +323,14 @@ run = do
         GLFW.swapInterval 1
         setup2DOpenGL w h
     -- Launch thread for parsing status updates
-    --processStatusesAsync
-      --  twitterStatusesRandomStreamURL
+    processStatusesAsync
+        twitterStatusesRandomStreamURL
     {-
     processStatusesAsync
         twitterUserStreamURL
     processStatusesAsync $
         twitterHomeTimeline ++ "?count=200"
     -}
-    processStatusesAsync $
-        twitterHomeTimeline ++ "?count=200"
     -- Main loop
     let loop = do
         -- Stream messages
@@ -387,17 +390,16 @@ main = do
     (flags, oaClient, oaCredential) <- case res of
         Left  err  -> putStrLn ("Error: " ++ err) >> exitFailure
         Right r    -> return r
-    -- Tracing (TODO: Add flag to only trace to stdout)
-    let traceFn    = foldr (\f r -> case f of FlagTraceFile fn -> fn; _ -> r) defTraceFn flags
-        traceLvl   = foldr (\f r -> case f of (FlagTraceLevel lvl) -> mkTraceOpt lvl
-                                              _                    -> r)
-                           TLNone flags
-        mkTraceOpt = \case "n" -> TLNone 
-                           "e" -> TLError
-                           "w" -> TLWarn 
-                           "i" -> TLInfo 
-                           _   -> TLNone 
-    withTrace (Just traceFn) (FlagTraceEchoOn `elem` flags) traceLvl $ do
+    -- Tracing (TODO: Change echo flag to specify separate trace level for stdout)
+    let traceFn  = foldr (\f r -> case f of FlagTraceFile fn -> fn; _ -> r) defTraceFn flags
+        mkTrcOpt = \case "n" -> TLNone; "e" -> TLError; "w" -> TLWarn; "i" -> TLInfo; _ -> TLNone 
+        traceLvl = foldr (\f r -> case f of (FlagTraceLevel lvl) -> mkTrcOpt lvl; _ -> r)
+                         TLNone flags
+    withTrace (Just traceFn)
+              (FlagTraceEchoOn `elem` flags)
+              (FlagTraceAppend `elem` flags)
+              traceLvl
+              $ do
       mapM_ (traceS TLInfo) [ show flags, show oaClient, show oaCredential ]
       -- Make sure the network log file folder exists, if logging is requested
       let logNetworkMode | FlagLogNetwork `elem` flags = ModeLogNetwork

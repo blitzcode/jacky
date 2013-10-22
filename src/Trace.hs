@@ -35,11 +35,13 @@ data TraceSettings = TraceSettings { tsFile   :: Maybe Handle
 traceSettings :: MVar TraceSettings
 traceSettings = unsafePerformIO newEmptyMVar
 
-withTrace :: Maybe FilePath -> Bool -> TraceLevel -> IO () -> IO ()
-withTrace traceFn echoOn level f =
+withTrace :: Maybe FilePath -> Bool -> Bool -> TraceLevel -> IO () -> IO ()
+withTrace traceFn echoOn appendOn level f =
     bracket
         ( do h <- case traceFn of Just fn -> if   level /= TLNone
-                                             then Just <$> openFile fn WriteMode
+                                             then Just <$> openFile fn (if   appendOn
+                                                                        then AppendMode
+                                                                        else WriteMode)
                                              else return Nothing
                                   _       -> return Nothing
              let ts = TraceSettings { tsFile   = h
