@@ -14,6 +14,7 @@ import qualified Data.ByteString.Char8 as B8
 import Data.Monoid
 import Data.Word
 import Data.Bits
+import Data.IORef
 import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Network.URI
@@ -41,9 +42,11 @@ data HTTPImageCache p =
     HTTPImageCache { hicCacheFolder    :: B.ByteString
                    , hicOutstandingReq :: TVar (BoundedStack B.ByteString)
                    , hicCacheEntries   :: TVar (M.Map B.ByteString (CacheEntry p))
+                   , hicBytesTrans     :: IORef Word64
+                   , hicMisses         :: IORef Word64
+                   , hicDiskHits       :: IORef Word64
+                   , hicMemHits        :: IORef Word64
                    }
--- TODO: Add cache statistics (disk hit rate, in-memory hit rate, bytes transferred, etc.)
-
 data CacheEntry p = Fetching -- We keep in-progress entries in the cache to avoid double fetches
                   | Fetched HTTPImageRes
                   | Processed p -- User specified type to be stored in the cache. This allows our
@@ -71,9 +74,14 @@ withHTTPImageCache manager numConcReq cacheFolder f = do
     -- Build record 
     initOutstandingReq <- newTVarIO $ mkBoundedStack 350 -- Limit outst. requests (TODO: hardcoded)
     initCacheEntries   <- newTVarIO $ M.empty
+    initIORefs         <- forM ([1..4] :: [Int]) (\_ -> newIORef 0 :: IO (IORef Word64))
     let hic = HTTPImageCache { hicCacheFolder    = B8.pack $ addTrailingPathSeparator cacheFolder
                              , hicOutstandingReq = initOutstandingReq
                              , hicCacheEntries   = initCacheEntries
+                             , hicBytesTrans     = initIORefs !! 0
+                             , hicMisses         = initIORefs !! 1
+                             , hicDiskHits       = initIORefs !! 2
+                             , hicMemHits        = initIORefs !! 3
                              }
     bracket
         (forM [1..numConcReq] $ \_ -> async $ fetchThread hic manager) -- Launch fetch threads
@@ -89,6 +97,8 @@ withHTTPImageCache manager numConcReq cacheFolder f = do
                     _        -> return ()
         )
         (\_ -> f hic)
+    stats <- gatherCacheStats hic
+    traceS TLInfo stats
 
 dynImgToRGBA8 :: JP.DynamicImage -> Either String (JP.Image JP.PixelRGBA8)
 dynImgToRGBA8 di =
@@ -145,8 +155,8 @@ popRequestStack hic = do
         Just url -> return url
 
 -- Fetch an image into the disk cache (if not already there) and return it as a lazy ByteString
-fetchDiskCache :: Manager -> B.ByteString -> FilePath -> IO BL.ByteString 
-fetchDiskCache manager url cacheFn = do
+fetchDiskCache :: HTTPImageCache p -> Manager -> B.ByteString -> FilePath -> IO BL.ByteString 
+fetchDiskCache hic manager url cacheFn = do
     bs <- tryIOError $ BL.readFile cacheFn -- Already in the disk cache?
     case bs of
         Left  _ -> -- No, fetch image from server
@@ -154,9 +164,13 @@ fetchDiskCache manager url cacheFn = do
                        req <- parseUrl $ B8.unpack url
                        res <- httpLbs req manager
                        -- Store in disk cache
-                       liftIO . BL.writeFile cacheFn $ responseBody res
+                       liftIO $ do
+                           incCacheMisses hic
+                           -- TODO: Misses HTTP protocol overhead
+                           incCacheBytesTransf hic . fromIntegral . BL.length . responseBody $ res
+                           BL.writeFile cacheFn $ responseBody res
                        return $ responseBody res
-        Right x -> return x
+        Right x -> incCacheDiskHits hic >> return x
 
 fetchThread :: HTTPImageCache p -> Manager -> IO ()
 fetchThread hic manager = handle (\ThreadKilled -> -- Handle this exception here so we exit cleanly
@@ -173,7 +187,7 @@ fetchThread hic manager = handle (\ThreadKilled -> -- Handle this exception here
             (\urlUncached -> updateCacheEntry hic urlUncached CacheError)
             (\urlUncached -> do
                 let cacheFn = B8.unpack $ mkURLCacheFn hic urlUncached
-                imgBS <- fetchDiskCache manager urlUncached cacheFn
+                imgBS <- fetchDiskCache hic manager urlUncached cacheFn
                 -- Decompress and convert
                 --                                             TODO: Have to use toStrict, nasty
                 di <- case dynImgToRGBA8 =<< (JP.decodeImage $ BL.toStrict imgBS) of
@@ -203,11 +217,49 @@ fetchThread hic manager = handle (\ThreadKilled -> -- Handle this exception here
 -- Return the image at the given URL from the cache, or schedule fetching if not present
 -- TODO: Change structure of the request queue to avoid adding things twice
 fetchImage :: HTTPImageCache p -> B.ByteString -> IO (Maybe (CacheEntry p))
-fetchImage hic url = atomically $ do
-    cache <- readTVar $ hicCacheEntries hic
-    case M.lookup url cache of
-        Nothing -> do -- New image, add it on top of the fetch stack
-                      modifyTVar' (hicOutstandingReq hic) (pushBoundedStack url)
-                      return Nothing
-        e       -> return e
+fetchImage hic url = do
+    r <- atomically $ do
+        cache <- readTVar $ hicCacheEntries hic
+        case M.lookup url cache of
+            Nothing -> do -- New image, add it on top of the fetch stack
+                          modifyTVar' (hicOutstandingReq hic) (pushBoundedStack url)
+                          return Nothing
+            e       -> return e
+    case r of
+        Just _  -> incCacheMemHits hic
+        Nothing -> return ()
+    return r
+
+-- Cache statistics
+
+incCacheBytesTransf :: HTTPImageCache p -> Word64 -> IO ()
+incCacheBytesTransf hic n = atomicModifyIORef' (hicBytesTrans hic) (\b -> (b + n, ()))
+incCacheMisses :: HTTPImageCache p -> IO ()
+incCacheMisses hic = atomicModifyIORef' (hicMisses hic) (\n -> (n + 1, ()))
+incCacheDiskHits :: HTTPImageCache p -> IO ()
+incCacheDiskHits hic = atomicModifyIORef' (hicDiskHits hic) (\n -> (n + 1, ()))
+incCacheMemHits :: HTTPImageCache p -> IO ()
+incCacheMemHits hic = atomicModifyIORef' (hicMemHits hic) (\n -> (n + 1, ()))
+
+gatherCacheStats :: HTTPImageCache p -> IO String
+gatherCacheStats hic = do
+    bytesTransf <- readIORef $ hicBytesTrans hic
+    misses      <- readIORef $ hicMisses     hic
+    diskHits    <- readIORef $ hicDiskHits   hic
+    memHits     <- readIORef $ hicMemHits    hic
+    entries     <- atomically . readTVar $ hicCacheEntries hic
+    let (fetching, fetched, processed, cacheErr) = foldr
+         (\(_, v) (fetching', fetched', processed', cacheErr') -> case v of
+             Fetching    -> (fetching' + 1, fetched', processed', cacheErr')
+             Fetched _   -> (fetching', fetched' + 1, processed', cacheErr')
+             Processed _ -> (fetching', fetched', processed' + 1, cacheErr')
+             CacheError  -> (fetching', fetched', processed', cacheErr' + 1)
+         )
+         ((0, 0, 0, 0) :: (Word64, Word64, Word64, Word64))
+         (M.toList entries)
+    return $ printf
+        ("Cache Stats - Network Transfers: %.2fKB | Misses: %i | Disk Hits: %i | Mem Hits: %i"
+        ++ " | Fetching: %i | Fetched: %i | Processed: %i | Error: %i")
+        (fromIntegral bytesTransf / 1024.0 :: Double)
+        misses diskHits memHits fetching fetched processed cacheErr
 
