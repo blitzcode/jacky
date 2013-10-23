@@ -283,8 +283,8 @@ processSMEvent ev =
         _  -> liftIO . traceS TLInfo $ show ev
               -- liftIO $ (putStr $ (Prelude.head . words . show $ ev) ++ " ") >> hFlush stdout
 
-processStatusesAsync :: String -> AppDraw ()
-processStatusesAsync uri' = do
+processStatusesAsync :: String -> RetryAPI -> AppDraw ()
+processStatusesAsync uri' retryAPI = do
     manager          <- asks envManager
     oaClient         <- asks envOAClient
     oaCredential     <- asks envOACredential
@@ -310,6 +310,7 @@ processStatusesAsync uri' = do
             manager
             logFnMode
             smQueue
+            retryAPI
         
 run :: AppDraw ()
 run = do
@@ -325,11 +326,14 @@ run = do
     -- Launch thread for parsing status updates
     processStatusesAsync
         twitterStatusesRandomStreamURL
+        RetryForever
     {-
     processStatusesAsync
         twitterUserStreamURL
+        RetryForever
     processStatusesAsync $
         twitterHomeTimeline ++ "?count=200"
+        (RetryNTimes 5)
     -}
     -- Main loop
     let loop = do

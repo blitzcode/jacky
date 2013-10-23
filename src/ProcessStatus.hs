@@ -2,6 +2,7 @@
 {-# LANGUAGE OverloadedStrings, FlexibleContexts, ScopedTypeVariables #-}
 
 module ProcessStatus ( processStatuses
+                     , RetryAPI(..)
                      ) where
 
 import Data.Conduit
@@ -19,6 +20,7 @@ import Control.Monad.IO.Class
 import Control.Monad.State.Strict
 import Control.Concurrent.STM
 import Control.Exception
+import Control.Concurrent hiding (yield)
 import Text.Printf
 
 import TwitterJSON
@@ -50,8 +52,6 @@ parseStatus = do
     -- object with the Aeson parser from the stream connection
     --
     -- TODO: Use strict json' instead?
-    -- TODO: This eventually fails with a ParseError / "not enough bytes", figure out
-    --       how to exit cleanly when there is no more input
     j <- CA.sinkParser json
     -- The stream connections send individual objects we can decode into SMs,
     -- but the home timeline sends an array of such objects
@@ -66,6 +66,11 @@ parseStatus = do
             Error   s -> SMParseError $ B8.pack s
     parseStatus
 
+data RetryAPI = RetryNever
+              | RetryNTimes Int
+              | RetryForever -- This even retries in case of success
+              deriving (Eq)
+
 -- Process status updates as returned from the REST or Stream API, write results into a queue
 processStatuses :: String
                 -> OA.OAuth
@@ -73,14 +78,15 @@ processStatuses :: String
                 -> Manager
                 -> Maybe FilePath
                 -> TBQueue StreamMessage
+                -> RetryAPI
                 -> IO ()
-processStatuses uri oaClient oaCredential manager logFn smQueue =
-  catches
+processStatuses uri oaClient oaCredential manager logFn smQueue retryAPI = do
+  success <- catches
     ( do
      -- We use State to keep track of how many bytes we received
      runResourceT . flip evalStateT (0 :: Word64) $
          let sink' = countBytesState =$ parseStatus =$ smQueueSink smQueue
-             sink  = case logFn of Just fn -> conduitFile fn =$ sink' -- TODO: Doesn't flush on crash
+             sink  = case logFn of Just fn -> conduitFile fn =$ sink' -- TODO: No flush on crash
                                    Nothing -> sink'
          in  if   isPrefixOf "http://" uri || isPrefixOf "https://" uri -- File or HTTP?
              then do -- Authenticate, connect and start receiving stream
@@ -110,17 +116,43 @@ processStatuses uri oaClient oaCredential manager logFn smQueue =
                               Nothing -> return ()
                      -- Finish parsing conduit
                      responseBody res $$+- sink
+                     return True
              else do liftIO . traceS TLInfo $ "Streaming Twitter API response from file: " ++ uri
                      sourceFile uri $$ sink
+                     return True
     )
-    -- TODO: Decide which errors are recoverable and retry after a waiting for a few seconds
-    [ Handler (\(ex :: HttpException) ->
-                  traceS TLError $ "HTTP / connection error while processing statuses from '"
-                                   ++ uri ++ "'\n" ++ show ex
-              )
-    , Handler (\(ex :: CA.ParseError) -> 
-                  traceS TLError $ "JSON parser error while processing statuses from '"
-                                   ++ uri ++ "'\n" ++ show ex
-              )
+    [ Handler $ \(ex :: HttpException) -> do
+                   traceS TLError $ "HTTP / connection error while processing statuses from '"
+                                    ++ uri ++ "'\n" ++ show ex
+                   return False
+    , Handler $ \(ex :: CA.ParseError) ->do
+                   if   "demandInput" `elem` CA.errorContexts ex
+                   then do traceS TLInfo  $ "End-of-Data for '" ++ uri ++ "'\n" ++ show ex
+                           return True -- This error is a clean exit
+                   else do traceS TLError $ "JSON parser error while processing statuses from '"
+                                           ++ uri ++ "'\n" ++ show ex
+                           return False
+    , Handler $ \(ex :: IOException) -> do
+                   traceS TLError $ "IO error while processing statuses from '"
+                                    ++ uri ++ "'\n" ++ show ex
+                   return False
     ]
-
+  case retryAPI of
+      RetryForever   ->  do traceS TLWarn $
+                                retryMsg ++ " (forever)\nURI: " ++ uri
+                            threadDelay retryDelay
+                            retryThis RetryForever
+      RetryNTimes n  -> if   (not success) && n > 0
+                             -- Try again in 5sec
+                        then do traceS TLWarn $ retryMsg ++ "\n"
+                                                ++ "Remaining retries: " ++ show n ++ "\n"
+                                                ++ "URI: " ++ uri
+                                threadDelay retryDelay
+                                retryThis (RetryNTimes $ n - 1)
+                        else return ()
+      RetryNever     -> return ()
+  where retryThis  = processStatuses uri oaClient oaCredential manager logFn smQueue
+        retryDelay = 5 * 1000 * 1000
+        retryMsg   = printf "Retrying API request in %isec"
+                            (retryDelay `div` 1000 `div` 1000)
+        
