@@ -135,15 +135,17 @@ processStatuses uri oaClient oaCredential manager logFn smQueue retryAPI = do
     , Handler $ \(ex :: IOException) -> do
                    traceS TLError $ "IO error while processing statuses from '"
                                     ++ uri ++ "'\n" ++ show ex
-                   return False
+                   return False -- TODO: This exception is likely caused by a failure to read
+                                --       a network dump from disk, we might not want to bother
+                                --       trying again if it can't be opened
     ]
+  -- Do we need to retry?
   case retryAPI of
       RetryForever   ->  do traceS TLWarn $
                                 retryMsg ++ " (forever)\nURI: " ++ uri
                             threadDelay retryDelay
                             retryThis RetryForever
       RetryNTimes n  -> if   (not success) && n > 0
-                             -- Try again in 5sec
                         then do traceS TLWarn $ retryMsg ++ "\n"
                                                 ++ "Remaining retries: " ++ show n ++ "\n"
                                                 ++ "URI: " ++ uri
@@ -152,7 +154,7 @@ processStatuses uri oaClient oaCredential manager logFn smQueue retryAPI = do
                         else return ()
       RetryNever     -> return ()
   where retryThis  = processStatuses uri oaClient oaCredential manager logFn smQueue
-        retryDelay = 5 * 1000 * 1000
+        retryDelay = 5 * 1000 * 1000 -- 5 seconds
         retryMsg   = printf "Retrying API request in %isec"
                             (retryDelay `div` 1000 `div` 1000)
-        
+ 

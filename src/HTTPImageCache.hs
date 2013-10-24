@@ -38,15 +38,17 @@ import Trace
 
 -- Caching system (disk & memory) for image fetches over HTTP
 
-data HTTPImageCache p =
-    HTTPImageCache { hicCacheFolder    :: B.ByteString
-                   , hicOutstandingReq :: TVar (BoundedStack B.ByteString)
-                   , hicCacheEntries   :: TVar (M.Map B.ByteString (CacheEntry p))
-                   , hicBytesTrans     :: IORef Word64
-                   , hicMisses         :: IORef Word64
-                   , hicDiskHits       :: IORef Word64
-                   , hicMemHits        :: IORef Word64
-                   }
+data HTTPImageCache p = HTTPImageCache
+    { hicCacheFolder    :: B.ByteString
+    , hicOutstandingReq :: TVar (BoundedStack B.ByteString)
+    , hicCacheEntries   :: TVar (M.Map B.ByteString (CacheEntry p))
+      -- Statistics
+    , hicBytesTrans     :: IORef Word64
+    , hicMisses         :: IORef Word64
+    , hicDiskHits       :: IORef Word64
+    , hicMemHits        :: IORef Word64
+    }
+
 data CacheEntry p = Fetching -- We keep in-progress entries in the cache to avoid double fetches
                   | Fetched HTTPImageRes
                   | Processed p -- User specified type to be stored in the cache. This allows our
@@ -94,7 +96,7 @@ withHTTPImageCache manager numConcReq cacheFolder f = do
                     Left ex -> traceS TLError $ printf "Exception from fetch thread '%s': %s"
                                                        (show $ asyncThreadId thread)
                                                        (show ex)
-                    _        -> return ()
+                    _       -> return ()
         )
         (\_ -> f hic)
     stats <- gatherCacheStats hic
@@ -151,7 +153,7 @@ popRequestStack hic = do
             Nothing  -> retry -- Empty request list, block till it makes sense to retry
     r <- pop
     case r of
-        Nothing  -> popRequestStack hic
+        Nothing  -> popRequestStack hic -- Recurse till we get a URL or block on retry
         Just url -> return url
 
 -- Fetch an image into the disk cache (if not already there) and return it as a lazy ByteString
@@ -174,7 +176,7 @@ fetchDiskCache hic manager url cacheFn = do
 
 fetchThread :: HTTPImageCache p -> Manager -> IO ()
 fetchThread hic manager = handle (\ThreadKilled -> -- Handle this exception here so we exit cleanly
-                                     traceT TLInfo "Fetch thread received 'ThreadKilled'")
+                                     traceT TLInfo "Fetch thread received 'ThreadKilled', exiting")
                           . forever $ do
     -- The inner bracket takes care of cleanup, here we decide if the exception is
     -- recoverable or if we should stop the thread
@@ -258,8 +260,11 @@ gatherCacheStats hic = do
          ((0, 0, 0, 0) :: (Word64, Word64, Word64, Word64))
          (M.toList entries)
     return $ printf
-        ("Cache Stats - Network Transfers: %.2fKB | Misses: %i | Disk Hits: %i | Mem Hits: %i"
-        ++ " | Fetching: %i | Fetched: %i | Processed: %i | Error: %i")
+        (  "HTTP Image Cache Statistics\n"
+        ++ "Network       - Received Total: %.2fKB\n"
+        ++ "Lookups       - Misses: %i | Disk Hits: %i | Mem Hits: %i\n"
+        ++ "Cache Entries - Fetching: %i | Fetched: %i | Processed: %i | Error: %i"
+        )
         (fromIntegral bytesTransf / 1024.0 :: Double)
         misses diskHits memHits fetching fetched processed cacheErr
 

@@ -2,7 +2,8 @@
 module BoundedStack ( BoundedStack
                     , mkBoundedStack
                     , pushBoundedStack
-                    , popBoundedStack) where
+                    , popBoundedStack
+                    ) where
 
 import qualified Data.Sequence as S
 
