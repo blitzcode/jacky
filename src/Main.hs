@@ -170,12 +170,12 @@ parseCmdLineOpt = do
                   , Option []
                            ["conn-keep-alive"]
                            (ReqArg FlagConKeepAlive "NUMBER")
-                           ("num. of conn. to a single host to keep alive (default: "
+                           ("# of conn. to single host to keep alive (default: "
                                ++ show defConKeepAlive ++ ")")
                   , Option []
                            ["conn-timeout"]
                            (ReqArg FlagConTimeout "NUMBER")
-                           ("request timeout (in µs, default: "
+                           ("HTTP request timeout (in µs, default: "
                                ++ show defConTimeout ++ ")")
                   , Option ['n']
                            ["tweet-hist"]
@@ -351,7 +351,7 @@ processStatusesAsync uri' retryAPI = do
             logFnMode
             smQueue
             retryAPI
-        
+
 run :: AppDraw ()
 run = do
     -- Setup OpenGL / GLFW

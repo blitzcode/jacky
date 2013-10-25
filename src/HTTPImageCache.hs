@@ -38,6 +38,16 @@ import Trace
 
 -- Caching system (disk & memory) for image fetches over HTTP
 
+-- TODO: Change BoundedMap into using a representation where we can update an elements position
+--       in the FIFO, i.e. make sure recently accessed elements are not flushed from the cache
+
+-- TODO: Add support for retiring elements from the disk cache, consider not having the disk
+--       cache at all and only use it to speed up application startup / offline mode
+
+-- TODO: Consider removing support for 'Processed' cache entries and move that functionality
+--       into a separate texture cache. Also need to add the ability to remove cache entries
+--       then, requiring changes to BoundedMap
+
 data HTTPImageCache p = HTTPImageCache
     { hicCacheFolder       :: B.ByteString
     , hicOutstandingReq    :: TVar (BM.BoundedMap B.ByteString ()) -- No 'v', used as a Set + FIFO
@@ -78,17 +88,18 @@ withHTTPImageCache manager memCacheEntryLimit numConcReq cacheFolder f = do
     initOutstandingReq <- newTVarIO $ BM.mkBoundedMap $ memCacheEntryLimit `div` 4
     initCacheEntries   <- newTVarIO $ BM.mkBoundedMap memCacheEntryLimit
     initIORefs         <- forM ([1..4] :: [Int]) (\_ -> newIORef 0 :: IO (IORef Word64))
-    let hic = HTTPImageCache { hicCacheFolder       = B8.pack $ addTrailingPathSeparator cacheFolder
-                             , hicOutstandingReq    = initOutstandingReq
-                             , hicCacheEntries      = initCacheEntries
-                             , hicBytesTrans        = initIORefs !! 0
-                             , hicMisses            = initIORefs !! 1
-                             , hicDiskHits          = initIORefs !! 2
-                             , hicMemHits           = initIORefs !! 3
+    let hic = HTTPImageCache { hicCacheFolder    = B8.pack $ addTrailingPathSeparator cacheFolder
+                             , hicOutstandingReq = initOutstandingReq
+                             , hicCacheEntries   = initCacheEntries
+                             , hicBytesTrans     = initIORefs !! 0
+                             , hicMisses         = initIORefs !! 1
+                             , hicDiskHits       = initIORefs !! 2
+                             , hicMemHits        = initIORefs !! 3
                              }
-    bracket
-        (forM [1..numConcReq] $ \_ -> async $ fetchThread hic manager) -- Launch fetch threads
+    bracket -- Fetch thread launch and cleanup
+        (forM [1..numConcReq] $ \_ -> async $ fetchThread hic manager)
         (\threads -> do
+            traceS TLInfo =<< gatherCacheStats hic
             traceT TLInfo "Shutting down image fetch threads"
             forM_ threads cancel
             forM_ threads $ \thread -> do
@@ -100,7 +111,6 @@ withHTTPImageCache manager memCacheEntryLimit numConcReq cacheFolder f = do
                     _       -> return ()
         )
         (\_ -> f hic)
-    traceS TLInfo =<< gatherCacheStats hic
 
 dynImgToRGBA8 :: JP.DynamicImage -> Either String (JP.Image JP.PixelRGBA8)
 dynImgToRGBA8 di =
@@ -214,7 +224,7 @@ fetchThread hic manager = handle (\ThreadKilled -> -- Handle this exception here
     where
         updateCacheEntry :: HTTPImageCache p -> B.ByteString -> CacheEntry p -> IO ()
         updateCacheEntry hic' url entry = -- Can't re-use hic from the outer scope (type error)
-            atomically . modifyTVar' (hicCacheEntries hic') $ BM.update url entry
+            atomically . modifyTVar' (hicCacheEntries hic') $! BM.update url entry
  
 -- Return the image at the given URL from the cache, or schedule fetching if not present
 fetchImage :: HTTPImageCache p -> B.ByteString -> IO (Maybe (CacheEntry p))
@@ -233,6 +243,12 @@ fetchImage hic url = do
         Just _  -> incCacheMemHits hic
         Nothing -> return ()
     return r
+
+-- Replace an existing cache entry with processed data. The idea here is that the client of the
+-- image cache can replace fetched images with its own representation, i.e. OpenGL textures
+updateProcessed :: HTTPImageCache p -> B.ByteString -> p -> IO ()
+updateProcessed hic url processed = do
+    return () -- TODO
 
 -- Cache statistics
 
