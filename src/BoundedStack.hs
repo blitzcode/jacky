@@ -31,6 +31,7 @@ pushBoundedStack x (BoundedStack s limit) =
 pushBoundedStack_ :: a -> BoundedStack a -> BoundedStack a
 pushBoundedStack_ x s = fst $ pushBoundedStack x s
 
+-- LIFO pop
 popBoundedStack :: BoundedStack a -> (Maybe a, BoundedStack a)
 popBoundedStack bs@(BoundedStack s limit) =
     case S.viewl s of (x S.:< s') -> (Just x , BoundedStack s' limit)

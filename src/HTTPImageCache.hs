@@ -33,7 +33,6 @@ import qualified Codec.Picture.Types as JPT
 import Control.Exception
 import Text.Printf
 
-import BoundedStack
 import BoundedMap
 import Trace
 
@@ -41,7 +40,7 @@ import Trace
 
 data HTTPImageCache p = HTTPImageCache
     { hicCacheFolder    :: B.ByteString
-    , hicOutstandingReq :: TVar (BoundedStack B.ByteString)
+    , hicOutstandingReq :: TVar (BoundedMap B.ByteString ())
     , hicCacheEntries   :: TVar (M.Map B.ByteString (CacheEntry p))
       -- Statistics
     , hicBytesTrans     :: IORef Word64
@@ -75,7 +74,7 @@ withHTTPImageCache manager numConcReq cacheFolder f = do
     -- Make sure our cache folder exists
     createDirectoryIfMissing True cacheFolder
     -- Build record 
-    initOutstandingReq <- newTVarIO $ mkBoundedStack 350 -- Limit outst. requests (TODO: hardcoded)
+    initOutstandingReq <- newTVarIO $ mkBoundedMap 350 -- Limit outst. requests (TODO: hardcoded)
     initCacheEntries   <- newTVarIO $ M.empty
     initIORefs         <- forM ([1..4] :: [Int]) (\_ -> newIORef 0 :: IO (IORef Word64))
     let hic = HTTPImageCache { hicCacheFolder    = B8.pack $ addTrailingPathSeparator cacheFolder
@@ -138,9 +137,9 @@ popRequestStack :: HTTPImageCache p -> IO B.ByteString
 popRequestStack hic = do
     let pop = atomically $ do
         requests <- readTVar $ hicOutstandingReq hic
-        let (maybeURL, requests') = popBoundedStack requests
+        let (maybeURL, requests') = popBoundedMap requests
         case maybeURL of
-            Just url ->
+            Just (url, ()) ->
                 do -- Write the stack with the removed top item back
                    writeTVar (hicOutstandingReq hic) requests'
                    -- Make sure the request is not already in the cache / fetching
@@ -218,14 +217,13 @@ fetchThread hic manager = handle (\ThreadKilled -> -- Handle this exception here
                          cache
  
 -- Return the image at the given URL from the cache, or schedule fetching if not present
--- TODO: Change structure of the request queue to avoid adding things twice
 fetchImage :: HTTPImageCache p -> B.ByteString -> IO (Maybe (CacheEntry p))
 fetchImage hic url = do
     r <- atomically $ do
         cache <- readTVar $ hicCacheEntries hic
         case M.lookup url cache of
             Nothing -> do -- New image, add it on top of the fetch stack
-                          modifyTVar' (hicOutstandingReq hic) (pushBoundedStack_ url)
+                          modifyTVar' (hicOutstandingReq hic) (fst . insertBoundedMap url ())
                           return Nothing
             e       -> return e
     case r of
