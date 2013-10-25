@@ -2,6 +2,7 @@
 module BoundedStack ( BoundedStack
                     , mkBoundedStack
                     , pushBoundedStack
+                    , pushBoundedStack_
                     , popBoundedStack
                     ) where
 
@@ -11,19 +12,24 @@ import qualified Data.Sequence as S
 -- a specified depth
 
 data BoundedStack a = BoundedStack (S.Seq a) Int
+                      deriving (Show)
 
 mkBoundedStack :: Int -> BoundedStack a
 mkBoundedStack limit | limit >= 1 = BoundedStack S.empty limit
                      | otherwise  = error "limit for BoundedStack needs to be >= 1"
 
--- Push element on the stack, truncate at the other end if we reached the limit
-pushBoundedStack :: a -> BoundedStack a -> BoundedStack a
+-- Push element on the stack, truncate at the other end if we reached the limit,
+-- return new stack and truncated element (if over the limit)
+pushBoundedStack :: a -> BoundedStack a -> (BoundedStack a, Maybe a)
 pushBoundedStack x (BoundedStack s limit) =
-    let seqDropR sd = case S.viewr sd of (s' S.:> _) -> s'
-                                         S.EmptyR    -> sd
+    let seqDropR sd = case S.viewr sd of (s' S.:> e) -> (s', Just e)
+                                         S.EmptyR    -> (sd, Nothing)
         boundedS | S.length s >= limit = seqDropR s
-                 | otherwise           = s
-    in  BoundedStack (x S.<| boundedS) limit
+                 | otherwise           = (s, Nothing)
+    in  case boundedS of (s', e) -> (BoundedStack (x S.<| s') limit, e)
+
+pushBoundedStack_ :: a -> BoundedStack a -> BoundedStack a
+pushBoundedStack_ x s = fst $ pushBoundedStack x s
 
 popBoundedStack :: BoundedStack a -> (Maybe a, BoundedStack a)
 popBoundedStack bs@(BoundedStack s limit) =

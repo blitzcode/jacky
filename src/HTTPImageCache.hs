@@ -34,6 +34,7 @@ import Control.Exception
 import Text.Printf
 
 import BoundedStack
+import BoundedMap
 import Trace
 
 -- Caching system (disk & memory) for image fetches over HTTP
@@ -224,7 +225,7 @@ fetchImage hic url = do
         cache <- readTVar $ hicCacheEntries hic
         case M.lookup url cache of
             Nothing -> do -- New image, add it on top of the fetch stack
-                          modifyTVar' (hicOutstandingReq hic) (pushBoundedStack url)
+                          modifyTVar' (hicOutstandingReq hic) (pushBoundedStack_ url)
                           return Nothing
             e       -> return e
     case r of
@@ -264,6 +265,7 @@ gatherCacheStats hic = do
         ++ "Network       - Received Total: %.2fKB\n"
         ++ "Lookups       - Misses: %i | Disk Hits: %i | Mem Hits: %i\n"
         ++ "Cache Entries - Fetching: %i | Fetched: %i | Processed: %i | Error: %i"
+        -- TODO: Add image memory consumption figure
         )
         (fromIntegral bytesTransf / 1024.0 :: Double)
         misses diskHits memHits fetching fetched processed cacheErr
