@@ -268,7 +268,6 @@ processSMEvent ev =
         (SMParseError bs) -> liftIO . traceS TLError $ "\nStream Parse Error: " ++ B8.unpack bs
         SMTweet tw' ->
             do liftIO $ traceT TLInfo "SMTweet Received"
-               hic <- asks envHTTPImageCache
                -- Always try to fetch the higher resolution profile images
                -- TODO: Looks like a use case for lenses...
                let tw = tw' { twUser = (twUser tw')
@@ -276,13 +275,19 @@ processSMEvent ev =
                                         highResProfileImgURL (usrProfileImageURL . twUser $ tw')
                                   }
                             }
-               -- liftIO . appendFile "tweet.txt" . T.unpack $ twText tw -- Write tweet to file
-               modify' $ \s -> s { stTweetByID = M.insert (twID tw) tw (stTweetByID s) }
+               -- Insert tweet, delete oldest once we reached the limit
+               modify' $ \s -> s { stTweetByID = let tweetLimit = 1024 -- TODO: Hardcoded
+                                                     sInsert    = M.insert (twID tw)
+                                                                           tw
+                                                                           (stTweetByID s)
+                                                 in  if   M.size sInsert > tweetLimit
+                                                     then M.deleteMin sInsert
+                                                     else sInsert
+                                 }
                -- TODO: Delete oldest tweet when we reached a limit
         SMDelete _ _ -> liftIO $ traceT TLInfo "SMDelete Received"
         -- Trace all other messages
         _  -> liftIO . traceS TLInfo $ show ev
-              -- liftIO $ (putStr $ (Prelude.head . words . show $ ev) ++ " ") >> hFlush stdout
 
 processStatusesAsync :: String -> RetryAPI -> AppDraw ()
 processStatusesAsync uri' retryAPI = do

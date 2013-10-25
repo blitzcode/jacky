@@ -99,8 +99,7 @@ withHTTPImageCache manager numConcReq cacheFolder f = do
                     _       -> return ()
         )
         (\_ -> f hic)
-    stats <- gatherCacheStats hic
-    traceS TLInfo stats
+    traceS TLInfo =<< gatherCacheStats hic
 
 dynImgToRGBA8 :: JP.DynamicImage -> Either String (JP.Image JP.PixelRGBA8)
 dynImgToRGBA8 di =
@@ -205,7 +204,6 @@ fetchThread hic manager = handle (\ThreadKilled -> -- Handle this exception here
                                   JP.PixelRGBA8 (fromIntegral x) (fromIntegral y) 128 255) 64 64
                           Right x   -> return x
                 -- Update cache with image
-                -- TODO: Add strategy to retire old images from the cache
                 updateCacheEntry hic urlUncached (Fetched $! toHTTPImageRes di)
             )
       )
