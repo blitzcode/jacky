@@ -39,14 +39,14 @@ import Trace
 -- Caching system (disk & memory) for image fetches over HTTP
 
 data HTTPImageCache p = HTTPImageCache
-    { hicCacheFolder    :: B.ByteString
-    , hicOutstandingReq :: TVar (BM.BoundedMap B.ByteString ()) -- No 'v', used as a Set + FIFO
-    , hicCacheEntries   :: TVar (BM.BoundedMap B.ByteString (CacheEntry p))
+    { hicCacheFolder       :: B.ByteString
+    , hicOutstandingReq    :: TVar (BM.BoundedMap B.ByteString ()) -- No 'v', used as a Set + FIFO
+    , hicCacheEntries      :: TVar (BM.BoundedMap B.ByteString (CacheEntry p))
       -- Statistics
-    , hicBytesTrans     :: IORef Word64
-    , hicMisses         :: IORef Word64
-    , hicDiskHits       :: IORef Word64
-    , hicMemHits        :: IORef Word64
+    , hicBytesTrans        :: IORef Word64
+    , hicMisses            :: IORef Word64
+    , hicDiskHits          :: IORef Word64
+    , hicMemHits           :: IORef Word64
     }
 
 data CacheEntry p = Fetching -- We keep in-progress entries in the cache to avoid double fetches
@@ -67,23 +67,24 @@ mkURLCacheFn hic url = hicCacheFolder hic
 
 withHTTPImageCache :: Manager
                    -> Int
+                   -> Int
                    -> String
                    -> (HTTPImageCache p -> IO ())
                    -> IO ()
-withHTTPImageCache manager numConcReq cacheFolder f = do
+withHTTPImageCache manager memCacheEntryLimit numConcReq cacheFolder f = do
     -- Make sure our cache folder exists
     createDirectoryIfMissing True cacheFolder
     -- Build record 
-    initOutstandingReq <- newTVarIO $ BM.mkBoundedMap 350 -- TODO: hardcoded limits
-    initCacheEntries   <- newTVarIO $ BM.mkBoundedMap 1024
+    initOutstandingReq <- newTVarIO $ BM.mkBoundedMap $ memCacheEntryLimit `div` 4
+    initCacheEntries   <- newTVarIO $ BM.mkBoundedMap memCacheEntryLimit
     initIORefs         <- forM ([1..4] :: [Int]) (\_ -> newIORef 0 :: IO (IORef Word64))
-    let hic = HTTPImageCache { hicCacheFolder    = B8.pack $ addTrailingPathSeparator cacheFolder
-                             , hicOutstandingReq = initOutstandingReq
-                             , hicCacheEntries   = initCacheEntries
-                             , hicBytesTrans     = initIORefs !! 0
-                             , hicMisses         = initIORefs !! 1
-                             , hicDiskHits       = initIORefs !! 2
-                             , hicMemHits        = initIORefs !! 3
+    let hic = HTTPImageCache { hicCacheFolder       = B8.pack $ addTrailingPathSeparator cacheFolder
+                             , hicOutstandingReq    = initOutstandingReq
+                             , hicCacheEntries      = initCacheEntries
+                             , hicBytesTrans        = initIORefs !! 0
+                             , hicMisses            = initIORefs !! 1
+                             , hicDiskHits          = initIORefs !! 2
+                             , hicMemHits           = initIORefs !! 3
                              }
     bracket
         (forM [1..numConcReq] $ \_ -> async $ fetchThread hic manager) -- Launch fetch threads

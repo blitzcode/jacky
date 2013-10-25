@@ -74,6 +74,7 @@ data Env = Env
     , envOAClient         :: OA.OAuth
     , envOACredential     :: OA.Credential
     , envManager          :: Manager
+    , envTweetHistSize    :: Int
     }
 
 data State = State
@@ -94,6 +95,10 @@ data Flag = FlagOAuthFile String
           | FlagTraceLevel String
           | FlagTraceEchoOn
           | FlagTraceAppend
+          | FlagConKeepAlive String
+          | FlagConTimeout String
+          | FlagTweetHistory String
+          | FlagHTTPImgMemCacheSize String
             deriving (Eq, Show)
 
 defLogFolder, defHTTPImageCacheFolder, defTraceFn :: String
@@ -102,6 +107,14 @@ defHTTPImageCacheFolder = "http_img_cache"
 defTraceFn = "./trace.log"
 defConcImgFetches :: Int
 defConcImgFetches = 50
+defConKeepAlive :: Int
+defConKeepAlive = 10
+defConTimeout :: Int
+defConTimeout = 5 * 1000 * 1000
+defTweetHistory :: Int
+defTweetHistory = 1000
+defHTTPImgMemCacheSize :: Int
+defHTTPImgMemCacheSize = 1024
 
 parseCmdLineOpt :: (MonadError String m, MonadIO m) => m [Flag]
 parseCmdLineOpt = do
@@ -144,11 +157,31 @@ parseCmdLineOpt = do
                            (ReqArg FlagHTTPImageCacheFolder "FOLDER")
                            ("HTTP image cache fldr (default: '"
                                ++ defHTTPImageCacheFolder ++ "' in HOME)")
-                  , Option ['n']
+                  , Option []
                            ["conc-img-fetches"]
                            (ReqArg FlagConcImgFetches "NUMBER")
                            ("number of concurrent image fetches (default: "
                                ++ show defConcImgFetches ++ ")")
+                  , Option ['m']
+                           ["img-mem-cache-size"]
+                           (ReqArg FlagHTTPImgMemCacheSize "NUMBER")
+                           ("number of images to keep in mem cache (default: "
+                               ++ show defHTTPImgMemCacheSize ++ ")")
+                  , Option []
+                           ["conn-keep-alive"]
+                           (ReqArg FlagConKeepAlive "NUMBER")
+                           ("num. of conn. to a single host to keep alive (default: "
+                               ++ show defConKeepAlive ++ ")")
+                  , Option []
+                           ["conn-timeout"]
+                           (ReqArg FlagConTimeout "NUMBER")
+                           ("request timeout (in µs, default: "
+                               ++ show defConTimeout ++ ")")
+                  , Option ['n']
+                           ["tweet-hist"]
+                           (ReqArg FlagTweetHistory "NUMBER")
+                           ("number of tweets to keep around (default: "
+                               ++ show defTweetHistory ++ ")")
                   , Option []
                            ["trace-file"]
                            (ReqArg FlagTraceFile "FILE")
@@ -275,11 +308,12 @@ processSMEvent ev =
                                         highResProfileImgURL (usrProfileImageURL . twUser $ tw')
                                   }
                             }
-               -- Insert tweet, delete oldest once we reached the limit
-               modify' $ \s -> s { stTweetByID = let tweetLimit = 1024 -- TODO: Hardcoded
-                                                     sInsert    = M.insert (twID tw)
+               -- Insert tweet
+               tweetLimit <- asks envTweetHistSize
+               modify' $ \s -> s { stTweetByID = let sInsert    = M.insert (twID tw)
                                                                            tw
                                                                            (stTweetByID s)
+                                                     -- Delete oldest once we reached the limit
                                                  in  if   M.size sInsert > tweetLimit
                                                      then M.deleteMin sInsert
                                                      else sInsert
@@ -423,11 +457,25 @@ main = do
       let concImgFetches = foldr (\f r -> case f of
            FlagConcImgFetches n -> fromMaybe r $ parseMaybeInt n
            _                    -> r)
-           defConcImgFetches
-           flags
+           defConcImgFetches flags
       withSocketsDo $
-        withManagerSettings (def { managerConnCount = 10 }) $ \manager -> liftIO $
-          withHTTPImageCache manager concImgFetches (imgCacheFolder flags) $ \hic ->
+        let connCount = foldr (\f r -> case f of
+                FlagConKeepAlive n -> fromMaybe r $ parseMaybeInt n
+                _                  -> r)
+                defConKeepAlive flags
+            timeout = foldr (\f r -> case f of
+                FlagConTimeout n -> fromMaybe r $ parseMaybeInt n
+                _                  -> r)
+                defConTimeout flags
+        in  withManagerSettings (def { managerConnCount       = connCount
+                                     , managerResponseTimeout = Just timeout
+                                     }
+                                ) $ \manager -> liftIO $
+          let cacheSize = foldr (\f r -> case f of
+                  FlagHTTPImgMemCacheSize n -> fromMaybe r $ parseMaybeInt n
+                  _                  -> r)
+                  defHTTPImgMemCacheSize flags
+          in  withHTTPImageCache manager cacheSize concImgFetches (imgCacheFolder flags) $ \hic ->
             withWindow 1175 658 "Twitter" $ \window -> do
                 -- Event queues filled by GLFW callbacks, stream messages
                 initGLFWEventsQueue <- newTQueueIO       :: IO (TQueue  GLFWEvent)
@@ -443,6 +491,11 @@ main = do
                         , envOAClient         = oaClient
                         , envOACredential     = oaCredential
                         , envManager          = manager
+                        , envTweetHistSize    = foldr (\f r -> case f of
+                                                          FlagTweetHistory n ->
+                                                              fromMaybe r $ parseMaybeInt n
+                                                          _ -> r)
+                                                      defTweetHistory flags
                         }
                     stateInit = State
                         { stTweetByID = M.empty
