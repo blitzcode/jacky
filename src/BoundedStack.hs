@@ -1,9 +1,9 @@
 
 module BoundedStack ( BoundedStack
                     , mkBoundedStack
-                    , pushBoundedStack
-                    , pushBoundedStack_
-                    , popBoundedStack
+                    , push
+                    , push_
+                    , pop
                     ) where
 
 import qualified Data.Sequence as S
@@ -20,20 +20,20 @@ mkBoundedStack limit | limit >= 1 = BoundedStack S.empty limit
 
 -- Push element on the stack, truncate at the other end if we reached the limit,
 -- return new stack and truncated element (if over the limit)
-pushBoundedStack :: a -> BoundedStack a -> (BoundedStack a, Maybe a)
-pushBoundedStack x (BoundedStack s limit) =
+push :: a -> BoundedStack a -> (BoundedStack a, Maybe a)
+push x (BoundedStack s limit) =
     let seqDropR sd = case S.viewr sd of (s' S.:> e) -> (s', Just e)
                                          S.EmptyR    -> (sd, Nothing)
         boundedS | S.length s >= limit = seqDropR s
                  | otherwise           = (s, Nothing)
     in  case boundedS of (s', e) -> (BoundedStack (x S.<| s') limit, e)
 
-pushBoundedStack_ :: a -> BoundedStack a -> BoundedStack a
-pushBoundedStack_ x s = fst $ pushBoundedStack x s
+push_ :: a -> BoundedStack a -> BoundedStack a
+push_ x s = fst $ push x s
 
 -- LIFO pop
-popBoundedStack :: BoundedStack a -> (Maybe a, BoundedStack a)
-popBoundedStack bs@(BoundedStack s limit) =
+pop :: BoundedStack a -> (Maybe a, BoundedStack a)
+pop bs@(BoundedStack s limit) =
     case S.viewl s of (x S.:< s') -> (Just x , BoundedStack s' limit)
                       S.EmptyL    -> (Nothing, bs)
 

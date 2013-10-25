@@ -33,15 +33,15 @@ import qualified Codec.Picture.Types as JPT
 import Control.Exception
 import Text.Printf
 
-import BoundedMap
+import qualified BoundedMap as BM
 import Trace
 
 -- Caching system (disk & memory) for image fetches over HTTP
 
 data HTTPImageCache p = HTTPImageCache
     { hicCacheFolder    :: B.ByteString
-    , hicOutstandingReq :: TVar (BoundedMap B.ByteString ())
-    , hicCacheEntries   :: TVar (M.Map B.ByteString (CacheEntry p))
+    , hicOutstandingReq :: TVar (BM.BoundedMap B.ByteString ()) -- No 'v', used as a Set + FIFO
+    , hicCacheEntries   :: TVar (BM.BoundedMap B.ByteString (CacheEntry p))
       -- Statistics
     , hicBytesTrans     :: IORef Word64
     , hicMisses         :: IORef Word64
@@ -74,8 +74,8 @@ withHTTPImageCache manager numConcReq cacheFolder f = do
     -- Make sure our cache folder exists
     createDirectoryIfMissing True cacheFolder
     -- Build record 
-    initOutstandingReq <- newTVarIO $ mkBoundedMap 350 -- Limit outst. requests (TODO: hardcoded)
-    initCacheEntries   <- newTVarIO $ M.empty
+    initOutstandingReq <- newTVarIO $ BM.mkBoundedMap 350 -- TODO: hardcoded limits
+    initCacheEntries   <- newTVarIO $ BM.mkBoundedMap 1024
     initIORefs         <- forM ([1..4] :: [Int]) (\_ -> newIORef 0 :: IO (IORef Word64))
     let hic = HTTPImageCache { hicCacheFolder    = B8.pack $ addTrailingPathSeparator cacheFolder
                              , hicOutstandingReq = initOutstandingReq
@@ -137,16 +137,20 @@ popRequestStack :: HTTPImageCache p -> IO B.ByteString
 popRequestStack hic = do
     let pop = atomically $ do
         requests <- readTVar $ hicOutstandingReq hic
-        let (maybeURL, requests') = popBoundedMap requests
+        let (maybeURL, requests') = BM.pop requests
         case maybeURL of
             Just (url, ()) ->
                 do -- Write the stack with the removed top item back
                    writeTVar (hicOutstandingReq hic) requests'
                    -- Make sure the request is not already in the cache / fetching
+                   --
+                   -- TODO: Now that we're using a BoundedMap for the request stack this
+                   --       should not be necessary...
                    cache <- readTVar $ hicCacheEntries hic
-                   if   M.notMember url cache
+                   if   M.notMember url $ BM.view cache
                    then do -- New request, mark fetch status and return URL
-                           writeTVar (hicCacheEntries hic) $ M.insert url Fetching cache
+                           writeTVar (hicCacheEntries hic) .
+                                     fst $ BM.insert url Fetching cache
                            return $ Just url
                    else return Nothing -- Already in cache, commit transaction here and return
                                        -- Nothing so the outer loop can try again
@@ -211,19 +215,19 @@ fetchThread hic manager = handle (\ThreadKilled -> -- Handle this exception here
     where
         updateCacheEntry :: HTTPImageCache p -> B.ByteString -> CacheEntry p -> IO ()
         updateCacheEntry hic' url entry = -- Can't re-use hic from the outer scope (type error)
-            atomically . modifyTVar' (hicCacheEntries hic') $ \cache ->
-                M.adjust (\_ -> entry)
-                         url
-                         cache
+            atomically . modifyTVar' (hicCacheEntries hic') $ BM.update url entry
  
 -- Return the image at the given URL from the cache, or schedule fetching if not present
 fetchImage :: HTTPImageCache p -> B.ByteString -> IO (Maybe (CacheEntry p))
 fetchImage hic url = do
     r <- atomically $ do
         cache <- readTVar $ hicCacheEntries hic
-        case M.lookup url cache of
+        case M.lookup url $ BM.view cache of
             Nothing -> do -- New image, add it on top of the fetch stack
-                          modifyTVar' (hicOutstandingReq hic) (fst . insertBoundedMap url ())
+                          --
+                          -- TODO: Position in the fetch stack is unchanged for already
+                          --       existing requests
+                          modifyTVar' (hicOutstandingReq hic) (fst . BM.insert url ())
                           return Nothing
             e       -> return e
     case r of
@@ -257,7 +261,7 @@ gatherCacheStats hic = do
              CacheError  -> (fetching', fetched', processed', cacheErr' + 1)
          )
          ((0, 0, 0, 0) :: (Word64, Word64, Word64, Word64))
-         (M.toList entries)
+         (M.toList . BM.view $ entries)
     return $ printf
         (  "HTTP Image Cache Statistics\n"
         ++ "Network       - Received Total: %.2fKB\n"
