@@ -7,6 +7,7 @@ module DoubleMap ( Map
                  , lookup
                  , delete
                  , deleteFindMaxA
+                 , deleteFindMaxB
                  , view
                  , update
                  , updateKeyA
@@ -49,13 +50,23 @@ delete k m@(Map ma mb) = case lookup k m of
     Just (ka, kb, _) -> Map (M.delete ka ma) (M.delete kb mb)
     Nothing          -> m
 
--- Find the largest key of A, delete it from the map and return it
-deleteFindMaxA :: (Ord ka, Ord kb) => Map ka kb v -> (Map ka kb v, Maybe (ka, v))
+-- Find the largest key of A/B, delete it from the map and return it
+deleteFindMaxA :: (Ord ka, Ord kb) => Map ka kb v -> (Map ka kb v, Maybe (ka, kb, v))
 deleteFindMaxA m@(Map ma mb) = if   null m
                                then (m, Nothing)
                                else let ((delKeyA, (delKeyB, delVal)), delMapA) =
                                             M.deleteFindMax ma
-                                    in  (Map delMapA (M.delete delKeyB mb), Just (delKeyA, delVal))
+                                    in  ( Map delMapA (M.delete delKeyB mb)
+                                        , Just (delKeyA, delKeyB, delVal)
+                                        )
+deleteFindMaxB :: (Ord ka, Ord kb) => Map ka kb v -> (Map ka kb v, Maybe (ka, kb, v))
+deleteFindMaxB m@(Map ma mb) = if   null m
+                               then (m, Nothing)
+                               else let ((delKeyB, (delKeyA, delVal)), delMapB) =
+                                            M.deleteFindMax mb
+                                    in  ( Map (M.delete delKeyA ma) delMapB
+                                        , Just (delKeyA, delKeyB, delVal)
+                                        )
 
 view :: Map ka kb v -> (M.Map ka (kb, v), M.Map kb (ka, v))
 view (Map ma mb) = (ma, mb)

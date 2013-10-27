@@ -13,6 +13,7 @@ module LRUBoundedMap ( Map
 
 import Prelude hiding (lookup)
 import Data.Word
+import Control.Applicative hiding (empty)
 
 import qualified DoubleMap as DM
 import qualified Data.Map.Strict as M
@@ -59,8 +60,10 @@ delete k (Map m tick limit) = Map (DM.delete (Left k) m) tick limit
 
 -- Remove and return most recently used element
 deleteFindNewest :: Ord k => Map k v -> (Map k v, Maybe (k, v))
-deleteFindNewest (Map m tick limit) = let (delMap, delVal) = DM.deleteFindMaxA m
-                                      in  (Map delMap tick limit, delVal)
+deleteFindNewest (Map m tick limit) = let (delMap, delVal) = DM.deleteFindMaxB m
+                                      in  ( Map delMap tick limit
+                                          , (\(ka, _, v) -> (ka, v)) <$> delVal
+                                          )
 
 -- Update value, don't touch LRU time
 update :: Ord k => k -> v -> Map k v -> Map k v
