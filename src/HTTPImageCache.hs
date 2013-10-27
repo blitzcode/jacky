@@ -33,25 +33,21 @@ import qualified Codec.Picture.Types as JPT
 import Control.Exception
 import Text.Printf
 
-import qualified BoundedMap as BM
+import qualified LRUBoundedMap as LBM
 import Trace
 
 -- Caching system (disk & memory) for image fetches over HTTP
-
--- TODO: Change BoundedMap into using a representation where we can update an elements position
---       in the FIFO, i.e. make sure recently accessed elements are not flushed from the cache
 
 -- TODO: Add support for retiring elements from the disk cache, consider not having the disk
 --       cache at all and only use it to speed up application startup / offline mode
 
 -- TODO: Consider removing support for 'Processed' cache entries and move that functionality
---       into a separate texture cache. Also need to add the ability to remove cache entries
---       then, requiring changes to BoundedMap
+--       into a separate texture cache
 
 data HTTPImageCache p = HTTPImageCache
     { hicCacheFolder       :: B.ByteString
-    , hicOutstandingReq    :: TVar (BM.BoundedMap B.ByteString ()) -- No 'v', used as a Set + FIFO
-    , hicCacheEntries      :: TVar (BM.BoundedMap B.ByteString (CacheEntry p))
+    , hicOutstandingReq    :: TVar (LBM.Map B.ByteString ()) -- No 'v', used as a Set + LRU
+    , hicCacheEntries      :: TVar (LBM.Map B.ByteString (CacheEntry p))
       -- Statistics
     , hicBytesTrans        :: IORef Word64
     , hicMisses            :: IORef Word64
@@ -85,8 +81,8 @@ withHTTPImageCache manager memCacheEntryLimit numConcReq cacheFolder f = do
     -- Make sure our cache folder exists
     createDirectoryIfMissing True cacheFolder
     -- Build record 
-    initOutstandingReq <- newTVarIO $ BM.mkBoundedMap $ memCacheEntryLimit `div` 4
-    initCacheEntries   <- newTVarIO $ BM.mkBoundedMap memCacheEntryLimit
+    initOutstandingReq <- newTVarIO $ LBM.empty $ memCacheEntryLimit `div` 4
+    initCacheEntries   <- newTVarIO $ LBM.empty memCacheEntryLimit
     initIORefs         <- forM ([1..4] :: [Int]) (\_ -> newIORef 0 :: IO (IORef Word64))
     let hic = HTTPImageCache { hicCacheFolder    = B8.pack $ addTrailingPathSeparator cacheFolder
                              , hicOutstandingReq = initOutstandingReq
@@ -147,7 +143,7 @@ popRequestStack :: HTTPImageCache p -> IO B.ByteString
 popRequestStack hic = do
     let pop = atomically $ do
         requests <- readTVar $ hicOutstandingReq hic
-        let (maybeURL, requests') = BM.pop requests
+        let (requests', maybeURL) = LBM.deleteFindNewest requests
         case maybeURL of
             Just (url, ()) ->
                 do -- Write the stack with the removed top item back
@@ -157,10 +153,10 @@ popRequestStack hic = do
                    -- TODO: Now that we're using a BoundedMap for the request stack this
                    --       should not be necessary...
                    cache <- readTVar $ hicCacheEntries hic
-                   if   M.notMember url $ BM.view cache
+                   if   LBM.notMember url cache
                    then do -- New request, mark fetch status and return URL
                            writeTVar (hicCacheEntries hic) .
-                                     fst $ BM.insert url Fetching cache
+                                     fst $ LBM.insert url Fetching cache
                            return $ Just url
                    else return Nothing -- Already in cache, commit transaction here and return
                                        -- Nothing so the outer loop can try again
@@ -224,21 +220,20 @@ fetchThread hic manager = handle (\ThreadKilled -> -- Handle this exception here
     where
         updateCacheEntry :: HTTPImageCache p -> B.ByteString -> CacheEntry p -> IO ()
         updateCacheEntry hic' url entry = -- Can't re-use hic from the outer scope (type error)
-            atomically . modifyTVar' (hicCacheEntries hic') $! BM.update url entry
+            atomically . modifyTVar' (hicCacheEntries hic') $! LBM.update url entry
  
 -- Return the image at the given URL from the cache, or schedule fetching if not present
 fetchImage :: HTTPImageCache p -> B.ByteString -> IO (Maybe (CacheEntry p))
 fetchImage hic url = do
     r <- atomically $ do
-        cache <- readTVar $ hicCacheEntries hic
-        case M.lookup url $ BM.view cache of
-            Nothing -> do -- New image, add it on top of the fetch stack
-                          --
-                          -- TODO: Position in the fetch stack is unchanged for already
-                          --       existing requests
-                          modifyTVar' (hicOutstandingReq hic) (fst . BM.insert url ())
-                          return Nothing
-            e       -> return e
+        cache <- readTVar (hicCacheEntries hic)
+        case LBM.lookup url cache of
+            (_,      Nothing) -> do -- New image, add it on top of the fetch stack
+                                    modifyTVar' (hicOutstandingReq hic) (fst . LBM.insert url ())
+                                    return Nothing
+            (cache', e      ) -> do -- Write back cache with update LRU tick, return entry
+                                    writeTVar (hicCacheEntries hic) cache'
+                                    return e
     case r of
         Just _  -> incCacheMemHits hic
         Nothing -> return ()
@@ -269,14 +264,14 @@ gatherCacheStats hic = do
     memHits     <- readIORef $ hicMemHits    hic
     entries     <- atomically . readTVar $ hicCacheEntries hic
     let (fetching, fetched, processed, cacheErr) = foldr
-         (\(_, v) (fetching', fetched', processed', cacheErr') -> case v of
+         (\(_, (_, v)) (fetching', fetched', processed', cacheErr') -> case v of
              Fetching    -> (fetching' + 1, fetched', processed', cacheErr')
              Fetched _   -> (fetching', fetched' + 1, processed', cacheErr')
              Processed _ -> (fetching', fetched', processed' + 1, cacheErr')
              CacheError  -> (fetching', fetched', processed', cacheErr' + 1)
          )
          ((0, 0, 0, 0) :: (Word64, Word64, Word64, Word64))
-         (M.toList . BM.view $ entries)
+         (M.toList . fst . LBM.view $ entries)
     return $ printf
         (  "HTTP Image Cache Statistics\n"
         ++ "Network       - Received Total: %.2fKB\n"

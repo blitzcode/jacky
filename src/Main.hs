@@ -61,6 +61,7 @@ import CharFreq
 import BoundedMap
 
 -- TODO: Start using Lens library for records and Reader/State
+-- TODO: Use labelThread for all threads
 
 data LogNetworkMode = ModeNoLog | ModeLogNetwork | ModeReplayLog deriving (Eq, Enum, Show)
 

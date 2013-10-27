@@ -11,7 +11,7 @@ import qualified Data.Sequence as S
 -- Stack implementation based on Sequence which drops elements pushed over
 -- a specified depth
 
-data BoundedStack a = BoundedStack (S.Seq a) Int
+data BoundedStack a = BoundedStack (S.Seq a) !Int
                       deriving (Show)
 
 mkBoundedStack :: Int -> BoundedStack a

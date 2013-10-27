@@ -6,22 +6,24 @@ module DoubleMap ( Map
                  , notMember
                  , lookup
                  , delete
+                 , deleteFindMaxA
                  , view
                  , update
                  , updateKeyA
                  , updateKeyB
                  , size
+                 , null
                  ) where
 
 import qualified Data.Map.Strict as M
-import Prelude hiding (lookup)
+import Prelude hiding (lookup, null)
 import Control.Applicative hiding (empty)
 
 -- Map sorted and indexed by two different types of key (assumes both keys are
 -- unique for each element)
 
-data Map ka kb v = Map (M.Map ka (kb, v))
-                       (M.Map kb (ka, v))
+data Map ka kb v = Map !(M.Map ka (kb, v))
+                       !(M.Map kb (ka, v))
                        deriving (Show)
 
 empty :: Map ka kb v
@@ -47,6 +49,14 @@ delete k m@(Map ma mb) = case lookup k m of
     Just (ka, kb, _) -> Map (M.delete ka ma) (M.delete kb mb)
     Nothing          -> m
 
+-- Find the largest key of A, delete it from the map and return it
+deleteFindMaxA :: (Ord ka, Ord kb) => Map ka kb v -> (Map ka kb v, Maybe (ka, v))
+deleteFindMaxA m@(Map ma mb) = if   null m
+                               then (m, Nothing)
+                               else let ((delKeyA, (delKeyB, delVal)), delMapA) =
+                                            M.deleteFindMax ma
+                                    in  (Map delMapA (M.delete delKeyB mb), Just (delKeyA, delVal))
+
 view :: Map ka kb v -> (M.Map ka (kb, v), M.Map kb (ka, v))
 view (Map ma mb) = (ma, mb)
 
@@ -70,4 +80,7 @@ updateKeyB kb kb' m@(Map ma mb) = case lookup (Right kb) m of
 
 size :: Map ka kb v -> Int
 size (Map ma _) = M.size ma
+
+null :: Map ka kb v -> Bool
+null (Map ma _) = M.null ma
 

@@ -6,7 +6,9 @@ module LRUBoundedMap ( Map
                      , notMember
                      , lookup
                      , delete
+                     , deleteFindNewest
                      , update
+                     , view
                      ) where
 
 import Prelude hiding (lookup)
@@ -20,7 +22,7 @@ import qualified Data.Map.Strict as M
 
 -- TODO: Grand total of five O(log n) operations for insert and lookup, maybe we can do better?
 
-data Map k v = Map (DM.Map k Word64 v) !Word64 !Int
+data Map k v = Map !(DM.Map k Word64 v) !Word64 !Int
                    deriving (Show)
 
 empty :: Int -> Map k v
@@ -55,7 +57,15 @@ lookup k bm@(Map m tick limit) = case DM.lookup (Left k) m of
 delete :: Ord k => k -> Map k v -> Map k v
 delete k (Map m tick limit) = Map (DM.delete (Left k) m) tick limit
 
+-- Remove and return most recently used element
+deleteFindNewest :: Ord k => Map k v -> (Map k v, Maybe (k, v))
+deleteFindNewest (Map m tick limit) = let (delMap, delVal) = DM.deleteFindMaxA m
+                                      in  (Map delMap tick limit, delVal)
+
 -- Update value, don't touch LRU time
 update :: Ord k => k -> v -> Map k v -> Map k v
 update k v (Map m tick limit) = Map (DM.update (Left k) v m) tick limit
+
+view :: Map ka v -> (M.Map ka (Word64, v), M.Map Word64 (ka, v))
+view (Map m _ _) = DM.view m
 
