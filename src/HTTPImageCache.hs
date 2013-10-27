@@ -94,6 +94,7 @@ withHTTPImageCache manager memCacheEntryLimit numConcReq cacheFolder f = do
                              }
     bracket -- Fetch thread launch and cleanup
         (forM [1..numConcReq] $ \_ -> async $ fetchThread hic manager)
+        -- TODO: Verify LRUBoundedMap integrity at this point
         (\threads -> do
             traceS TLInfo =<< gatherCacheStats hic
             traceT TLInfo "Shutting down image fetch threads"
@@ -150,8 +151,7 @@ popRequestStack hic = do
                    writeTVar (hicOutstandingReq hic) requests'
                    -- Make sure the request is not already in the cache / fetching
                    --
-                   -- TODO: Now that we're using a BoundedMap for the request stack this
-                   --       should not be necessary...
+                   -- TODO: This should not be necessary, no duplicate requests in LRUBoundedMap
                    cache <- readTVar $ hicCacheEntries hic
                    if   LBM.notMember url cache
                    then do -- New request, mark fetch status and return URL
@@ -180,7 +180,7 @@ fetchDiskCache hic manager url cacheFn = do
                            incCacheMisses hic
                            -- TODO: Misses HTTP protocol overhead
                            incCacheBytesTransf hic . fromIntegral . BL.length . responseBody $ res
-                           BL.writeFile cacheFn $ responseBody res
+                           --BL.writeFile cacheFn $ responseBody res
                        return $ responseBody res
         Right x -> incCacheDiskHits hic >> return x
 

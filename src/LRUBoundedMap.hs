@@ -23,7 +23,10 @@ import qualified Data.Map.Strict as M
 
 -- TODO: Grand total of five O(log n) operations for insert and lookup, maybe we can do better?
 
-data Map k v = Map !(DM.Map k Word64 v) !Word64 !Int
+data Map k v = Map !(DM.Map k Word64 v)
+                   !Word64 -- We use a 'tick', which we keep incrementing, to keep track of how
+                           -- old elements are relative to each other
+                   !Int
                    deriving (Show)
 
 empty :: Int -> Map k v
@@ -71,4 +74,6 @@ update k v (Map m tick limit) = Map (DM.update (Left k) v m) tick limit
 
 view :: Map ka v -> (M.Map ka (Word64, v), M.Map Word64 (ka, v))
 view (Map m _ _) = DM.view m
+
+-- TODO: Add verify function
 

@@ -241,6 +241,7 @@ draw = do
         GL.clearColor GL.$= (GL.Color4 0.2 0.2 0.2 0.0 :: GL.Color4 GL.GLclampf)
         GL.clear [GL.ColorBuffer]
 {-
+    -- TODO: Add OpenGL texture caching and draw quads instead of glDrawPixels
     GLU.build2DMipmaps
         GL.Texture2D GL.RGBA' (fromIntegral fontTexWdh) (fromIntegral fontTexWdh)
         (GL.PixelData GL.RGBA GL.UnsignedByte ptr)
@@ -296,6 +297,8 @@ highResProfileImgURL url =
 
 processSMEvent :: StreamMessage -> AppDraw ()
 processSMEvent ev =
+    -- TODO: Replace tweet / delete trace messages with summary stats every
+    --       couple of messages
     case ev of
         (SMParseError bs) -> liftIO . traceS TLError $ "\nStream Parse Error: " ++ B8.unpack bs
         SMTweet tw' ->

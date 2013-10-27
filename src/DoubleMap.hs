@@ -37,6 +37,7 @@ member k (Map ma mb) = case k of Left  ka -> M.member ka ma
 notMember :: (Ord ka, Ord kb) => Either ka kb -> Map ka kb v -> Bool
 notMember k m = not $ member k m
 
+-- TODO: This will leak when we overwrite existing entries with different A/B keys
 insert :: (Ord ka, Ord kb) => ka -> kb -> v -> Map ka kb v -> Map ka kb v
 insert ka kb v (Map ma mb) = v `seq` Map (M.insert ka (kb, v) ma)
                                          (M.insert kb (ka, v) mb)
@@ -94,4 +95,6 @@ size (Map ma _) = M.size ma
 
 null :: Map ka kb v -> Bool
 null (Map ma _) = M.null ma
+
+-- TODO: Add verify function
 
