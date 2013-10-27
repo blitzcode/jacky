@@ -31,6 +31,7 @@ import System.IO.Error
 import qualified Codec.Picture as JP
 import qualified Codec.Picture.Types as JPT
 import Control.Exception
+import Control.Applicative
 import Text.Printf
 
 import qualified LRUBoundedMap as LBM
@@ -94,9 +95,16 @@ withHTTPImageCache manager memCacheEntryLimit numConcReq cacheFolder f = do
                              }
     bracket -- Fetch thread launch and cleanup
         (forM [1..numConcReq] $ \_ -> async $ fetchThread hic manager)
-        -- TODO: Verify LRUBoundedMap integrity at this point
         (\threads -> do
+            -- Error checking, statistics
+            req   <- LBM.valid <$> (atomically . readTVar $ hicOutstandingReq hic)
+            cache <- LBM.valid <$> (atomically . readTVar $ hicCacheEntries   hic)
+            case req   of Just err -> traceS TLError $ "LRUBoundedMap: hicOutstandingReq: " ++ err
+                          Nothing  -> return ()
+            case cache of Just err -> traceS TLError $ "LRUBoundedMap: hicCacheEntries: "   ++ err
+                          Nothing  -> return ()
             traceS TLInfo =<< gatherCacheStats hic
+            -- Shutdown
             traceT TLInfo "Shutting down image fetch threads"
             forM_ threads cancel
             forM_ threads $ \thread -> do

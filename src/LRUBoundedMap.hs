@@ -9,11 +9,13 @@ module LRUBoundedMap ( Map
                      , deleteFindNewest
                      , update
                      , view
+                     , valid
                      ) where
 
 import Prelude hiding (lookup)
 import Data.Word
 import Control.Applicative hiding (empty)
+import Control.Monad.Writer
 
 import qualified DoubleMap as DM
 import qualified Data.Map.Strict as M
@@ -75,5 +77,16 @@ update k v (Map m tick limit) = Map (DM.update (Left k) v m) tick limit
 view :: Map ka v -> (M.Map ka (Word64, v), M.Map Word64 (ka, v))
 view (Map m _ _) = DM.view m
 
--- TODO: Add verify function
+valid :: Ord k => Map k v -> Maybe String
+valid (Map m tick limit) =
+    let w = execWriter $ do
+                when (limit < 1) $ tell "limit < 1\n"
+                let (_, mb) = DM.view m
+                forM_ (M.toList mb) $ \(kb, _) ->
+                   when (kb >= tick) $ tell "invalid tick in B map\n"
+                case DM.valid m of
+                    Just xs -> tell xs
+                    Nothing -> return ()
+    in  case w of [] -> Nothing
+                  xs -> Just xs
 

@@ -14,11 +14,13 @@ module DoubleMap ( Map
                  , updateKeyB
                  , size
                  , null
+                 , valid
                  ) where
 
 import qualified Data.Map.Strict as M
 import Prelude hiding (lookup, null)
 import Control.Applicative hiding (empty)
+import Control.Monad.Writer
 
 -- Map sorted and indexed by two different types of key (assumes both keys are
 -- unique for each element)
@@ -37,7 +39,8 @@ member k (Map ma mb) = case k of Left  ka -> M.member ka ma
 notMember :: (Ord ka, Ord kb) => Either ka kb -> Map ka kb v -> Bool
 notMember k m = not $ member k m
 
--- TODO: This will leak when we overwrite existing entries with different A/B keys
+-- TODO: This will leak when we overwrite existing entries with different A/B keys, error
+--       should be detected by 'valid', though
 insert :: (Ord ka, Ord kb) => ka -> kb -> v -> Map ka kb v -> Map ka kb v
 insert ka kb v (Map ma mb) = v `seq` Map (M.insert ka (kb, v) ma)
                                          (M.insert kb (ka, v) mb)
@@ -96,5 +99,18 @@ size (Map ma _) = M.size ma
 null :: Map ka kb v -> Bool
 null (Map ma _) = M.null ma
 
--- TODO: Add verify function
+valid :: (Ord ka, Ord kb) => Map ka kb v -> Maybe String
+valid (Map ma mb) = 
+    let w = execWriter $ do
+                when (M.size ma /= M.size mb) $ tell "A / B map size mismatch\n"
+                forM_ (M.toList ma) $ \(ka, (kb, _)) ->
+                   case M.lookup kb mb of Just (ka', _) -> when (ka /= ka') $
+                                              tell "bad A <- B back reference\n"
+                                          Nothing -> tell "invalid A -> B reference\n"
+                forM_ (M.toList mb) $ \(kb, (ka, _)) ->
+                   case M.lookup ka ma of Just (kb', _) -> when (kb /= kb') $
+                                              tell "bad B <- A back reference\n"
+                                          Nothing -> tell "invalid B -> A reference\n"
+    in  case w of [] -> Nothing
+                  xs -> Just xs
 
