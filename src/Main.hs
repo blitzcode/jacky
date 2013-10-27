@@ -58,7 +58,6 @@ import ProcessStatus
 import Util (modify', parseMaybeInt)
 import GLHelpers
 import CharFreq
-import BoundedMap
 
 -- TODO: Start using Lens library for records and Reader/State
 -- TODO: Use labelThread for all threads
