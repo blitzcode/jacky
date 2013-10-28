@@ -27,6 +27,7 @@ import Control.Concurrent.STM
 import Control.Concurrent.STM.TSem
 import Control.Monad.RWS.Strict
 import qualified Graphics.Rendering.OpenGL as GL
+import qualified Graphics.Rendering.OpenGL.Raw as GLR
 import qualified Graphics.Rendering.OpenGL.GLU as GLU
 import qualified "GLFW-b" Graphics.UI.GLFW as GLFW
 import System.IO
@@ -237,23 +238,64 @@ setupOAuth fn = do
 runOnAllCores :: IO ()
 runOnAllCores = GHC.Conc.getNumProcessors >>= setNumCapabilities
 
+
+color3f :: Float -> Float -> Float -> IO ()
+color3f r g b = GL.color $ GL.Color3 (realToFrac r :: GL.GLfloat) (realToFrac g) (realToFrac b)
+
+vertex2f :: Float -> Float -> IO ()
+vertex2f x y = GL.vertex $ GL.Vertex2 (realToFrac x :: GL.GLfloat) (realToFrac y)
+
+texCoord2f :: Float -> Float -> IO ()
+texCoord2f u v = GL.texCoord $ GL.TexCoord2 (realToFrac u :: GL.GLfloat) (realToFrac v)
+
+drawQuad :: Float -> Float -> Float -> Float -> (Float, Float, Float) -> IO ()
+drawQuad x y w h (r, g, b) =
+    GL.renderPrimitive GL.Quads $ do
+        color3f r g b
+        texCoord2f 0.0 0.0
+        vertex2f x y
+        texCoord2f 1.0 0.0
+        vertex2f (x + w) y
+        texCoord2f 1.0 1.0
+        vertex2f (x + w) (y + h)
+        texCoord2f 0.0 1.0
+        vertex2f x (y + h)
+
 draw :: AppDraw ()
 draw = do
     liftIO $ do
         GL.clearColor GL.$= (GL.Color4 0.2 0.2 0.2 0.0 :: GL.Color4 GL.GLclampf)
         GL.clear [GL.ColorBuffer]
 {-
+    [tex] <- GL.genObjectNames 1
+    GL.textureBinding GL.Texture2D GL.$= Just tex
+
     -- TODO: Add OpenGL texture caching and draw quads instead of glDrawPixels
     GLU.build2DMipmaps
         GL.Texture2D GL.RGBA' (fromIntegral fontTexWdh) (fromIntegral fontTexWdh)
         (GL.PixelData GL.RGBA GL.UnsignedByte ptr)
+
+    GL.deleteObjectNames [tex]
+
+    GL.texture GL.Texture2D GL.$= GL.Enabled
+    GL.textureBinding GL.Texture2D GL.$= Just tex
+    GL.textureFilter GL.Texture2D GL.$= ((GL.Linear', Just GL.Linear'), GL.Nearest)
+    GL.blend GL.$= GL.Enabled
+    GL.blendFunc GL.$= (GL.SrcAlpha, GL.OneMinusSrcAlpha)
+
+    GL.color (GL.Color3 1 1 1 :: GL.Color3 GL.GLfloat)
+    GL.blend GL.$= GL.Disabled
+    GL.textureBinding GL.Texture2D GL.$= Nothing
+    GL.texture GL.Texture2D GL.$= GL.Disabled
 -}
+
     tweets <- gets stTweetByID
     hic    <- asks envHTTPImageCache
     forM_ (zip ([0..349] :: [Int]) (reverse . Prelude.take 349 $ M.toDescList tweets)) $ \(idx, (_, tw)) -> liftIO $ do
         ce <- fetchImage hic (usrProfileImageURL . twUser $ tw)
         case ce of
             Just (Fetched (HTTPImageRes w h img)) -> do
+                {-
                 GL.windowPos (GL.Vertex2
                     (fromIntegral $ (idx `mod` 25) * 47)
                     (fromIntegral $ (idx `div` 25) * 47)
@@ -264,8 +306,66 @@ draw = do
                     GL.drawPixels
                         (GL.Size (fromIntegral w) (fromIntegral h))
                         (GL.PixelData GL.RGBA GL.UnsignedByte ptr)
+                -}
+
+                GL.blend GL.$= GL.Enabled
+                GL.blendFunc GL.$= (GL.ConstantAlpha, GL.OneMinusConstantAlpha)
+                GL.blendColor GL.$= (GL.Color4 0 0 0 0.5 :: GL.Color4 GL.GLfloat)
+                [tex] <- GL.genObjectNames 1 :: IO [GL.TextureObject]
+
+                GL.texture         GL.Texture2D GL.$= GL.Enabled
+                GL.textureBinding  GL.Texture2D GL.$= Just tex
+                GL.textureWrapMode GL.Texture2D GL.S GL.$= (GL.Repeated, GL.ClampToEdge)
+                GL.textureWrapMode GL.Texture2D GL.T GL.$= (GL.Repeated, GL.ClampToEdge)
+                GL.textureFilter   GL.Texture2D GL.$= ((GL.Linear', Nothing), GL.Linear')
+
+                VS.unsafeWith img $ \ptr -> do
+
+                    err <- GL.get GL.errors
+                    unless (null err) .
+                        traceS TLError $ "OpenGL Error: " ++ concatMap show err
+{-
+                    GLU.build2DMipmaps
+                        GL.Texture2D
+                        GL.RGBA'
+                        (fromIntegral w)
+                        (fromIntegral h)
+                        (GL.PixelData GL.RGBA GL.UnsignedByte ptr)
+-}
+                    GL.texImage2D
+                        Nothing
+                        GL.NoProxy
+                        0
+                        GL.RGBA8
+                        (GL.TextureSize2D (fromIntegral w) (fromIntegral h))
+                        0
+                        (GL.PixelData GL.RGBA GL.UnsignedByte ptr)
+{-
+                    GLR.glTexImage2D
+                        GLR.gl_TEXTURE_2D
+                        0
+                        (fromIntegral $ fromEnum GLR.gl_RGBA8 :: GL.GLint)
+                        32
+                        32
+                        0
+                        GLR.gl_BGRA
+                        GLR.gl_UNSIGNED_BYTE
+                        ptr
+-}
+
+                drawQuad
+                    (fromIntegral $ (idx `mod` 25) * 47)
+                    (fromIntegral $ (idx `div` 25) * 47)
+                    (fromIntegral w)
+                    (fromIntegral h)
+                    (1, 1, 1)
+
+                GL.deleteObjectNames [tex]
+
             Just (Processed tex) -> return ()
             _ -> return ()
+
+
 
 -- Process all available events in both bounded and unbounded STM queues
 processAllEvents :: (MonadIO m) => Either (TQueue a) (TBQueue a) -> (a -> m ()) -> m ()
@@ -304,7 +404,10 @@ processSMEvent ev =
     case ev of
         (SMParseError bs) -> liftIO . traceS TLError $ "\nStream Parse Error: " ++ B8.unpack bs
         SMTweet tw' ->
-            do cntMsg (stStatTweetsReceived) (\n s -> s { stStatTweetsReceived = n }) 50 "SMTweet"
+            do cntMsg (stStatTweetsReceived)
+                      (\n s -> s { stStatTweetsReceived = n })
+                      100
+                      "SMTweet"
                -- Always try to fetch the higher resolution profile images
                -- TODO: Looks like a use case for lenses...
                let tw = tw' { twUser = (twUser tw')
@@ -323,7 +426,10 @@ processSMEvent ev =
                                                      else sInsert
                                  }
         SMDelete _ _ ->
-            cntMsg (stStatDelsReceived) (\n s -> s { stStatDelsReceived = n }) 20 "SMDelete"
+            cntMsg (stStatDelsReceived)
+                   (\n s -> s { stStatDelsReceived = n })
+                   50
+                   "SMDelete"
         _  -> liftIO . traceS TLInfo $ show ev -- Trace all other messages in full
         -- Less verbose tracing / counting of messages received
         where cntMsg :: (State -> Int) -> (Int -> State -> State) -> Int -> String -> AppDraw ()
