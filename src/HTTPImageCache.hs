@@ -164,7 +164,7 @@ popRequestStack hic = do
                    if   LBM.notMember url cache
                    then do -- New request, mark fetch status and return URL
                            writeTVar (hicCacheEntries hic) .
-                                     fst $ LBM.insert url Fetching cache
+                                     fst $ LBM.insertUnsafe url Fetching cache
                            return $ Just url
                    else return Nothing -- Already in cache, commit transaction here and return
                                        -- Nothing so the outer loop can try again

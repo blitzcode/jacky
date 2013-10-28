@@ -2,10 +2,12 @@
 module DoubleMap ( Map
                  , empty
                  , insert
+                 , insertUnsafe
                  , member
                  , notMember
                  , lookup
                  , delete
+                 , deleteAB
                  , deleteFindMaxA
                  , deleteFindMaxB
                  , view
@@ -39,20 +41,32 @@ member k (Map ma mb) = case k of Left  ka -> M.member ka ma
 notMember :: (Ord ka, Ord kb) => Either ka kb -> Map ka kb v -> Bool
 notMember k m = not $ member k m
 
--- TODO: This will leak when we overwrite existing entries with different A/B keys, error
---       should be detected by 'valid', though
+-- This will leak orphaned entries when we overwrite existing entries with different
+-- combinations of A/B keys, error should be detected by 'valid'
+insertUnsafe :: (Ord ka, Ord kb) => ka -> kb -> v -> Map ka kb v -> Map ka kb v
+insertUnsafe ka kb v (Map ma mb) = v `seq` Map (M.insert ka (kb, v) ma)
+                                               (M.insert kb (ka, v) mb)
+
+-- Unlike the normal insert of a standard map, this will leave the map unchanged if
+-- any of the keys are already present in either map
 insert :: (Ord ka, Ord kb) => ka -> kb -> v -> Map ka kb v -> Map ka kb v
-insert ka kb v (Map ma mb) = v `seq` Map (M.insert ka (kb, v) ma)
-                                         (M.insert kb (ka, v) mb)
+insert ka kb v m =
+    if   notMember (Left ka) m && notMember (Right kb) m
+    then insertUnsafe ka kb v m
+    else m
 
 lookup :: (Ord ka, Ord kb) => Either ka kb -> Map ka kb v -> Maybe (ka, kb, v)
 lookup k (Map ma mb) = case k of Left  ka -> (\(kb, v) -> (ka, kb, v)) <$> M.lookup ka ma
                                  Right kb -> (\(ka, v) -> (ka, kb, v)) <$> M.lookup kb mb
 
 delete :: (Ord ka, Ord kb) => Either ka kb -> Map ka kb v -> Map ka kb v
-delete k m@(Map ma mb) = case lookup k m of
-    Just (ka, kb, _) -> Map (M.delete ka ma) (M.delete kb mb)
+delete k m = case lookup k m of
+    Just (ka, kb, _) -> deleteAB ka kb m
     Nothing          -> m
+
+-- Delete function for the case where we know both keys
+deleteAB :: (Ord ka, Ord kb) => ka -> kb -> Map ka kb v -> Map ka kb v
+deleteAB ka kb (Map ma mb) = Map (M.delete ka ma) (M.delete kb mb)
 
 -- Find the largest key of A/B, delete it from the map and return it
 deleteFindMaxA :: (Ord ka, Ord kb) => Map ka kb v -> (Map ka kb v, Maybe (ka, kb, v))
@@ -111,6 +125,8 @@ valid (Map ma mb) =
                    case M.lookup ka ma of Just (kb', _) -> when (kb /= kb') $
                                               tell "bad B <- A back reference\n"
                                           Nothing -> tell "invalid B -> A reference\n"
+                when (M.valid ma == False || M.valid mb == False) $
+                    tell "inner map not valid\n"
     in  case w of [] -> Nothing
                   xs -> Just xs
 

@@ -314,16 +314,16 @@ processSMEvent ev =
                             }
                -- Insert tweet
                tweetLimit <- asks envTweetHistSize
-               modify' $ \s -> s { stTweetByID = let sInsert    = M.insert (twID tw)
-                                                                           tw
-                                                                           (stTweetByID s)
+               modify' $ \s -> s { stTweetByID = let sInsert = M.insert (twID tw)
+                                                                        tw
+                                                                        (stTweetByID s)
                                                      -- Delete oldest once we reached the limit
                                                  in  if   M.size sInsert > tweetLimit
                                                      then M.deleteMin sInsert
                                                      else sInsert
                                  }
         SMDelete _ _ ->
-            cntMsg (stStatDelsReceived) (\n s -> s { stStatDelsReceived = n }) 15 "SMDelete"
+            cntMsg (stStatDelsReceived) (\n s -> s { stStatDelsReceived = n }) 20 "SMDelete"
         _  -> liftIO . traceS TLInfo $ show ev -- Trace all other messages in full
         -- Less verbose tracing / counting of messages received
         where cntMsg :: (State -> Int) -> (Int -> State -> State) -> Int -> String -> AppDraw ()

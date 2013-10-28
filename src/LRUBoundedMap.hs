@@ -2,6 +2,7 @@
 module LRUBoundedMap ( Map
                      , empty
                      , insert
+                     , insertUnsafe
                      , member
                      , notMember
                      , lookup
@@ -23,7 +24,7 @@ import qualified Data.Map.Strict as M
 -- Bounded map maintaining a separate map for access history to drop the least
 -- recently used element once the specified element limit is reached
 
--- TODO: Grand total of five O(log n) operations for insert and lookup, maybe we can do better?
+-- TODO: Grand total of five O(log n) operations lookup (insert similar), maybe we can do better?
 
 data Map k v = Map !(DM.Map k Word64 v)
                    !Word64 -- We use a 'tick', which we keep incrementing, to keep track of how
@@ -37,14 +38,23 @@ empty limit | limit >= 1 = Map DM.empty 0 limit
 
 -- Insert a new element into the map, return the new map and the truncated
 -- element (if over the limit)
-insert :: Ord k => k -> v -> Map k v -> (Map k v, Maybe (k, v))
-insert k v (Map m tick limit) =
-    let inserted         = DM.insert k tick v m
+insertInternal :: Ord k
+               => (k -> Word64 -> v -> DM.Map k Word64 v -> DM.Map k Word64 v)
+               -> k
+               -> v
+               -> Map k v
+               -> (Map k v, Maybe (k, v))
+insertInternal fins k v (Map m tick limit) =
+    let inserted         = fins k tick v m
         (truncE, truncM) = if   DM.size inserted > limit
-                           then let (lruK, lruV) = snd $ M.findMin (snd $ DM.view inserted)
-                                in  (Just (lruK, lruV), DM.delete (Left lruK) inserted)
+                           then let (lruKB, (lruKA, lruV)) = M.findMin (snd $ DM.view inserted)
+                                in  (Just (lruKA, lruV), DM.deleteAB lruKA lruKB inserted)
                            else (Nothing, inserted)
     in  (Map truncM (tick + 1) limit, truncE)
+insert :: Ord k => k -> v -> Map k v -> (Map k v, Maybe (k, v)) 
+insert = insertInternal DM.insert
+insertUnsafe :: Ord k => k -> v -> Map k v -> (Map k v, Maybe (k, v)) 
+insertUnsafe = insertInternal DM.insertUnsafe
 
 member :: Ord k => k -> Map k v -> Bool
 member k (Map m _ _) = DM.member (Left k) m
