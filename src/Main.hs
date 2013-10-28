@@ -406,7 +406,7 @@ processSMEvent ev =
         SMTweet tw' ->
             do cntMsg (stStatTweetsReceived)
                       (\n s -> s { stStatTweetsReceived = n })
-                      100
+                      150
                       "SMTweet"
                -- Always try to fetch the higher resolution profile images
                -- TODO: Looks like a use case for lenses...
@@ -428,7 +428,7 @@ processSMEvent ev =
         SMDelete _ _ ->
             cntMsg (stStatDelsReceived)
                    (\n s -> s { stStatDelsReceived = n })
-                   50
+                   75
                    "SMDelete"
         _  -> liftIO . traceS TLInfo $ show ev -- Trace all other messages in full
         -- Less verbose tracing / counting of messages received

@@ -1,5 +1,5 @@
 
-{-# LANGUAGE ScopedTypeVariables, OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables, OverloadedStrings, DeriveDataTypeable #-}
 
 module HTTPImageCache ( HTTPImageCache
                       , HTTPImageRes(..)
@@ -15,6 +15,7 @@ import Data.Monoid
 import Data.Word
 import Data.Bits
 import Data.IORef
+import Data.Typeable
 import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Network.URI
@@ -159,7 +160,9 @@ popRequestStack hic = do
                    writeTVar (hicOutstandingReq hic) requests'
                    -- Make sure the request is not already in the cache / fetching
                    --
-                   -- TODO: This should not be necessary, no duplicate requests in LRUBoundedMap
+                   -- TODO: This should not be necessary, no duplicate requests in LRUBoundedMap,
+                   --       hence there should never be anything in the request queue that's in
+                   --       the cache
                    cache <- readTVar $ hicCacheEntries hic
                    if   LBM.notMember url cache
                    then do -- New request, mark fetch status and return URL
@@ -192,6 +195,12 @@ fetchDiskCache hic manager url cacheFn = do
                        return $ responseBody res
         Right x -> incCacheDiskHits hic >> return x
 
+data DecodeException = DecodeException { deError   :: String
+                                       , deURL     :: String
+                                       , deCacheFn :: String
+                                       } deriving (Show, Typeable)
+instance Exception DecodeException
+
 fetchThread :: HTTPImageCache p -> Manager -> IO ()
 fetchThread hic manager = handle (\ThreadKilled -> -- Handle this exception here so we exit cleanly
                                      traceT TLInfo "Fetch thread received 'ThreadKilled', exiting")
@@ -211,24 +220,27 @@ fetchThread hic manager = handle (\ThreadKilled -> -- Handle this exception here
                 -- Decompress and convert
                 --                                             TODO: Have to use toStrict, nasty
                 di <- case dynImgToRGBA8 =<< (JP.decodeImage $ BL.toStrict imgBS) of
-                          Left  err -> do
-                              traceS TLError $
-                                  printf "Error decoding image\nURL: %s\nCache File: %s\n%s"
-                                         (B8.unpack urlUncached) cacheFn err
-                              return $ JP.generateImage (\x y ->
-                                  JP.PixelRGBA8 (fromIntegral x) (fromIntegral y) 128 255) 64 64
+                          Left  err -> throwIO $ DecodeException
+                                           { deError   = err
+                                           , deURL     = (B8.unpack urlUncached) 
+                                           , deCacheFn = cacheFn
+                                           }
                           Right x   -> return x
                 -- Update cache with image
                 updateCacheEntry hic urlUncached (Fetched $! toHTTPImageRes di)
             )
       )
-      [ Handler (\(ex :: IOException  ) -> traceS TLError $ "HTTP Image Cache: " ++ show ex)
-      , Handler (\(ex :: HttpException) -> traceS TLError $ "HTTP Image Cache: " ++ show ex)
+      [ Handler $ \(ex :: IOException             ) -> reportEx ex
+      , Handler $ \(ex :: HttpException           ) -> reportEx ex
+      , Handler $ \(ex :: DecodeException         ) -> reportEx ex
+        -- TODO: We still seem to have an issue with this one...
+      , Handler $ \(ex :: BlockedIndefinitelyOnSTM) -> reportEx ex
       ]
     where
         updateCacheEntry :: HTTPImageCache p -> B.ByteString -> CacheEntry p -> IO ()
         updateCacheEntry hic' url entry = -- Can't re-use hic from the outer scope (type error)
             atomically . modifyTVar' (hicCacheEntries hic') $! LBM.update url entry
+        reportEx ex = traceS TLError $ "HTTP Image Cache Exception: " ++ show ex
  
 -- Return the image at the given URL from the cache, or schedule fetching if not present
 fetchImage :: HTTPImageCache p -> B.ByteString -> IO (Maybe (CacheEntry p))

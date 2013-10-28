@@ -39,7 +39,7 @@ empty limit | limit >= 1 = Map DM.empty 0 limit
 -- Insert a new element into the map, return the new map and the truncated
 -- element (if over the limit)
 insertInternal :: Ord k
-               => (k -> Word64 -> v -> DM.Map k Word64 v -> DM.Map k Word64 v)
+               => (k -> Word64 -> v -> DM.Map k Word64 v -> DM.Map k Word64 v) -- DM insert
                -> k
                -> v
                -> Map k v
