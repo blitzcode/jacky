@@ -77,7 +77,9 @@ data Env = Env
     }
 
 data State = State
-    { stTweetByID :: M.Map Int64 Tweet
+    { stTweetByID          :: M.Map Int64 Tweet
+    , stStatTweetsReceived :: Int
+    , stStatDelsReceived   :: Int
     }
 
 type AppDraw = RWST Env () State IO
@@ -302,7 +304,7 @@ processSMEvent ev =
     case ev of
         (SMParseError bs) -> liftIO . traceS TLError $ "\nStream Parse Error: " ++ B8.unpack bs
         SMTweet tw' ->
-            do liftIO $ traceT TLInfo "SMTweet Received"
+            do cntMsg (stStatTweetsReceived) (\n s -> s { stStatTweetsReceived = n }) 50 "SMTweet"
                -- Always try to fetch the higher resolution profile images
                -- TODO: Looks like a use case for lenses...
                let tw = tw' { twUser = (twUser tw')
@@ -320,10 +322,18 @@ processSMEvent ev =
                                                      then M.deleteMin sInsert
                                                      else sInsert
                                  }
-               -- TODO: Delete oldest tweet when we reached a limit
-        SMDelete _ _ -> liftIO $ traceT TLInfo "SMDelete Received"
-        -- Trace all other messages
-        _  -> liftIO . traceS TLInfo $ show ev
+        SMDelete _ _ ->
+            cntMsg (stStatDelsReceived) (\n s -> s { stStatDelsReceived = n }) 15 "SMDelete"
+        _  -> liftIO . traceS TLInfo $ show ev -- Trace all other messages in full
+        -- Less verbose tracing / counting of messages received
+        where cntMsg :: (State -> Int) -> (Int -> State -> State) -> Int -> String -> AppDraw ()
+              cntMsg r w freq msgName = do
+                  num <- gets r 
+                  let num' = num + 1
+                  modify' (w num')
+                  when (num' `mod` freq == 0) .
+                      liftIO . traceS TLInfo $ printf
+                          "%i total %s messages received" num' msgName
 
 processStatusesAsync :: String -> RetryAPI -> AppDraw ()
 processStatusesAsync uri' retryAPI = do
@@ -500,7 +510,9 @@ main = do
                                                       defTweetHistory flags
                         }
                     stateInit = State
-                        { stTweetByID = M.empty
+                        { stTweetByID          = M.empty
+                        , stStatTweetsReceived = 0
+                        , stStatDelsReceived   = 0
                         }
                 void $ evalRWST run envInit stateInit
       traceS TLInfo "Clean Exit"

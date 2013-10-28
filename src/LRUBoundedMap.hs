@@ -44,9 +44,7 @@ insert k v (Map m tick limit) =
                            then let (lruK, lruV) = snd $ M.findMin (snd $ DM.view inserted)
                                 in  (Just (lruK, lruV), DM.delete (Left lruK) inserted)
                            else (Nothing, inserted)
-    in  ( Map truncM (tick + 1) limit
-        , truncE
-        )
+    in  (Map truncM (tick + 1) limit, truncE)
 
 member :: Ord k => k -> Map k v -> Bool
 member k (Map m _ _) = DM.member (Left k) m
