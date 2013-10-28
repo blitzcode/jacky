@@ -81,6 +81,7 @@ processStatuses :: String
                 -> RetryAPI
                 -> IO ()
 processStatuses uri oaClient oaCredential manager logFn smQueue retryAPI = do
+  let uriIsHTTP = isPrefixOf "http://" uri || isPrefixOf "https://" uri -- File or HTTP?
   success <- catches
     ( do
      -- We use State to keep track of how many bytes we received
@@ -88,7 +89,7 @@ processStatuses uri oaClient oaCredential manager logFn smQueue retryAPI = do
          let sink' = countBytesState =$ parseStatus =$ smQueueSink smQueue
              sink  = case logFn of Just fn -> conduitFile fn =$ sink' -- TODO: No flush on crash
                                    Nothing -> sink'
-         in  if   isPrefixOf "http://" uri || isPrefixOf "https://" uri -- File or HTTP?
+         in  if   uriIsHTTP
              then do -- Authenticate, connect and start receiving stream
                      req' <- liftIO $ parseUrl uri
                      let req = req' { requestHeaders =
@@ -141,7 +142,8 @@ processStatuses uri oaClient oaCredential manager logFn smQueue retryAPI = do
     ]
   -- Do we need to retry?
   case retryAPI of
-      RetryForever   ->  do traceS TLWarn $
+      RetryForever   -> when uriIsHTTP $ do -- Don't retry forever if our source is a static file
+                            traceS TLWarn $
                                 retryMsg ++ " (forever)\nURI: " ++ uri
                             threadDelay retryDelay
                             retryThis RetryForever
