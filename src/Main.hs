@@ -8,15 +8,12 @@
 module Main where
 
 import System.Environment (getArgs, getProgName)
-import System.Exit (exitSuccess, exitFailure)
+import System.Exit
 import System.Console.GetOpt
 import Control.Applicative
 import qualified Data.Map.Strict as M
-import qualified Data.Set as Set
 import qualified Data.Vector as V
 import qualified Data.Vector.Storable as VS
-import System.IO.Error
-import Data.Maybe (fromMaybe)
 import Control.Monad.Error
 import Network (withSocketsDo) 
 import qualified Data.ByteString.Char8 as B8
@@ -24,7 +21,6 @@ import qualified Data.ByteString as B
 import Control.Concurrent hiding (yield)
 import qualified GHC.Conc (getNumProcessors)
 import Control.Concurrent.STM
-import Control.Concurrent.STM.TSem
 import Control.Monad.RWS.Strict
 import qualified Graphics.Rendering.OpenGL as GL
 import qualified Graphics.Rendering.OpenGL.Raw as GLR
@@ -32,23 +28,15 @@ import qualified Graphics.Rendering.OpenGL.GLU as GLU
 import qualified "GLFW-b" Graphics.UI.GLFW as GLFW
 import System.IO
 import Data.Int
+import Data.List
 import Data.Maybe
-import Data.Word
-import qualified Data.Text as T
-import qualified Data.Text.IO as TI
-import qualified Data.Text.Encoding as E
 import System.Directory
 import qualified Codec.Picture as JP
-import qualified Codec.Picture.Types as JPT
 import qualified Web.Authenticate.OAuth as OA
 import Network.HTTP.Conduit
 import Network.URI
 import System.FilePath
-import Data.Char
 import Text.Printf
-import Data.List
-import Data.Function
-import System.IO.Error
 import Control.Exception
 
 import CfgFile
@@ -261,37 +249,77 @@ drawQuad x y w h (r, g, b) =
         texCoord2f 0.0 1.0
         vertex2f x (y + h)
 
+{-
+oooooooooooooooooooooo 9
+o    o               o
+o    o               o
+oooooooooooooooooooooo 6
+o                    o
+o                    o
+o                    o
+o                    o
+o                    o
+oooooooooooooooooooooo 0
+-}
+
+data RectPacker = RectPacker !KDTree !Int !Int
+
+data KDTree = Split !Bool !Int !KDTree !KDTree
+            | Used
+            | Empty
+
+emptyRP :: Int -> Int -> RectPacker
+emptyRP w h = RectPacker Empty w h
+
+packRP :: Int -> Int -> RectPacker -> (RectPacker, Maybe (Int, Int))
+packRP insWdh insHgt (RectPacker root rootWdh rootHgt) =
+    let pack x y w h node = case node of
+            Split vert pos a b ->
+                let (kdA, coordA) | vert     = pack x y pos h   a
+                                  | not vert = pack x y w   pos a
+                    (kdB, coordB) | vert     = pack (x + pos)  y        (w - pos)  h        b
+                                  | not vert = pack  x        (y + pos)  w        (h - pos) b
+                in  case () of _ | isJust coordA -> (Split vert pos kdA b  , coordA)
+                                 | isJust coordB -> (Split vert pos a   kdB, coordB)
+                                 | otherwise     -> (node, Nothing)
+            Used  -> (node, Nothing)
+            Empty ->
+                case () of _ | w == insWdh && h == insHgt -> (Used, Just (x, y)) -- Perfect fit
+                             | w < insWdh || h < insHgt   -> (Empty, Nothing)    -- Too small
+                             | w - insWdh > h - insHgt    -> pack x y w h        -- Vertical split
+                                                                 (Split True  insWdh Empty Empty)
+                             | otherwise                  -> pack x y w h        -- Horiz. split
+                                                                 (Split False insHgt Empty Empty)
+        (newRoot, maybePos) = pack 0 0 rootWdh rootHgt root
+    in  (RectPacker newRoot rootWdh rootHgt, maybePos)
+
 draw :: AppDraw ()
 draw = do
     liftIO $ do
         GL.clearColor GL.$= (GL.Color4 0.2 0.2 0.2 0.0 :: GL.Color4 GL.GLclampf)
         GL.clear [GL.ColorBuffer]
-{-
-    [tex] <- GL.genObjectNames 1
-    GL.textureBinding GL.Texture2D GL.$= Just tex
-
-    -- TODO: Add OpenGL texture caching and draw quads instead of glDrawPixels
-    GLU.build2DMipmaps
-        GL.Texture2D GL.RGBA' (fromIntegral fontTexWdh) (fromIntegral fontTexWdh)
-        (GL.PixelData GL.RGBA GL.UnsignedByte ptr)
-
-    GL.deleteObjectNames [tex]
-
-    GL.texture GL.Texture2D GL.$= GL.Enabled
-    GL.textureBinding GL.Texture2D GL.$= Just tex
-    GL.textureFilter GL.Texture2D GL.$= ((GL.Linear', Just GL.Linear'), GL.Nearest)
-    GL.blend GL.$= GL.Enabled
-    GL.blendFunc GL.$= (GL.SrcAlpha, GL.OneMinusSrcAlpha)
-
-    GL.color (GL.Color3 1 1 1 :: GL.Color3 GL.GLfloat)
-    GL.blend GL.$= GL.Disabled
-    GL.textureBinding GL.Texture2D GL.$= Nothing
-    GL.texture GL.Texture2D GL.$= GL.Disabled
--}
 
     tweets <- gets stTweetByID
     hic    <- asks envHTTPImageCache
-    forM_ (zip ([0..349] :: [Int]) (reverse . Prelude.take 349 $ M.toDescList tweets)) $ \(idx, (_, tw)) -> liftIO $ do
+    window <- asks envWindow
+
+    (fbWdh, fbHgt) <- liftIO $ GLFW.getFramebufferSize window
+
+    let sizes =    replicate 8   (127, 127)
+                ++ replicate 32  (63,  63 )
+                ++ replicate 128 (31,  31 )
+                ++ replicate 768 (15,  15 )
+
+    let tiles = fst $
+         foldl'
+            (\(xs, rp) (w, h) -> case packRP (w + 1) (h + 1) rp of
+                                     (rp', Just (x, y)) -> ((x, y, w, h) : xs, rp')
+                                     (_  , Nothing    ) -> (xs, rp)
+            )
+            ([], emptyRP fbWdh fbHgt)
+            sizes
+
+    forM_ (zip tiles (M.toDescList tweets)) $ \((cx, cy, cw, ch), (_, tw)) -> liftIO $ do
         ce <- fetchImage hic (usrProfileImageURL . twUser $ tw)
         case ce of
             Just (Fetched (HTTPImageRes w h img)) -> do
@@ -308,22 +336,24 @@ draw = do
                         (GL.PixelData GL.RGBA GL.UnsignedByte ptr)
                 -}
 
-                GL.blend GL.$= GL.Enabled
-                GL.blendFunc GL.$= (GL.ConstantAlpha, GL.OneMinusConstantAlpha)
+                {-
+                GL.blend      GL.$= GL.Enabled
+                GL.blendFunc  GL.$= (GL.ConstantAlpha, GL.OneMinusConstantAlpha)
                 GL.blendColor GL.$= (GL.Color4 0 0 0 0.5 :: GL.Color4 GL.GLfloat)
+                -}
                 [tex] <- GL.genObjectNames 1 :: IO [GL.TextureObject]
 
                 GL.texture         GL.Texture2D GL.$= GL.Enabled
                 GL.textureBinding  GL.Texture2D GL.$= Just tex
+
                 GL.textureWrapMode GL.Texture2D GL.S GL.$= (GL.Repeated, GL.ClampToEdge)
                 GL.textureWrapMode GL.Texture2D GL.T GL.$= (GL.Repeated, GL.ClampToEdge)
-                GL.textureFilter   GL.Texture2D GL.$= ((GL.Linear', Nothing), GL.Linear')
+                if   cw > w || ch > h
+                then GL.textureFilter GL.Texture2D GL.$= ((GL.Linear', Just GL.Linear'), GL.Linear')
+                else GL.textureFilter GL.Texture2D GL.$= ((GL.Linear', Just GL.Linear'), GL.Nearest)
+                --GL.textureMaxAnisotropy GL.Texture2D GL.$= 8.0
 
                 VS.unsafeWith img $ \ptr -> do
-
-                    err <- GL.get GL.errors
-                    unless (null err) .
-                        traceS TLError $ "OpenGL Error: " ++ concatMap show err
 {-
                     GLU.build2DMipmaps
                         GL.Texture2D
@@ -353,17 +383,32 @@ draw = do
                         ptr
 -}
 
+                -- GL.generateMipmap GL.Texture2D  GL.$= GL.Enabled
+                GLR.glGenerateMipmap GLR.gl_TEXTURE_2D
+
                 drawQuad
+                    {-
                     (fromIntegral $ (idx `mod` 25) * 47)
                     (fromIntegral $ (idx `div` 25) * 47)
                     (fromIntegral w)
                     (fromIntegral h)
+                    -}
+                    (fromIntegral cx)
+                    (fromIntegral cy)
+                    (fromIntegral cw)
+                    (fromIntegral ch)
                     (1, 1, 1)
 
                 GL.deleteObjectNames [tex]
 
             Just (Processed tex) -> return ()
-            _ -> return ()
+            _ -> drawQuad
+                    (fromIntegral cx)
+                    (fromIntegral cy)
+                    (fromIntegral cw)
+                    (fromIntegral ch)
+                    (1, 0, 1)
+ 
 
 
 
@@ -594,7 +639,7 @@ main = do
                   _                  -> r)
                   defHTTPImgMemCacheSize flags
           in  withHTTPImageCache manager cacheSize concImgFetches (imgCacheFolder flags) $ \hic ->
-            withWindow 1175 658 "Twitter" $ \window -> do
+            withWindow 1105 640 "Twitter" $ \window -> do
                 -- Event queues filled by GLFW callbacks, stream messages
                 initGLFWEventsQueue <- newTQueueIO       :: IO (TQueue  GLFWEvent)
                 initSMQueue         <- newTBQueueIO 1024 :: IO (TBQueue StreamMessage)
