@@ -1,5 +1,6 @@
 
 module Util ( modify'
+            , modifyM
             , parseMaybeInt
             ) where
 
@@ -12,6 +13,13 @@ import Data.Maybe
 -- Strict modify
 modify' :: MonadState s m => (s -> s) -> m ()
 modify' f = get >>= (\x -> put $! f x)
+
+modifyM :: MonadState s m => (s -> m (s, a)) -> m a
+modifyM f = do
+    s <- get
+    (s', r) <- f s
+    put $! s'
+    return r
 
 parseMaybeInt :: String -> Maybe Int
 parseMaybeInt s = fst <$> (listToMaybe . reads) s
