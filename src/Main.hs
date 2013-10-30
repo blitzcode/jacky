@@ -44,8 +44,9 @@ import TwitterJSON
 import HTTPImageCache
 import Trace
 import ProcessStatus
-import Util (modify', parseMaybeInt)
+import Util
 import GLHelpers
+import TextureCache
 
 -- TODO: Start using Lens library for records and Reader/State
 -- TODO: Use labelThread for all threads
@@ -67,6 +68,7 @@ data Env = Env
 
 data State = State
     { stTweetByID          :: M.Map Int64 Tweet
+    , stTextureCache       :: TextureCache
     , stStatTweetsReceived :: Int
     , stStatDelsReceived   :: Int
     }
@@ -230,6 +232,10 @@ runOnAllCores = GHC.Conc.getNumProcessors >>= setNumCapabilities
 color3f :: Float -> Float -> Float -> IO ()
 color3f r g b = GL.color $ GL.Color3 (realToFrac r :: GL.GLfloat) (realToFrac g) (realToFrac b)
 
+color4f :: Float -> Float -> Float -> Float -> IO ()
+color4f r g b a = GL.color $
+    GL.Color4 (realToFrac r :: GL.GLfloat) (realToFrac g) (realToFrac b) (realToFrac a)
+
 vertex2f :: Float -> Float -> IO ()
 vertex2f x y = GL.vertex $ GL.Vertex2 (realToFrac x :: GL.GLfloat) (realToFrac y)
 
@@ -293,6 +299,12 @@ packRP insWdh insHgt (RectPacker root rootWdh rootHgt) =
         (newRoot, maybePos) = pack 0 0 rootWdh rootHgt root
     in  (RectPacker newRoot rootWdh rootHgt, maybePos)
 
+fetchImage :: B.ByteString -> AppDraw (Maybe GL.TextureObject)
+fetchImage url = do
+    modifyM $ \s -> do
+        (tc', maybeImage) <- liftIO $ TextureCache.fetchImage (stTextureCache s) url
+        return (s { stTextureCache = tc' }, maybeImage)
+
 draw :: AppDraw ()
 draw = do
     liftIO $ do
@@ -313,16 +325,16 @@ draw = do
     let tiles = fst $
          foldl'
             (\(xs, rp) (w, h) -> case packRP (w + 1) (h + 1) rp of
-                                     (rp', Just (x, y)) -> ((x, y, w, h) : xs, rp')
+                                     (rp', Just (x, y)) -> ((x, fbHgt - y - h, w, h) : xs, rp')
                                      (_  , Nothing    ) -> (xs, rp)
             )
             ([], emptyRP fbWdh fbHgt)
             sizes
 
-    forM_ (zip tiles (M.toDescList tweets)) $ \((cx, cy, cw, ch), (_, tw)) -> liftIO $ do
-        ce <- fetchImage hic (usrProfileImageURL . twUser $ tw)
+    forM_ (zip tiles (M.toDescList tweets)) $ \((cx, cy, cw, ch), (_, tw)) -> do
+        ce <- Main.fetchImage (usrProfileImageURL . twUser $ tw)
         case ce of
-            Just (Fetched (HTTPImageRes w h img)) -> do
+            Just tex -> liftIO $ do
                 {-
                 GL.windowPos (GL.Vertex2
                     (fromIntegral $ (idx `mod` 25) * 47)
@@ -341,7 +353,9 @@ draw = do
                 GL.blendFunc  GL.$= (GL.ConstantAlpha, GL.OneMinusConstantAlpha)
                 GL.blendColor GL.$= (GL.Color4 0 0 0 0.5 :: GL.Color4 GL.GLfloat)
                 -}
-                [tex] <- GL.genObjectNames 1 :: IO [GL.TextureObject]
+
+                (w, h) <- (\case (GL.TextureSize2D w h) -> (fromIntegral w, fromIntegral h))
+                          <$> (GL.get $ GL.textureSize2D (Left GL.Texture2D) 0)
 
                 GL.texture         GL.Texture2D GL.$= GL.Enabled
                 GL.textureBinding  GL.Texture2D GL.$= Just tex
@@ -353,60 +367,21 @@ draw = do
                 else GL.textureFilter GL.Texture2D GL.$= ((GL.Linear', Just GL.Linear'), GL.Nearest)
                 --GL.textureMaxAnisotropy GL.Texture2D GL.$= 8.0
 
-                VS.unsafeWith img $ \ptr -> do
-{-
-                    GLU.build2DMipmaps
-                        GL.Texture2D
-                        GL.RGBA'
-                        (fromIntegral w)
-                        (fromIntegral h)
-                        (GL.PixelData GL.RGBA GL.UnsignedByte ptr)
--}
-                    GL.texImage2D
-                        Nothing
-                        GL.NoProxy
-                        0
-                        GL.RGBA8
-                        (GL.TextureSize2D (fromIntegral w) (fromIntegral h))
-                        0
-                        (GL.PixelData GL.RGBA GL.UnsignedByte ptr)
-{-
-                    GLR.glTexImage2D
-                        GLR.gl_TEXTURE_2D
-                        0
-                        (fromIntegral $ fromEnum GLR.gl_RGBA8 :: GL.GLint)
-                        32
-                        32
-                        0
-                        GLR.gl_BGRA
-                        GLR.gl_UNSIGNED_BYTE
-                        ptr
--}
-
-                -- GL.generateMipmap GL.Texture2D  GL.$= GL.Enabled
-                GLR.glGenerateMipmap GLR.gl_TEXTURE_2D
-
                 drawQuad
-                    {-
-                    (fromIntegral $ (idx `mod` 25) * 47)
-                    (fromIntegral $ (idx `div` 25) * 47)
-                    (fromIntegral w)
-                    (fromIntegral h)
-                    -}
                     (fromIntegral cx)
                     (fromIntegral cy)
                     (fromIntegral cw)
                     (fromIntegral ch)
                     (1, 1, 1)
 
-                GL.deleteObjectNames [tex]
-
-            _ -> drawQuad
-                    (fromIntegral cx)
-                    (fromIntegral cy)
-                    (fromIntegral cw)
-                    (fromIntegral ch)
-                    (1, 0, 1)
+            _ -> liftIO $ do
+                     GL.texture GL.Texture2D GL.$= GL.Disabled
+                     drawQuad
+                         (fromIntegral cx)
+                         (fromIntegral cy)
+                         (fromIntegral cw)
+                         (fromIntegral ch)
+                         (1, 0, 1)
 
 -- Process all available events in both bounded and unbounded STM queues
 processAllEvents :: (MonadIO m) => Either (TQueue a) (TBQueue a) -> (a -> m ()) -> m ()
@@ -635,7 +610,8 @@ main = do
                   _                  -> r)
                   defHTTPImgMemCacheSize flags
           in  withHTTPImageCache manager cacheSize concImgFetches (imgCacheFolder flags) $ \hic ->
-            withWindow 1105 640 "Twitter" $ \window -> do
+            withWindow 1105 640 "Twitter" $ \window ->
+              withTextureCache cacheSize hic $ \tcache -> do
                 -- Event queues filled by GLFW callbacks, stream messages
                 initGLFWEventsQueue <- newTQueueIO       :: IO (TQueue  GLFWEvent)
                 initSMQueue         <- newTBQueueIO 1024 :: IO (TBQueue StreamMessage)
@@ -658,6 +634,7 @@ main = do
                         }
                     stateInit = State
                         { stTweetByID          = M.empty
+                        , stTextureCache       = tcache
                         , stStatTweetsReceived = 0
                         , stStatDelsReceived   = 0
                         }
