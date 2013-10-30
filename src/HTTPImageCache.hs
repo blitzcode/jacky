@@ -6,6 +6,7 @@ module HTTPImageCache ( HTTPImageCache
                       , CacheEntry(..)
                       , withHTTPImageCache
                       , fetchImage
+                      , deleteImage
                       ) where
 
 import qualified Data.ByteString as B
@@ -43,33 +44,27 @@ import Trace
 -- TODO: Add support for retiring elements from the disk cache, consider not having the disk
 --       cache at all and only use it to speed up application startup / offline mode
 
--- TODO: Consider removing support for 'Processed' cache entries and move that functionality
---       into a separate texture cache
-
-data HTTPImageCache p = HTTPImageCache
-    { hicCacheFolder       :: B.ByteString
-    , hicOutstandingReq    :: TVar (LBM.Map B.ByteString ()) -- No 'v', used as a Set + LRU
-    , hicCacheEntries      :: TVar (LBM.Map B.ByteString (CacheEntry p))
+data HTTPImageCache = HTTPImageCache
+    { hicCacheFolder    :: B.ByteString
+    , hicOutstandingReq :: TVar (LBM.Map B.ByteString ()) -- No 'v', used as a Set + LRU
+    , hicCacheEntries   :: TVar (LBM.Map B.ByteString CacheEntry)
       -- Statistics
-    , hicBytesTrans        :: IORef Word64
-    , hicMisses            :: IORef Word64
-    , hicDiskHits          :: IORef Word64
-    , hicMemHits           :: IORef Word64
+    , hicBytesTrans     :: IORef Word64
+    , hicMisses         :: IORef Word64
+    , hicDiskHits       :: IORef Word64
+    , hicMemHits        :: IORef Word64
     }
 
-data CacheEntry p = Fetching -- We keep in-progress entries in the cache to avoid double fetches
-                  | Fetched HTTPImageRes
-                  | Processed p -- User specified type to be stored in the cache. This allows our
-                                -- HTTPImageRes to be processed into any custom representation
-                                -- (OpenGL texture, summed area table etc.)
-                  | CacheError  -- Failed to load / fetch / decode image
+data CacheEntry = Fetching -- We keep in-progress entries in the cache to avoid double fetches
+                | Fetched HTTPImageRes
+                | CacheError  -- Failed to load / fetch / decode image
 
 -- TODO: Add 'retryAfterNSec' field to CacheError to deal with failed fetches / decompression
 --       while allowing to try again at some point
 
 data HTTPImageRes = HTTPImageRes Int Int (VS.Vector Word32)
 
-mkURLCacheFn :: HTTPImageCache p -> B.ByteString -> B.ByteString
+mkURLCacheFn :: HTTPImageCache -> B.ByteString -> B.ByteString
 mkURLCacheFn hic url = hicCacheFolder hic
                        <> (B8.pack . escapeURIString isUnescapedInURIComponent $ B8.unpack url)
 
@@ -77,7 +72,7 @@ withHTTPImageCache :: Manager
                    -> Int
                    -> Int
                    -> String
-                   -> (HTTPImageCache p -> IO ())
+                   -> (HTTPImageCache -> IO ())
                    -> IO ()
 withHTTPImageCache manager memCacheEntryLimit numConcReq cacheFolder f = do
     -- Make sure our cache folder exists
@@ -107,6 +102,7 @@ withHTTPImageCache manager memCacheEntryLimit numConcReq cacheFolder f = do
             traceS TLInfo =<< gatherCacheStats hic
             -- Shutdown
             traceT TLInfo "Shutting down image fetch threads"
+
             forM_ threads cancel
             forM_ threads $ \thread -> do
                 r <- waitCatch thread
@@ -149,7 +145,7 @@ toHTTPImageRes jp =
     in  HTTPImageRes w h convert
 
 -- Pop an uncached request of the request stack
-popRequestStack :: HTTPImageCache p -> IO B.ByteString
+popRequestStack :: HTTPImageCache -> IO B.ByteString
 popRequestStack hic = do
     let pop = atomically $ do
         requests <- readTVar $ hicOutstandingReq hic
@@ -178,7 +174,7 @@ popRequestStack hic = do
         Just url -> return url
 
 -- Fetch an image into the disk cache (if not already there) and return it as a lazy ByteString
-fetchDiskCache :: HTTPImageCache p -> Manager -> B.ByteString -> FilePath -> IO BL.ByteString 
+fetchDiskCache :: HTTPImageCache -> Manager -> B.ByteString -> FilePath -> IO BL.ByteString 
 fetchDiskCache hic manager url cacheFn = do
     bs <- tryIOError $ BL.readFile cacheFn -- Already in the disk cache?
     case bs of
@@ -191,9 +187,15 @@ fetchDiskCache hic manager url cacheFn = do
                            incCacheMisses hic
                            -- TODO: Misses HTTP protocol overhead
                            incCacheBytesTransf hic . fromIntegral . BL.length . responseBody $ res
-                           --BL.writeFile cacheFn $ responseBody res
+                           BL.writeFile cacheFn $ responseBody res
                        return $ responseBody res
         Right x -> incCacheDiskHits hic >> return x
+
+modifyCacheEntry :: HTTPImageCache
+                 -> (LBM.Map B.ByteString CacheEntry -> LBM.Map B.ByteString CacheEntry)
+                 -> IO ()
+modifyCacheEntry hic f =
+    atomically . modifyTVar' (hicCacheEntries hic) $! f
 
 data DecodeException = DecodeException { deError   :: String
                                        , deURL     :: String
@@ -201,7 +203,7 @@ data DecodeException = DecodeException { deError   :: String
                                        } deriving (Show, Typeable)
 instance Exception DecodeException
 
-fetchThread :: HTTPImageCache p -> Manager -> IO ()
+fetchThread :: HTTPImageCache -> Manager -> IO ()
 fetchThread hic manager = handle (\ThreadKilled -> -- Handle this exception here so we exit cleanly
                                      traceT TLInfo "Fetch thread received 'ThreadKilled', exiting")
                           . forever $ do
@@ -213,7 +215,7 @@ fetchThread hic manager = handle (\ThreadKilled -> -- Handle this exception here
         -- or we'll mark it as a cache error
         bracketOnError
             (popRequestStack hic)
-            (\urlUncached -> updateCacheEntry hic urlUncached CacheError)
+            (\urlUncached -> modifyCacheEntry hic $ LBM.update urlUncached CacheError)
             (\urlUncached -> do
                 let cacheFn = B8.unpack $ mkURLCacheFn hic urlUncached
                 imgBS <- fetchDiskCache hic manager urlUncached cacheFn
@@ -227,7 +229,7 @@ fetchThread hic manager = handle (\ThreadKilled -> -- Handle this exception here
                                            }
                           Right x   -> return x
                 -- Update cache with image
-                updateCacheEntry hic urlUncached (Fetched $! toHTTPImageRes di)
+                modifyCacheEntry hic $ LBM.update urlUncached (Fetched $! toHTTPImageRes di)
             )
       )
       [ Handler $ \(ex :: IOException             ) -> reportEx ex
@@ -236,14 +238,10 @@ fetchThread hic manager = handle (\ThreadKilled -> -- Handle this exception here
         -- TODO: We still seem to have an issue with this one...
       , Handler $ \(ex :: BlockedIndefinitelyOnSTM) -> reportEx ex
       ]
-    where
-        updateCacheEntry :: HTTPImageCache p -> B.ByteString -> CacheEntry p -> IO ()
-        updateCacheEntry hic' url entry = -- Can't re-use hic from the outer scope (type error)
-            atomically . modifyTVar' (hicCacheEntries hic') $! LBM.update url entry
-        reportEx ex = traceS TLError $ "HTTP Image Cache Exception: " ++ show ex
+    where reportEx ex = traceS TLError $ "HTTP Image Cache Exception: " ++ show ex
  
 -- Return the image at the given URL from the cache, or schedule fetching if not present
-fetchImage :: HTTPImageCache p -> B.ByteString -> IO (Maybe (CacheEntry p))
+fetchImage :: HTTPImageCache -> B.ByteString -> IO (Maybe (CacheEntry))
 fetchImage hic url = do
     r <- atomically $ do
         cache <- readTVar (hicCacheEntries hic)
@@ -259,46 +257,42 @@ fetchImage hic url = do
         Nothing -> return ()
     return r
 
--- Replace an existing cache entry with processed data. The idea here is that the client of the
--- image cache can replace fetched images with its own representation, i.e. OpenGL textures
-updateProcessed :: HTTPImageCache p -> B.ByteString -> p -> IO ()
-updateProcessed hic url processed = do
-    return () -- TODO
+deleteImage :: HTTPImageCache -> B.ByteString -> IO ()
+deleteImage hic url = modifyCacheEntry hic $ LBM.delete url
 
 -- Cache statistics
 
-incCacheBytesTransf :: HTTPImageCache p -> Word64 -> IO ()
+incCacheBytesTransf :: HTTPImageCache -> Word64 -> IO ()
 incCacheBytesTransf hic n = atomicModifyIORef' (hicBytesTrans hic) (\b -> (b + n, ()))
-incCacheMisses :: HTTPImageCache p -> IO ()
+incCacheMisses :: HTTPImageCache -> IO ()
 incCacheMisses hic = atomicModifyIORef' (hicMisses hic) (\n -> (n + 1, ()))
-incCacheDiskHits :: HTTPImageCache p -> IO ()
+incCacheDiskHits :: HTTPImageCache -> IO ()
 incCacheDiskHits hic = atomicModifyIORef' (hicDiskHits hic) (\n -> (n + 1, ()))
-incCacheMemHits :: HTTPImageCache p -> IO ()
+incCacheMemHits :: HTTPImageCache -> IO ()
 incCacheMemHits hic = atomicModifyIORef' (hicMemHits hic) (\n -> (n + 1, ()))
 
-gatherCacheStats :: HTTPImageCache p -> IO String
+gatherCacheStats :: HTTPImageCache -> IO String
 gatherCacheStats hic = do
     bytesTransf <- readIORef $ hicBytesTrans hic
     misses      <- readIORef $ hicMisses     hic
     diskHits    <- readIORef $ hicDiskHits   hic
     memHits     <- readIORef $ hicMemHits    hic
     entries     <- atomically . readTVar $ hicCacheEntries hic
-    let (fetching, fetched, processed, cacheErr) = foldr
-         (\(_, (_, v)) (fetching', fetched', processed', cacheErr') -> case v of
-             Fetching    -> (fetching' + 1, fetched', processed', cacheErr')
-             Fetched _   -> (fetching', fetched' + 1, processed', cacheErr')
-             Processed _ -> (fetching', fetched', processed' + 1, cacheErr')
-             CacheError  -> (fetching', fetched', processed', cacheErr' + 1)
+    let (fetching, fetched, cacheErr) = foldr
+         (\(_, (_, v)) (fetching', fetched', cacheErr') -> case v of
+             Fetching    -> (fetching' + 1, fetched', cacheErr')
+             Fetched _   -> (fetching', fetched' + 1, cacheErr')
+             CacheError  -> (fetching', fetched', cacheErr' + 1)
          )
-         ((0, 0, 0, 0) :: (Word64, Word64, Word64, Word64))
+         ((0, 0, 0) :: (Word64, Word64, Word64))
          (M.toList . fst . LBM.view $ entries)
     return $ printf
         (  "HTTP Image Cache Statistics\n"
         ++ "Network       - Received Total: %.2fKB\n"
         ++ "Lookups       - Misses: %i | Disk Hits: %i | Mem Hits: %i\n"
-        ++ "Cache Entries - Fetching: %i | Fetched: %i | Processed: %i | Error: %i"
+        ++ "Cache Entries - Fetching: %i | Fetched: %i | Error: %i"
         -- TODO: Add image memory consumption figure
         )
         (fromIntegral bytesTransf / 1024.0 :: Double)
-        misses diskHits memHits fetching fetched processed cacheErr
+        misses diskHits memHits fetching fetched cacheErr
 

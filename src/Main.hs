@@ -56,7 +56,7 @@ data Env = Env
     { envWindow           :: GLFW.Window
     , envGLFWEventsQueue  :: TQueue GLFWEvent
     , envSMQueue          :: TBQueue StreamMessage
-    , envHTTPImageCache   :: HTTPImageCache GL.TextureObject
+    , envHTTPImageCache   :: HTTPImageCache
     , envLogNetworkFolder :: String
     , envLogNetworkMode   :: LogNetworkMode
     , envOAClient         :: OA.OAuth
@@ -401,16 +401,12 @@ draw = do
 
                 GL.deleteObjectNames [tex]
 
-            Just (Processed tex) -> return ()
             _ -> drawQuad
                     (fromIntegral cx)
                     (fromIntegral cy)
                     (fromIntegral cw)
                     (fromIntegral ch)
                     (1, 0, 1)
- 
-
-
 
 -- Process all available events in both bounded and unbounded STM queues
 processAllEvents :: (MonadIO m) => Either (TQueue a) (TBQueue a) -> (a -> m ()) -> m ()
