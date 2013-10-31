@@ -41,7 +41,7 @@ import Control.Exception
 
 import CfgFile
 import TwitterJSON
-import HTTPImageCache
+import ImageCache
 import Trace
 import ProcessStatus
 import Util
@@ -57,7 +57,7 @@ data Env = Env
     { envWindow           :: GLFW.Window
     , envGLFWEventsQueue  :: TQueue GLFWEvent
     , envSMQueue          :: TBQueue StreamMessage
-    , envHTTPImageCache   :: HTTPImageCache
+    , envImageCache       :: ImageCache
     , envLogNetworkFolder :: String
     , envLogNetworkMode   :: LogNetworkMode
     , envOAClient         :: OA.OAuth
@@ -80,7 +80,7 @@ data Flag = FlagOAuthFile String
           | FlagLogNetwork
           | FlagReplayLog
           | FlagLogFolder String
-          | FlagHTTPImageCacheFolder String
+          | FlagImageCacheFolder String
           | FlagConcImgFetches String
           | FlagVerifyImgCache
           | FlagTraceFile String
@@ -90,12 +90,12 @@ data Flag = FlagOAuthFile String
           | FlagConKeepAlive String
           | FlagConTimeout String
           | FlagTweetHistory String
-          | FlagHTTPImgMemCacheSize String
+          | FlagImgMemCacheSize String
             deriving (Eq, Show)
 
-defLogFolder, defHTTPImageCacheFolder, defTraceFn :: String
+defLogFolder, defImageCacheFolder, defTraceFn :: String
 defLogFolder = "./log/"
-defHTTPImageCacheFolder = "http_img_cache"
+defImageCacheFolder = "http_img_cache"
 defTraceFn = "./trace.log"
 defConcImgFetches :: Int
 defConcImgFetches = 50
@@ -105,8 +105,8 @@ defConTimeout :: Int
 defConTimeout = 5 * 1000 * 1000
 defTweetHistory :: Int
 defTweetHistory = 1000
-defHTTPImgMemCacheSize :: Int
-defHTTPImgMemCacheSize = 1024
+defImgMemCacheSize :: Int
+defImgMemCacheSize = 1024
 
 parseCmdLineOpt :: (MonadError String m, MonadIO m) => m [Flag]
 parseCmdLineOpt = do
@@ -146,9 +146,9 @@ parseCmdLineOpt = do
                            "replay dumped API network data from log folder"
                   , Option ['i']
                            ["http-imgcache-folder"]
-                           (ReqArg FlagHTTPImageCacheFolder "FOLDER")
-                           ("HTTP image cache fldr (default: '"
-                               ++ defHTTPImageCacheFolder ++ "' in HOME)")
+                           (ReqArg FlagImageCacheFolder "FOLDER")
+                           ("image cache fldr (default: '"
+                               ++ defImageCacheFolder ++ "' in HOME)")
                   , Option []
                            ["conc-img-fetches"]
                            (ReqArg FlagConcImgFetches "NUMBER")
@@ -156,9 +156,9 @@ parseCmdLineOpt = do
                                ++ show defConcImgFetches ++ ")")
                   , Option ['m']
                            ["img-mem-cache-size"]
-                           (ReqArg FlagHTTPImgMemCacheSize "NUMBER")
+                           (ReqArg FlagImgMemCacheSize "NUMBER")
                            ("number of images to keep in mem cache (default: "
-                               ++ show defHTTPImgMemCacheSize ++ ")")
+                               ++ show defImgMemCacheSize ++ ")")
                   , Option []
                            ["conn-keep-alive"]
                            (ReqArg FlagConKeepAlive "NUMBER")
@@ -312,7 +312,6 @@ draw = do
         GL.clear [GL.ColorBuffer]
 
     tweets <- gets stTweetByID
-    hic    <- asks envHTTPImageCache
     window <- asks envWindow
 
     (fbWdh, fbHgt) <- liftIO $ GLFW.getFramebufferSize window
@@ -330,6 +329,8 @@ draw = do
             )
             ([], emptyRP fbWdh fbHgt)
             sizes
+
+    --liftIO $ putStr "." >> hFlush stdout
 
     forM_ (zip tiles (M.toDescList tweets)) $ \((cx, cy, cw, ch), (_, tw)) -> do
         ce <- Main.fetchImage (usrProfileImageURL . twUser $ tw)
@@ -498,6 +499,10 @@ run = do
         GLFW.swapInterval 1
         setup2DOpenGL w h
     -- Launch thread for parsing status updates
+    --
+    -- TODO: We should use bracketing to make sure these threads are killed
+    --       before we exit, otherwise they might try to trace after we already
+    --       left withTrace
     processStatusesAsync
         twitterStatusesRandomStreamURL
         RetryForever
@@ -518,6 +523,7 @@ run = do
         draw
         liftIO $ do
             GLFW.swapBuffers window
+            --GL.finish
             GLFW.pollEvents
             err <- GL.get GL.errors
             unless (null err) .
@@ -546,10 +552,10 @@ verifyImgCache folder = do
 main :: IO ()
 main = do
     runOnAllCores -- Multicore
-    -- HTTP image cache folder
-    cacheFolder <- addTrailingPathSeparator <$> getAppUserDataDirectory defHTTPImageCacheFolder
+    -- image cache folder
+    cacheFolder <- addTrailingPathSeparator <$> getAppUserDataDirectory defImageCacheFolder
     let imgCacheFolder flagsArg = foldr
-         (\f r -> case f of FlagHTTPImageCacheFolder fldr -> fldr; _ -> r) cacheFolder flagsArg
+         (\f r -> case f of FlagImageCacheFolder fldr -> fldr; _ -> r) cacheFolder flagsArg
     res <- runErrorT $ do
         -- Process configuration / command line options
         flags <- parseCmdLineOpt
@@ -587,7 +593,7 @@ main = do
               foldr (\f r -> case f of FlagLogFolder folder -> folder; _ -> r) defLogFolder flags
       when (logNetworkMode == ModeLogNetwork) $
           createDirectoryIfMissing True logNetworkFolder
-      -- HTTP image cache concurrent fetches
+      -- image cache concurrent fetches
       let concImgFetches = foldr (\f r -> case f of
            FlagConcImgFetches n -> fromMaybe r $ parseMaybeInt n
            _                    -> r)
@@ -606,12 +612,12 @@ main = do
                                      }
                                 ) $ \manager -> liftIO $
           let cacheSize = foldr (\f r -> case f of
-                  FlagHTTPImgMemCacheSize n -> fromMaybe r $ parseMaybeInt n
+                  FlagImgMemCacheSize n -> fromMaybe r $ parseMaybeInt n
                   _                  -> r)
-                  defHTTPImgMemCacheSize flags
-          in  withHTTPImageCache manager cacheSize concImgFetches (imgCacheFolder flags) $ \hic ->
+                  defImgMemCacheSize flags
+          in  withImageCache manager cacheSize concImgFetches (imgCacheFolder flags) $ \ic ->
             withWindow 1105 640 "Twitter" $ \window ->
-              withTextureCache cacheSize hic $ \tcache -> do
+              withTextureCache cacheSize ic $ \tcache -> do
                 -- Event queues filled by GLFW callbacks, stream messages
                 initGLFWEventsQueue <- newTQueueIO       :: IO (TQueue  GLFWEvent)
                 initSMQueue         <- newTBQueueIO 1024 :: IO (TBQueue StreamMessage)
@@ -620,7 +626,7 @@ main = do
                         { envWindow           = window
                         , envGLFWEventsQueue  = initGLFWEventsQueue
                         , envSMQueue          = initSMQueue
-                        , envHTTPImageCache   = hic
+                        , envImageCache       = ic
                         , envLogNetworkFolder = logNetworkFolder
                         , envLogNetworkMode   = logNetworkMode
                         , envOAClient         = oaClient

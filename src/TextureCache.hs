@@ -6,7 +6,7 @@ module TextureCache ( withTextureCache
                     , TextureCache.fetchImage
                     ) where
 
-import HTTPImageCache
+import ImageCache
 import qualified LRUBoundedMap as LBM
 import Trace
 
@@ -18,10 +18,10 @@ import qualified Data.Vector.Storable as VS
 import Control.Exception
 
 data TextureCache = TextureCache { tcCacheEntries :: LBM.Map B.ByteString GL.TextureObject
-                                 , tcImageCache   :: HTTPImageCache
+                                 , tcImageCache   :: ImageCache
                                  }
 
-withTextureCache :: Int -> HTTPImageCache -> (TextureCache -> IO ()) -> IO ()
+withTextureCache :: Int -> ImageCache -> (TextureCache -> IO ()) -> IO ()
 withTextureCache maxCacheEntries hic f = do
     bracket
         ( return $ TextureCache { tcCacheEntries = LBM.empty maxCacheEntries
@@ -40,13 +40,13 @@ withTextureCache maxCacheEntries hic f = do
 -- Fetch an image from the texture cache, or forward the request to the image
 -- cache in case we don't have it
 fetchImage :: TextureCache -> B.ByteString -> IO (TextureCache, Maybe GL.TextureObject)
-fetchImage tc url =
-    case LBM.lookup url $ tcCacheEntries tc of
+fetchImage tc uri =
+    case LBM.lookup uri $ tcCacheEntries tc of
         (newEntries, Just tex) -> return (tc { tcCacheEntries = newEntries }, Just tex)
         (_,          Nothing ) -> do
-            hicFetch <- HTTPImageCache.fetchImage (tcImageCache tc) url
+            hicFetch <- ImageCache.fetchImage (tcImageCache tc) uri
             case hicFetch of
-                Just (Fetched (HTTPImageRes w h img)) -> do
+                Just (Fetched (ImageRes w h img)) -> do
                     [tex] <- GL.genObjectNames 1 :: IO [GL.TextureObject]
                     GL.textureBinding GL.Texture2D GL.$= Just tex
                     VS.unsafeWith img $ \ptr -> do
@@ -67,13 +67,13 @@ fetchImage tc url =
                         --     (fromIntegral h)
                         --     (GL.PixelData GL.RGBA GL.UnsignedByte ptr)
                     -- Call raw API MIP-map generation function, could also use
-                    -- GL.generateMipmap GL.Texture2D  GL.$= GL.Enabled instead
+                    -- 'GL.generateMipmap GL.Texture2D GL.$= GL.Enabled' instead
                     GLR.glGenerateMipmap GLR.gl_TEXTURE_2D
                     -- Insert into cache, delete any overflow
-                    let (newEntries, delTex) = LBM.insertUnsafe url tex $ tcCacheEntries tc
+                    let (newEntries, delTex) = LBM.insertUnsafe uri tex $ tcCacheEntries tc
                     case delTex of Just (_, obj) -> GL.deleteObjectNames [obj]; _ -> return ()
                     -- Remove from image cache
-                    deleteImage (tcImageCache tc) url
-                    return (tc { tcCacheEntries = newEntries } , Just tex)
+                    deleteImage (tcImageCache tc) uri
+                    return (tc { tcCacheEntries = newEntries }, Just tex)
                 _ -> return (tc, Nothing)
 
