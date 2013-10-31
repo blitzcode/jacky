@@ -12,8 +12,6 @@ import System.Exit
 import System.Console.GetOpt
 import Control.Applicative
 import qualified Data.Map.Strict as M
-import qualified Data.Vector as V
-import qualified Data.Vector.Storable as VS
 import Control.Monad.Error
 import Network (withSocketsDo) 
 import qualified Data.ByteString.Char8 as B8
@@ -23,8 +21,6 @@ import qualified GHC.Conc (getNumProcessors)
 import Control.Concurrent.STM
 import Control.Monad.RWS.Strict
 import qualified Graphics.Rendering.OpenGL as GL
-import qualified Graphics.Rendering.OpenGL.Raw as GLR
-import qualified Graphics.Rendering.OpenGL.GLU as GLU
 import qualified "GLFW-b" Graphics.UI.GLFW as GLFW
 import System.IO
 import Data.Int
@@ -47,6 +43,7 @@ import ProcessStatus
 import Util
 import GLHelpers
 import TextureCache
+import qualified RectPacker as RP
 
 -- TODO: Start using Lens library for records and Reader/State
 -- TODO: Use labelThread for all threads
@@ -255,50 +252,6 @@ drawQuad x y w h (r, g, b) =
         texCoord2f 0.0 1.0
         vertex2f x (y + h)
 
-{-
-oooooooooooooooooooooo 9
-o    o               o
-o    o               o
-oooooooooooooooooooooo 6
-o                    o
-o                    o
-o                    o
-o                    o
-o                    o
-oooooooooooooooooooooo 0
--}
-
-data RectPacker = RectPacker !KDTree !Int !Int
-
-data KDTree = Split !Bool !Int !KDTree !KDTree
-            | Used
-            | Empty
-
-emptyRP :: Int -> Int -> RectPacker
-emptyRP w h = RectPacker Empty w h
-
-packRP :: Int -> Int -> RectPacker -> (RectPacker, Maybe (Int, Int))
-packRP insWdh insHgt (RectPacker root rootWdh rootHgt) =
-    let pack x y w h node = case node of
-            Split vert pos a b ->
-                let (kdA, coordA) | vert     = pack x y pos h   a
-                                  | not vert = pack x y w   pos a
-                    (kdB, coordB) | vert     = pack (x + pos)  y        (w - pos)  h        b
-                                  | not vert = pack  x        (y + pos)  w        (h - pos) b
-                in  case () of _ | isJust coordA -> (Split vert pos kdA b  , coordA)
-                                 | isJust coordB -> (Split vert pos a   kdB, coordB)
-                                 | otherwise     -> (node, Nothing)
-            Used  -> (node, Nothing)
-            Empty ->
-                case () of _ | w == insWdh && h == insHgt -> (Used, Just (x, y)) -- Perfect fit
-                             | w < insWdh || h < insHgt   -> (Empty, Nothing)    -- Too small
-                             | w - insWdh > h - insHgt    -> pack x y w h        -- Vertical split
-                                                                 (Split True  insWdh Empty Empty)
-                             | otherwise                  -> pack x y w h        -- Horiz. split
-                                                                 (Split False insHgt Empty Empty)
-        (newRoot, maybePos) = pack 0 0 rootWdh rootHgt root
-    in  (RectPacker newRoot rootWdh rootHgt, maybePos)
-
 draw :: AppDraw ()
 draw = do
     liftIO $ do
@@ -315,15 +268,8 @@ draw = do
                 ++ replicate 32  (63,  63 )
                 ++ replicate 128 (31,  31 )
                 ++ replicate 768 (15,  15 )
-
-    let tiles = fst $
-         foldl'
-            (\(xs, rp) (w, h) -> case packRP (w + 1) (h + 1) rp of
-                                     (rp', Just (x, y)) -> ((x, fbHgt - y - h, w, h) : xs, rp')
-                                     (_  , Nothing    ) -> (xs, rp)
-            )
-            ([], emptyRP fbWdh fbHgt)
-            sizes
+        tiles = map (\(x, y, w, h) -> (x, fbHgt - y - h, w, h)) $
+                    RP.packRectangles fbWdh fbHgt 1 sizes
 
     --liftIO $ putStr "." >> hFlush stdout
 
