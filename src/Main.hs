@@ -58,6 +58,7 @@ data Env = Env
     , envGLFWEventsQueue  :: TQueue GLFWEvent
     , envSMQueue          :: TBQueue StreamMessage
     , envImageCache       :: ImageCache
+    , envTextureCache     :: TextureCache
     , envLogNetworkFolder :: String
     , envLogNetworkMode   :: LogNetworkMode
     , envOAClient         :: OA.OAuth
@@ -68,7 +69,6 @@ data Env = Env
 
 data State = State
     { stTweetByID          :: M.Map Int64 Tweet
-    , stTextureCache       :: TextureCache
     , stStatTweetsReceived :: Int
     , stStatDelsReceived   :: Int
     }
@@ -299,12 +299,6 @@ packRP insWdh insHgt (RectPacker root rootWdh rootHgt) =
         (newRoot, maybePos) = pack 0 0 rootWdh rootHgt root
     in  (RectPacker newRoot rootWdh rootHgt, maybePos)
 
-fetchImage :: B.ByteString -> AppDraw (Maybe GL.TextureObject)
-fetchImage url = do
-    modifyM $ \s -> do
-        (tc', maybeImage) <- liftIO $ TextureCache.fetchImage (stTextureCache s) url
-        return (s { stTextureCache = tc' }, maybeImage)
-
 draw :: AppDraw ()
 draw = do
     liftIO $ do
@@ -313,6 +307,7 @@ draw = do
 
     tweets <- gets stTweetByID
     window <- asks envWindow
+    tc     <- asks envTextureCache
 
     (fbWdh, fbHgt) <- liftIO $ GLFW.getFramebufferSize window
 
@@ -333,7 +328,7 @@ draw = do
     --liftIO $ putStr "." >> hFlush stdout
 
     forM_ (zip tiles (M.toDescList tweets)) $ \((cx, cy, cw, ch), (_, tw)) -> do
-        ce <- Main.fetchImage (usrProfileImageURL . twUser $ tw)
+        ce <- liftIO $ TextureCache.fetchImage tc (usrProfileImageURL . twUser $ tw)
         case ce of
             Just tex -> liftIO $ do
                 {-
@@ -615,9 +610,9 @@ main = do
                   FlagImgMemCacheSize n -> fromMaybe r $ parseMaybeInt n
                   _                  -> r)
                   defImgMemCacheSize flags
-          in  withImageCache manager cacheSize concImgFetches (imgCacheFolder flags) $ \ic ->
+          in  withImageCache manager cacheSize concImgFetches (imgCacheFolder flags) $ \icache ->
             withWindow 1105 640 "Twitter" $ \window ->
-              withTextureCache cacheSize ic $ \tcache -> do
+              withTextureCache cacheSize icache $ \tcache -> do
                 -- Event queues filled by GLFW callbacks, stream messages
                 initGLFWEventsQueue <- newTQueueIO       :: IO (TQueue  GLFWEvent)
                 initSMQueue         <- newTBQueueIO 1024 :: IO (TBQueue StreamMessage)
@@ -626,7 +621,8 @@ main = do
                         { envWindow           = window
                         , envGLFWEventsQueue  = initGLFWEventsQueue
                         , envSMQueue          = initSMQueue
-                        , envImageCache       = ic
+                        , envImageCache       = icache
+                        , envTextureCache     = tcache
                         , envLogNetworkFolder = logNetworkFolder
                         , envLogNetworkMode   = logNetworkMode
                         , envOAClient         = oaClient
@@ -640,7 +636,6 @@ main = do
                         }
                     stateInit = State
                         { stTweetByID          = M.empty
-                        , stTextureCache       = tcache
                         , stStatTweetsReceived = 0
                         , stStatDelsReceived   = 0
                         }

@@ -16,33 +16,40 @@ import qualified Data.Map.Strict as M
 import qualified Data.ByteString as B
 import qualified Data.Vector.Storable as VS
 import Control.Exception
+import Text.Printf
+import Data.IORef
 
-data TextureCache = TextureCache { tcCacheEntries :: LBM.Map B.ByteString GL.TextureObject
+data TextureCache = TextureCache { tcCacheEntries :: IORef (LBM.Map B.ByteString GL.TextureObject)
                                  , tcImageCache   :: ImageCache
                                  }
 
 withTextureCache :: Int -> ImageCache -> (TextureCache -> IO ()) -> IO ()
 withTextureCache maxCacheEntries hic f = do
     bracket
-        ( return $ TextureCache { tcCacheEntries = LBM.empty maxCacheEntries
-                                , tcImageCache   = hic
-                                }
+        ( (newIORef $ LBM.empty maxCacheEntries) >>= \initCacheEntries ->
+              return $ TextureCache { tcCacheEntries = initCacheEntries
+                                    , tcImageCache   = hic
+                                    }
         )
         ( \tc -> do
-             case LBM.valid (tcCacheEntries tc) of
+             cacheEntries <- readIORef $ tcCacheEntries tc
+             case LBM.valid cacheEntries of
                  Just err -> traceS TLError $ "LRUBoundedMap: TextureCache: " ++ err
                  Nothing  -> return ()
              -- Shutdown
-             traceT TLInfo "Shutting down texture cache"
-             GL.deleteObjectNames . map snd . M.elems . fst . LBM.view . tcCacheEntries $ tc
+             traceS TLInfo $ printf "Shutting down texture cache (%i textures)"
+                 (M.size . fst . LBM.view $ cacheEntries)
+             GL.deleteObjectNames . map snd . M.elems . fst . LBM.view $ cacheEntries
         )
         f
+
 -- Fetch an image from the texture cache, or forward the request to the image
 -- cache in case we don't have it
-fetchImage :: TextureCache -> B.ByteString -> IO (TextureCache, Maybe GL.TextureObject)
-fetchImage tc uri =
-    case LBM.lookup uri $ tcCacheEntries tc of
-        (newEntries, Just tex) -> return (tc { tcCacheEntries = newEntries }, Just tex)
+fetchImage :: TextureCache -> B.ByteString -> IO (Maybe GL.TextureObject)
+fetchImage tc uri = do
+    cacheEntries <- readIORef $ tcCacheEntries tc
+    case LBM.lookup uri cacheEntries of
+        (newEntries, Just tex) -> writeIORef (tcCacheEntries tc) newEntries >> return (Just tex)
         (_,          Nothing ) -> do
             hicFetch <- ImageCache.fetchImage (tcImageCache tc) uri
             case hicFetch of
@@ -70,10 +77,12 @@ fetchImage tc uri =
                     -- 'GL.generateMipmap GL.Texture2D GL.$= GL.Enabled' instead
                     GLR.glGenerateMipmap GLR.gl_TEXTURE_2D
                     -- Insert into cache, delete any overflow
-                    let (newEntries, delTex) = LBM.insertUnsafe uri tex $ tcCacheEntries tc
+                    let (newEntries, delTex) = LBM.insertUnsafe uri tex cacheEntries
                     case delTex of Just (_, obj) -> GL.deleteObjectNames [obj]; _ -> return ()
                     -- Remove from image cache
                     deleteImage (tcImageCache tc) uri
-                    return (tc { tcCacheEntries = newEntries }, Just tex)
-                _ -> return (tc, Nothing)
+                    -- Write back the cache directory and return
+                    writeIORef (tcCacheEntries tc) newEntries
+                    return $ Just tex
+                _ -> return Nothing
 
