@@ -230,7 +230,7 @@ fetchThread ic manager unmask =
         -- or we'll mark it as a cache error
         bracketOnError
             (popRequestStack ic)
-            (\uriUncached -> modifyCacheEntry ic $ LBM.update uriUncached CacheError) -- TODO
+            (\uriUncached -> modifyCacheEntry ic $ LBM.update uriUncached CacheError)
             (\uriUncached -> do
                 let cacheFn = B8.unpack $ mkURICacheFn ic uriUncached
                 imgBS <- fetchDiskCache ic manager uriUncached cacheFn
@@ -248,9 +248,9 @@ fetchThread ic manager unmask =
                 di `seq` modifyCacheEntry ic $! LBM.update uriUncached (Fetched di)
             )
       )
-      [ Handler $ \(ex :: IOException             ) -> reportEx ex
-      , Handler $ \(ex :: HttpException           ) -> reportEx ex
-      , Handler $ \(ex :: DecodeException         ) -> reportEx ex
+      [ Handler $ \(ex :: IOException    ) -> reportEx ex
+      , Handler $ \(ex :: HttpException  ) -> reportEx ex
+      , Handler $ \(ex :: DecodeException) -> reportEx ex
       ]
     where reportEx ex = traceS TLError $ "Image Cache Exception: " ++ show ex
  

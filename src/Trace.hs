@@ -79,7 +79,7 @@ trace lvl msg = void $ withMVar traceSettings $ \ts -> -- TODO: Have to take an 
                      if   tsEchoOn ts then           [stdout] else []
            oneLine = (not $ T.any (== '\n') msg) && T.length msg < 75
        forM_ handles $ \h -> do
-           c <- hIsClosed h
+           c  <- hIsClosed h
            hs <- hShow h
            if   c
            then TI.putStrLn $ "ERROR: Trace message lost, called trace after shutdown: " <> msg

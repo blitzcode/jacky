@@ -26,7 +26,7 @@ data TextureCache = TextureCache { tcCacheEntries :: IORef (LBM.Map B.ByteString
 withTextureCache :: Int -> ImageCache -> (TextureCache -> IO ()) -> IO ()
 withTextureCache maxCacheEntries hic f = do
     bracket
-        ( (newIORef $ LBM.empty maxCacheEntries) >>= \initCacheEntries ->
+        ( newIORef (LBM.empty maxCacheEntries) >>= \initCacheEntries ->
               return $ TextureCache { tcCacheEntries = initCacheEntries
                                     , tcImageCache   = hic
                                     }
