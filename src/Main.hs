@@ -24,7 +24,6 @@ import qualified Graphics.Rendering.OpenGL as GL
 import qualified "GLFW-b" Graphics.UI.GLFW as GLFW
 import System.IO
 import Data.Int
-import Data.List
 import Data.Maybe
 import System.Directory
 import qualified Codec.Picture as JP
@@ -66,6 +65,7 @@ data Env = Env
 
 data State = State
     { stTweetByID          :: M.Map Int64 Tweet
+    , stUILayoutRects      :: [(Int, Int, Int, Int)]
     , stStatTweetsReceived :: Int
     , stStatDelsReceived   :: Int
     }
@@ -259,13 +259,6 @@ drawQuad x y w h (r, g, b) =
             texCoord2f 0.0 1.0
             vertex2f (-w / 2) (h / 2)
 
-sizes =    replicate 8   (127, 127)
-        ++ replicate 32  (63,  63 )
-        ++ replicate 128 (31,  31 )
-        ++ replicate 768 (15,  15 )
-tiles = map (\(x, y, w, h) -> (x, 640 - y - h, w, h)) $
-            RP.packRectangles 1105 640 1 sizes
-
 draw :: AppDraw ()
 draw = do
     liftIO $ do
@@ -273,39 +266,13 @@ draw = do
         GL.clear [GL.ColorBuffer]
 
     tweets <- gets stTweetByID
-    window <- asks envWindow
+    tiles  <- gets stUILayoutRects
     tc     <- asks envTextureCache
-
-    (fbWdh, fbHgt) <- liftIO $ GLFW.getFramebufferSize window
-
-{-
-    let sizes =    replicate 8   (127, 127)
-                ++ replicate 32  (63,  63 )
-                ++ replicate 128 (31,  31 )
-                ++ replicate 768 (15,  15 )
-        tiles = map (\(x, y, w, h) -> (x, fbHgt - y - h, w, h)) $
-                    RP.packRectangles fbWdh fbHgt 1 sizes
--}
-
-    --liftIO $ putStr "." >> hFlush stdout
 
     forM_ (zip tiles (M.toDescList tweets)) $ \((cx, cy, cw, ch), (_, tw)) -> do
         ce <- liftIO $ TextureCache.fetchImage tc (usrProfileImageURL . twUser $ tw)
         case ce of
             Just tex -> liftIO $ do
-                {-
-                GL.windowPos (GL.Vertex2
-                    (fromIntegral $ (idx `mod` 25) * 47)
-                    (fromIntegral $ (idx `div` 25) * 47)
-                    :: GL.Vertex2 GL.GLint)
-                when (VS.length img /= w * h) $
-                    error "HTTPImageRes storage / dimensions mismatch"
-                VS.unsafeWith img $ \ptr ->
-                    GL.drawPixels
-                        (GL.Size (fromIntegral w) (fromIntegral h))
-                        (GL.PixelData GL.RGBA GL.UnsignedByte ptr)
-                -}
-
                 {-
                 GL.blend      GL.$= GL.Enabled
                 GL.blendFunc  GL.$= (GL.ConstantAlpha, GL.OneMinusConstantAlpha)
@@ -350,6 +317,16 @@ processAllEvents tq processEvent = do
         Just e -> processEvent e >> processAllEvents tq processEvent
         _      -> return ()
 
+-- Compute new layout of content rectangles for a given window size
+mkUILayoutRects :: Int -> Int -> [(Int, Int, Int, Int)]
+mkUILayoutRects wndWdh wndHgt =
+    map (\(x, y, w, h) -> (x, wndHgt - y - h {- Flip -}, w, h))
+        $ RP.packRectangles wndWdh wndHgt 1
+        $    replicate 8   (127, 127)
+          ++ replicate 32  (63,  63 )
+          ++ replicate 128 (31,  31 )
+          ++ replicate 768 (15,  15 )
+
 processGLFWEvent :: GLFWEvent -> AppDraw ()
 processGLFWEvent ev =
     case ev of
@@ -358,11 +335,12 @@ processGLFWEvent ev =
             liftIO $ do
                 traceS TLError $ "GLFW Error " ++ show e ++ " " ++ show s
                 GLFW.setWindowShouldClose window True
-        (GLFWEventKey window k _ ks mk) ->
+        (GLFWEventKey window k _ ks _) ->
             when (ks == GLFW.KeyState'Pressed) $ do
                 when (k == GLFW.Key'Escape) $
                     liftIO $ GLFW.setWindowShouldClose window True
-        (GLFWEventWindowSize window w h) ->
+        (GLFWEventWindowSize _ w h) -> do
+            modify' $ \s -> s { stUILayoutRects = mkUILayoutRects w h }
             liftIO $ do setup2DOpenGL w h
                         traceS TLInfo $ printf "Window resized: %i x %i" w h
 
@@ -383,7 +361,7 @@ processSMEvent ev =
         SMTweet tw' ->
             do cntMsg (stStatTweetsReceived)
                       (\n s -> s { stStatTweetsReceived = n })
-                      150
+                      300
                       "SMTweet"
                -- Always try to fetch the higher resolution profile images
                -- TODO: Looks like a use case for lenses...
@@ -405,7 +383,7 @@ processSMEvent ev =
         SMDelete _ _ ->
             cntMsg (stStatDelsReceived)
                    (\n s -> s { stStatDelsReceived = n })
-                   75
+                   150
                    "SMDelete"
         _  -> liftIO . traceS TLInfo $ show ev -- Trace all other messages in full
         -- Less verbose tracing / counting of messages received
@@ -450,8 +428,7 @@ processStatusesAsync uri' retryAPI = do
 run :: AppDraw ()
 run = do
     -- Setup OpenGL / GLFW
-    glfwEventsQueue <- asks envGLFWEventsQueue
-    window          <- asks envWindow
+    window <- asks envWindow
     liftIO $ do
         (w, h) <- GLFW.getWindowSize window
         GLFW.swapInterval 1
@@ -581,7 +558,9 @@ main = do
             -- Event queues filled by GLFW callbacks, stream messages
             initGLFWEventsQueue <- newTQueueIO       :: IO (TQueue  GLFWEvent)
             initSMQueue         <- newTBQueueIO 1024 :: IO (TBQueue StreamMessage)
-            withWindow 1105 640 "Twitter" initGLFWEventsQueue $ \window ->
+            let wndWdh = 1105
+                wndHgt = 640
+            withWindow wndWdh wndHgt "Twitter" initGLFWEventsQueue $ \window ->
               withTextureCache cacheSize icache $ \tcache -> do
                 -- Start main loop in RWS / IO monads
                 let envInit = Env
@@ -603,6 +582,7 @@ main = do
                         }
                     stateInit = State
                         { stTweetByID          = M.empty
+                        , stUILayoutRects      = mkUILayoutRects wndWdh wndHgt 
                         , stStatTweetsReceived = 0
                         , stStatDelsReceived   = 0
                         }
