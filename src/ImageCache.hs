@@ -56,13 +56,13 @@ data ImageCache = ImageCache
     }
 
 data CacheEntry = Fetching -- We keep in-progress entries in the cache to avoid double fetches
-                | Fetched ImageRes
+                | Fetched !ImageRes
                 | CacheError  -- Failed to load / fetch / decode image
 
 -- TODO: Add 'retryAfterNSec' field to CacheError to deal with failed fetches / decompression
 --       while allowing to try again at some point
 
-data ImageRes = ImageRes Int Int (VS.Vector Word32)
+data ImageRes = ImageRes !Int !Int !(VS.Vector Word32)
 
 mkURICacheFn :: ImageCache -> B.ByteString -> B.ByteString
 mkURICacheFn ic url = icCacheFolder ic
@@ -124,7 +124,7 @@ dynImgToRGBA8 di =
         _                -> Left "Can't convert image format to RGBA8"
                             -- TODO: Include source format in error message
 
-toImageRes :: JP.Image JP.PixelRGBA8 -> ImageRes
+toImageRes :: JP.Image JP.PixelRGBA8 -> Either String ImageRes
 toImageRes jp =
     let w = JPT.imageWidth  jp
         h = JPT.imageHeight jp
@@ -141,7 +141,9 @@ toImageRes jp =
                                  (x + (h - 1 - y) * w) -- Flip image
                                  (pixToWord32 $ JP.pixelAt jp x y)
             return v
-    in  ImageRes w h convert
+    in  if   w > 512 || h > 512 -- TODO: Hardcoded / arbitrary
+        then Left "Image to large, won't convert"
+        else Right $ ImageRes w h convert
 
 -- Pop an uncached request of the request stack
 popRequestStack :: ImageCache -> IO B.ByteString
@@ -225,16 +227,17 @@ fetchThread ic manager = handle (\ThreadKilled -> -- Handle this exception here 
                 let cacheFn = B8.unpack $ mkURICacheFn ic uriUncached
                 imgBS <- fetchDiskCache ic manager uriUncached cacheFn
                 -- Decompress and convert
-                --                                             TODO: Have to use toStrict, nasty
-                di <- case dynImgToRGBA8 =<< (JP.decodeImage $ BL.toStrict imgBS) of
+                --                                                         -- TODO: toStrict, nasty
+                di <- case toImageRes =<< dynImgToRGBA8 =<< (JP.decodeImage $ BL.toStrict imgBS) of
                           Left  err -> throwIO $ DecodeException
                                            { deError   = err
                                            , deURI     = (B8.unpack uriUncached) 
                                            , deCacheFn = cacheFn
                                            }
                           Right x   -> return x
-                -- Update cache with image
-                modifyCacheEntry ic $ LBM.update uriUncached (Fetched $! toImageRes di)
+                -- Update cache with image, make sure we actually decompress /
+                -- covert it here instead of just storing a thunk
+                di `seq` modifyCacheEntry ic $! LBM.update uriUncached (Fetched di)
             )
       )
       [ Handler $ \(ex :: IOException             ) -> reportEx ex
