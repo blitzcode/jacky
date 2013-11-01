@@ -556,7 +556,11 @@ main = do
                   FlagImgMemCacheSize n -> fromMaybe r $ parseMaybeInt n
                   _                  -> r)
                   defImgMemCacheSize flags
-          in  withImageCache manager cacheSize concImgFetches (imgCacheFolder flags) $ \icache ->
+          in  withImageCache manager
+                             (cacheSize `div` 2)
+                             concImgFetches
+                             (imgCacheFolder flags)
+                             $ \icache ->
             withWindow 1105 640 "Twitter" $ \window ->
               withTextureCache cacheSize icache $ \tcache -> do
                 -- Event queues filled by GLFW callbacks, stream messages

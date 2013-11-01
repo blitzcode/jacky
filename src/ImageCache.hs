@@ -78,7 +78,7 @@ withImageCache manager memCacheEntryLimit numConcReq cacheFolder f = do
     -- Make sure our cache folder exists
     createDirectoryIfMissing True cacheFolder
     -- Build record 
-    initOutstandingReq <- newTVarIO $ LBM.empty $ memCacheEntryLimit `div` 4
+    initOutstandingReq <- newTVarIO $ LBM.empty $ memCacheEntryLimit `div` 2
     initCacheEntries   <- newTVarIO $ LBM.empty memCacheEntryLimit
     initIORefs         <- forM ([1..4] :: [Int]) (\_ -> newIORef 0 :: IO (IORef Word64))
     let ic = ImageCache { icCacheFolder    = B8.pack $ addTrailingPathSeparator cacheFolder
