@@ -78,12 +78,17 @@ trace lvl msg = void $ withMVar traceSettings $ \ts -> -- TODO: Have to take an 
                      if   tsEchoOn ts then           [stdout] else []
            oneLine = (not $ T.any (== '\n') msg) && T.length msg < 75
        forM_ handles $ \h -> do
-           -- Display short, unbroken messages in a single line without padding newline
-           if   oneLine
-           then do TI.hPutStrLn h $ T.pack header <> " - " <> msg
-           else do hPutStrLn h header
-                   TI.hPutStrLn h msg
-                   hPutStrLn h ""
+           c <- hIsClosed h
+           if   c
+           then -- TODO: This can happen even for traces that are inside withTrace's supplied
+                --       function, no idea how that is possible...
+                TI.putStrLn $ "ERROR: Trace message lost, called trace after shutdown: " <> msg
+           else -- Display short, unbroken messages in a single line without padding newline
+                if   oneLine
+                then do TI.hPutStrLn h $ T.pack header <> " - " <> msg
+                else do hPutStrLn h header
+                        TI.hPutStrLn h msg
+                        hPutStrLn h ""
 
 traceT :: TraceLevel -> T.Text -> IO ()
 traceT lvl msg = trace lvl msg
