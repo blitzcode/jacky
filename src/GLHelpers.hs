@@ -34,6 +34,7 @@ withWindow w h title f =
         ( do GLFW.setErrorCallback $ Just simpleErrorCallback
              True <- GLFW.init 
              GLFW.windowHint $ GLFW.WindowHint'Resizable False
+             GLFW.windowHint $ GLFW.WindowHint'Samples 4 -- 4x anti-aliasing
              Just window <- GLFW.createWindow w h title Nothing Nothing
              GLFW.makeContextCurrent $ Just window
              return window
@@ -51,6 +52,7 @@ setup2DOpenGL w h = do
     GL.matrixMode GL.$= GL.Projection
     GL.loadIdentity
     GLU.ortho2D 0.0 (fromIntegral w) 0.0 (fromIntegral h)
+    -- GL.ortho 0.0 (fromIntegral w) 0.0 (fromIntegral h) 0.1 1000.0
     -- Magic number working for NV & ATI
     GL.translate (GL.Vector3 0.375 0.375 0.0 :: GL.Vector3 GL.GLfloat)
 
