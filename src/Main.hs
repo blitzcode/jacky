@@ -241,16 +241,28 @@ texCoord2f u v = GL.texCoord $ GL.TexCoord2 (realToFrac u :: GL.GLfloat) (realTo
 
 drawQuad :: Float -> Float -> Float -> Float -> (Float, Float, Float) -> IO ()
 drawQuad x y w h (r, g, b) =
-    GL.renderPrimitive GL.Quads $ do
-        color3f r g b
-        texCoord2f 0.0 0.0
-        vertex2f x y
-        texCoord2f 1.0 0.0
-        vertex2f (x + w) y
-        texCoord2f 1.0 1.0
-        vertex2f (x + w) (y + h)
-        texCoord2f 0.0 1.0
-        vertex2f x (y + h)
+    GL.preservingMatrix $ do
+        Just time <- GLFW.getTime
+        GL.translate $
+            GL.Vector3 (realToFrac $ x + w/2) (realToFrac $ y + h/2) (-500.0 :: GL.GLfloat)
+        GL.rotate (realToFrac time * 30 :: GL.GLfloat) $ GL.Vector3 0.0 0.0 1.0
+        GL.renderPrimitive GL.Quads $ do
+            color3f r g b
+            texCoord2f 0.0 0.0
+            vertex2f (-w / 2) (-h / 2)
+            texCoord2f 1.0 0.0
+            vertex2f (w / 2) (-h / 2)
+            texCoord2f 1.0 1.0
+            vertex2f (w / 2) (h / 2)
+            texCoord2f 0.0 1.0
+            vertex2f (-w / 2) (h / 2)
+
+sizes =    replicate 8   (127, 127)
+        ++ replicate 32  (63,  63 )
+        ++ replicate 128 (31,  31 )
+        ++ replicate 768 (15,  15 )
+tiles = map (\(x, y, w, h) -> (x, 640 - y - h, w, h)) $
+            RP.packRectangles 1105 640 1 sizes
 
 draw :: AppDraw ()
 draw = do
@@ -264,12 +276,14 @@ draw = do
 
     (fbWdh, fbHgt) <- liftIO $ GLFW.getFramebufferSize window
 
+{-
     let sizes =    replicate 8   (127, 127)
                 ++ replicate 32  (63,  63 )
                 ++ replicate 128 (31,  31 )
                 ++ replicate 768 (15,  15 )
         tiles = map (\(x, y, w, h) -> (x, fbHgt - y - h, w, h)) $
                     RP.packRectangles fbWdh fbHgt 1 sizes
+-}
 
     --liftIO $ putStr "." >> hFlush stdout
 

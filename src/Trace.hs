@@ -55,7 +55,8 @@ withTrace traceFn echoOn appendOn level f =
              unless r $ error "Double initialization of Trace module"
              return ts
         )
-        ( \ts -> do void . takeMVar $ traceSettings
+        ( \ts -> do traceT TLInfo "Shutting down trace system"
+                    void . takeMVar $ traceSettings
                     case tsFile ts of Just h -> hClose h
                                       _      -> return ()
                     when (tsEchoOn ts) $ hFlush stdout
@@ -79,10 +80,10 @@ trace lvl msg = void $ withMVar traceSettings $ \ts -> -- TODO: Have to take an 
            oneLine = (not $ T.any (== '\n') msg) && T.length msg < 75
        forM_ handles $ \h -> do
            c <- hIsClosed h
+           hs <- hShow h
            if   c
-           then -- TODO: This can happen even for traces that are inside withTrace's supplied
-                --       function, no idea how that is possible...
-                TI.putStrLn $ "ERROR: Trace message lost, called trace after shutdown: " <> msg
+           then TI.putStrLn $ "ERROR: Trace message lost, called trace after shutdown: " <> msg
+                              <> "\n" <> T.pack hs <> "\n" <> T.pack (show h)
            else -- Display short, unbroken messages in a single line without padding newline
                 if   oneLine
                 then do TI.hPutStrLn h $ T.pack header <> " - " <> msg

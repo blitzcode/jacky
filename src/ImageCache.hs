@@ -1,5 +1,5 @@
 
-{-# LANGUAGE ScopedTypeVariables, OverloadedStrings, DeriveDataTypeable #-}
+{-# LANGUAGE ScopedTypeVariables, OverloadedStrings, DeriveDataTypeable, RankNTypes #-}
 
 module ImageCache ( ImageCache
                   , ImageRes(..)
@@ -90,7 +90,12 @@ withImageCache manager memCacheEntryLimit numConcReq cacheFolder f = do
                         , icMemHits        = initIORefs !! 3
                         }
     bracket -- Fetch thread launch and cleanup
-        (forM [1..numConcReq] $ \_ -> async $ fetchThread ic manager)
+        --
+        -- Note the asyncWithUnmask. Otherwise all fetch threads would be
+        -- created with a MaskedInterruptible masking state (bracket does that
+        -- for its 'before' operations) and we would have hangs during cleanup
+        --
+        (forM [1..numConcReq] $ \_ -> asyncWithUnmask $ fetchThread ic manager)
         (\threads -> do
             -- Error checking, statistics
             req   <- LBM.valid <$> (atomically . readTVar $ icOutstandingReq ic)
@@ -164,7 +169,7 @@ popRequestStack ic = do
                    if   LBM.notMember uri cache
                    then do -- New request, mark fetch status and return URI
                            writeTVar (icCacheEntries ic) .
-                                     fst $ LBM.insertUnsafe uri Fetching cache
+                               fst $ LBM.insertUnsafe uri Fetching cache
                            return $ Just uri
                    else return Nothing -- Already in cache, commit transaction here and return
                                        -- Nothing so the outer loop can try again
@@ -183,7 +188,9 @@ fetchDiskCache :: ImageCache -> Manager -> B.ByteString -> FilePath -> IO BL.Byt
 fetchDiskCache ic manager uri cacheFn = do
     bs <- tryIOError $ BL.readFile cacheFn -- Already in the disk cache?
     case bs of
-        Left  _ ->
+        Left ex -> do
+            unless (isDoesNotExistError ex) $ -- Only handle the missing file ones silently
+                throwIO ex
             -- No, fetch image
             if   uriIsHTTP uri
             then runResourceT $ do
@@ -210,10 +217,11 @@ data DecodeException = DecodeException { deError   :: String
                                        } deriving (Show, Typeable)
 instance Exception DecodeException
 
-fetchThread :: ImageCache -> Manager -> IO ()
-fetchThread ic manager = handle (\ThreadKilled -> -- Handle this exception here so we exit cleanly
-                                     traceT TLInfo "Fetch thread received 'ThreadKilled', exiting")
-                          . forever $ do
+fetchThread :: ImageCache -> Manager -> (forall a. IO a -> IO a) -> IO ()
+fetchThread ic manager unmask =
+  handle (\ThreadKilled -> -- Handle this exception here so we exit cleanly
+             traceT TLInfo "Fetch thread received 'ThreadKilled', exiting")
+         . forever . unmask $ do
     -- The inner bracket takes care of cleanup, here we decide if the exception is
     -- recoverable or if we should stop the thread
     catches
@@ -222,7 +230,7 @@ fetchThread ic manager = handle (\ThreadKilled -> -- Handle this exception here 
         -- or we'll mark it as a cache error
         bracketOnError
             (popRequestStack ic)
-            (\uriUncached -> modifyCacheEntry ic $ LBM.update uriUncached CacheError)
+            (\uriUncached -> modifyCacheEntry ic $ LBM.update uriUncached CacheError) -- TODO
             (\uriUncached -> do
                 let cacheFn = B8.unpack $ mkURICacheFn ic uriUncached
                 imgBS <- fetchDiskCache ic manager uriUncached cacheFn
@@ -231,7 +239,7 @@ fetchThread ic manager = handle (\ThreadKilled -> -- Handle this exception here 
                 di <- case toImageRes =<< dynImgToRGBA8 =<< (JP.decodeImage $ BL.toStrict imgBS) of
                           Left  err -> throwIO $ DecodeException
                                            { deError   = err
-                                           , deURI     = (B8.unpack uriUncached) 
+                                           , deURI     = (B8.unpack uriUncached)
                                            , deCacheFn = cacheFn
                                            }
                           Right x   -> return x
@@ -243,8 +251,6 @@ fetchThread ic manager = handle (\ThreadKilled -> -- Handle this exception here 
       [ Handler $ \(ex :: IOException             ) -> reportEx ex
       , Handler $ \(ex :: HttpException           ) -> reportEx ex
       , Handler $ \(ex :: DecodeException         ) -> reportEx ex
-        -- TODO: We still seem to have an issue with this one...
-      , Handler $ \(ex :: BlockedIndefinitelyOnSTM) -> reportEx ex
       ]
     where reportEx ex = traceS TLError $ "Image Cache Exception: " ++ show ex
  
