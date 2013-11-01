@@ -243,9 +243,11 @@ drawQuad :: Float -> Float -> Float -> Float -> (Float, Float, Float) -> IO ()
 drawQuad x y w h (r, g, b) =
     GL.preservingMatrix $ do
         Just time <- GLFW.getTime
+        GL.matrixMode GL.$= GL.Modelview 0
+        GL.loadIdentity
         GL.translate $
-            GL.Vector3 (realToFrac $ x + w/2) (realToFrac $ y + h/2) (-500.0 :: GL.GLfloat)
-        GL.rotate (realToFrac time * 30 :: GL.GLfloat) $ GL.Vector3 0.0 0.0 1.0
+            GL.Vector3 (realToFrac $ x + w/2) (realToFrac $ y + h/2) (0.0 :: GL.GLfloat)
+        GL.rotate (realToFrac time * 30 + (realToFrac $ x+y) :: GL.GLfloat) $ GL.Vector3 0.0 0.0 1.0
         GL.renderPrimitive GL.Quads $ do
             color3f r g b
             texCoord2f 0.0 0.0
@@ -360,6 +362,9 @@ processGLFWEvent ev =
             when (ks == GLFW.KeyState'Pressed) $ do
                 when (k == GLFW.Key'Escape) $
                     liftIO $ GLFW.setWindowShouldClose window True
+        (GLFWEventWindowSize window w h) ->
+            liftIO $ do setup2DOpenGL w h
+                        traceS TLInfo $ printf "Window resized: %i x %i" w h
 
 highResProfileImgURL :: B.ByteString -> B.ByteString
 highResProfileImgURL url =
@@ -449,8 +454,6 @@ run = do
     window          <- asks envWindow
     liftIO $ do
         (w, h) <- GLFW.getWindowSize window
-        GLFW.setErrorCallback        . Just $ errorCallback glfwEventsQueue
-        GLFW.setKeyCallback   window . Just $ keyCallback   glfwEventsQueue
         GLFW.swapInterval 1
         setup2DOpenGL w h
     -- Launch thread for parsing status updates
@@ -574,12 +577,12 @@ main = do
                              (cacheSize `div` 2)
                              concImgFetches
                              (imgCacheFolder flags)
-                             $ \icache ->
-            withWindow 1105 640 "Twitter" $ \window ->
+                             $ \icache -> do
+            -- Event queues filled by GLFW callbacks, stream messages
+            initGLFWEventsQueue <- newTQueueIO       :: IO (TQueue  GLFWEvent)
+            initSMQueue         <- newTBQueueIO 1024 :: IO (TBQueue StreamMessage)
+            withWindow 1105 640 "Twitter" initGLFWEventsQueue $ \window ->
               withTextureCache cacheSize icache $ \tcache -> do
-                -- Event queues filled by GLFW callbacks, stream messages
-                initGLFWEventsQueue <- newTQueueIO       :: IO (TQueue  GLFWEvent)
-                initSMQueue         <- newTBQueueIO 1024 :: IO (TBQueue StreamMessage)
                 -- Start main loop in RWS / IO monads
                 let envInit = Env
                         { envWindow           = window
