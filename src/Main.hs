@@ -279,11 +279,10 @@ draw = do
                 GL.blendColor GL.$= (GL.Color4 0 0 0 0.5 :: GL.Color4 GL.GLfloat)
                 -}
 
-                (w, h) <- (\case (GL.TextureSize2D w h) -> (fromIntegral w, fromIntegral h))
-                          <$> (GL.get $ GL.textureSize2D (Left GL.Texture2D) 0)
-
                 GL.texture         GL.Texture2D GL.$= GL.Enabled
                 GL.textureBinding  GL.Texture2D GL.$= Just tex
+
+                (w, h) <- getCurTex2DSize
 
                 GL.textureWrapMode GL.Texture2D GL.S GL.$= (GL.Repeated, GL.ClampToEdge)
                 GL.textureWrapMode GL.Texture2D GL.T GL.$= (GL.Repeated, GL.ClampToEdge)
@@ -340,6 +339,8 @@ processGLFWEvent ev =
                 when (k == GLFW.Key'Escape) $
                     liftIO $ GLFW.setWindowShouldClose window True
         (GLFWEventWindowSize _ w h) -> do
+            -- TODO: Window resizing blocks event processing,
+            --       see https://github.com/glfw/glfw/issues/1
             modify' $ \s -> s { stUILayoutRects = mkUILayoutRects w h }
             liftIO $ do setup2DOpenGL w h
                         traceS TLInfo $ printf "Window resized: %i x %i" w h

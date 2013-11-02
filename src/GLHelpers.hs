@@ -1,9 +1,10 @@
 
-{-# LANGUAGE PackageImports #-}
+{-# LANGUAGE PackageImports, LambdaCase #-}
 
 module GLHelpers ( GLFWEvent(..)
                  , withWindow
                  , setup2DOpenGL
+                 , getCurTex2DSize
                  ) where
 
 import qualified Graphics.Rendering.OpenGL as GL
@@ -11,6 +12,7 @@ import qualified Graphics.Rendering.OpenGL.GLU as GLU
 import qualified "GLFW-b" Graphics.UI.GLFW as GLFW -- Be explicit, we need the newer GLFW-b
 import Control.Concurrent.STM
 import Control.Exception
+import Control.Applicative
 
 -- Various utility functions related to GL and GLFW
 
@@ -58,4 +60,8 @@ setup2DOpenGL w h = do
     -- GL.ortho 0.0 (fromIntegral w) 0.0 (fromIntegral h) 0.1 1000.0
     -- Magic number working for NV & ATI
     GL.translate (GL.Vector3 0.375 0.375 0.0 :: GL.Vector3 GL.GLfloat)
+
+getCurTex2DSize :: IO (Int, Int)
+getCurTex2DSize = (\case (GL.TextureSize2D w h) -> (fromIntegral w, fromIntegral h))
+                         <$> (GL.get $ GL.textureSize2D (Left GL.Texture2D) 0)
 
