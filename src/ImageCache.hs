@@ -201,7 +201,7 @@ fetchDiskCache ic manager uri cacheFn = do
                          incCacheMisses ic
                          -- TODO: Misses HTTP protocol overhead
                          incCacheBytesTransf ic . fromIntegral . BL.length . responseBody $ res
-                         BL.writeFile cacheFn $ responseBody res
+                         -- BL.writeFile cacheFn $ responseBody res
                      return $ responseBody res
             else BL.readFile $ B8.unpack uri
         Right x -> incCacheDiskHits ic >> return x

@@ -350,16 +350,16 @@ mkUILayoutRects wndWdh wndHgt =
 processGLFWEvent :: GLFWEvent -> AppDraw ()
 processGLFWEvent ev =
     case ev of
-        (GLFWEventError e s) -> do
-            window <- asks envWindow
-            liftIO $ do
-                traceS TLError $ "GLFW Error " ++ show e ++ " " ++ show s
-                GLFW.setWindowShouldClose window True
-        (GLFWEventKey window k _ ks _) ->
-            when (ks == GLFW.KeyState'Pressed) $ do
-                when (k == GLFW.Key'Escape) $
-                    liftIO $ GLFW.setWindowShouldClose window True
-        (GLFWEventWindowSize _ w h) -> do
+        GLFWEventError e s -> do
+           window <- asks envWindow
+           liftIO $ do
+               traceS TLError $ "GLFW Error " ++ show e ++ " " ++ show s
+               GLFW.setWindowShouldClose window True
+        GLFWEventKey window k _ ks _ ->
+           when (ks == GLFW.KeyState'Pressed) $ do
+               when (k == GLFW.Key'Escape) $
+                   liftIO $ GLFW.setWindowShouldClose window True
+        GLFWEventWindowSize _ w h -> do
             -- TODO: Window resizing blocks event processing,
             --       see https://github.com/glfw/glfw/issues/1
             modify' $ \s -> s { stUILayoutRects = mkUILayoutRects w h }
@@ -422,6 +422,9 @@ processStatusesAsync uri' retryAPI = do
                                                   ModeLogNetwork -> (uri' , Just logFn)
                                                   ModeReplayLog  -> (logFn, Nothing   )
     -- Launch thread
+    --
+    -- TODO: Might want to use bracket / withAsync or something like that to
+    --       make sure we cancel the thread before we shut down
     void . liftIO . forkIO $
         processStatuses
             uri
@@ -444,6 +447,7 @@ getCurTick = do
     -- Just time <- GLFW.getTime
     -- return time
 
+{-# NOINLINE traceStats #-}
 traceStats :: AppDraw ()
 traceStats = do
         time <- liftIO $ getCurTick
@@ -508,11 +512,9 @@ run = do
         processAllEvents (Right tqSM) processSMEvent
         -- GLFW / OpenGL
         draw
-        liftIO $ do
-            GL.finish
+        liftIO $ {-# SCC swapAndPoll #-} do
+            -- GL.finish
             GLFW.swapBuffers window
-            GL.finish
-            GL.flush
             GLFW.pollEvents
             err <- GL.get GL.errors
             unless (null err) .
@@ -541,7 +543,7 @@ verifyImgCache folder = do
 main :: IO ()
 main = do
     runOnAllCores -- Multicore
-    -- image cache folder
+    -- Image cache folder
     cacheFolder <- addTrailingPathSeparator <$> getAppUserDataDirectory defImageCacheFolder
     let imgCacheFolder flagsArg = foldr
          (\f r -> case f of FlagImageCacheFolder fldr -> fldr; _ -> r) cacheFolder flagsArg
@@ -595,7 +597,7 @@ main = do
                 defConKeepAlive flags
             timeout = foldr (\f r -> case f of
                 FlagConTimeout n -> fromMaybe r $ parseMaybe n
-                _                  -> r)
+                _                -> r)
                 defConTimeout flags
         in  withManagerSettings (def { managerConnCount       = connCount
                                      , managerResponseTimeout = Just timeout
@@ -603,7 +605,7 @@ main = do
                                 ) $ \manager -> liftIO $
           let cacheSize = foldr (\f r -> case f of
                   FlagImgMemCacheSize n -> fromMaybe r $ parseMaybe n
-                  _                  -> r)
+                  _                     -> r)
                   defImgMemCacheSize flags
           in  withImageCache manager
                              (cacheSize `div` 2)

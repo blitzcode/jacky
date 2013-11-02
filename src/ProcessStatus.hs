@@ -38,6 +38,9 @@ smQueueSink smQueue = awaitForever $ liftIO . atomically . writeTBQueue smQueue
 -- Count bytes passing through using the state (need to be careful that we don't
 -- retain a reference to the ByteString in case we're not looking at the state
 -- for a while)
+--
+-- TODO: We take the byte count after gzip decompression, so not really what goes
+--       over the socket
 countBytesState :: (MonadIO m, MonadState Int m) => Conduit B.ByteString m B.ByteString
 countBytesState = awaitForever $ \mi -> do
                       modify' (\x -> B.length mi `seq` x + (fromIntegral $ B.length mi))
