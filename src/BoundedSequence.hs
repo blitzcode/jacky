@@ -1,39 +1,43 @@
 
-module BoundedStack ( BoundedStack
-                    , mkBoundedStack
-                    , push
-                    , push_
-                    , pop
-                    ) where
+module BoundedSequence ( BoundedSequence
+                       , empty
+                       , push
+                       , push_
+                       , pop
+                       , toList
+                       ) where
 
 import qualified Data.Sequence as S
+import qualified Data.Foldable
 
--- Stack implementation based on Sequence which drops elements pushed over
--- a specified depth
+-- Sequence with a stack interface which drops elements pushed over a specified depth
 
-data BoundedStack a = BoundedStack (S.Seq a) !Int
-                      deriving (Show)
+data BoundedSequence a = BoundedSequence (S.Seq a) !Int
+                         deriving (Show)
 
-mkBoundedStack :: Int -> BoundedStack a
-mkBoundedStack limit | limit >= 1 = BoundedStack S.empty limit
-                     | otherwise  = error "limit for BoundedStack needs to be >= 1"
+empty :: Int -> BoundedSequence a
+empty limit | limit >= 1 = BoundedSequence S.empty limit
+            | otherwise  = error "limit for BoundedSequence needs to be >= 1"
 
 -- Push element on the stack, truncate at the other end if we reached the limit,
 -- return new stack and truncated element (if over the limit)
-push :: a -> BoundedStack a -> (BoundedStack a, Maybe a)
-push x (BoundedStack s limit) =
+push :: a -> BoundedSequence a -> (BoundedSequence a, Maybe a)
+push x (BoundedSequence s limit) =
     let seqDropR sd = case S.viewr sd of (s' S.:> e) -> (s', Just e)
                                          S.EmptyR    -> (sd, Nothing)
         boundedS | S.length s >= limit = seqDropR s
                  | otherwise           = (s, Nothing)
-    in  case boundedS of (s', e) -> (BoundedStack (x S.<| s') limit, e)
+    in  case boundedS of (s', e) -> (BoundedSequence (x S.<| s') limit, e)
 
-push_ :: a -> BoundedStack a -> BoundedStack a
+push_ :: a -> BoundedSequence a -> BoundedSequence a
 push_ x s = fst $ push x s
 
 -- LIFO pop
-pop :: BoundedStack a -> (Maybe a, BoundedStack a)
-pop bs@(BoundedStack s limit) =
-    case S.viewl s of (x S.:< s') -> (Just x , BoundedStack s' limit)
+pop :: BoundedSequence a -> (Maybe a, BoundedSequence a)
+pop bs@(BoundedSequence s limit) =
+    case S.viewl s of (x S.:< s') -> (Just x , BoundedSequence s' limit)
                       S.EmptyL    -> (Nothing, bs)
+
+toList :: BoundedSequence a -> [a]
+toList (BoundedSequence s _) = Data.Foldable.toList s
 
