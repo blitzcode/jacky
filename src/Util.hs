@@ -1,7 +1,7 @@
 
 module Util ( modify'
             , modifyM
-            , parseMaybeInt
+            , parseMaybe
             ) where
 
 import Control.Monad.State.Strict
@@ -21,6 +21,6 @@ modifyM f = do
     put $! s'
     return r
 
-parseMaybeInt :: String -> Maybe Int
-parseMaybeInt s = fst <$> (listToMaybe . reads) s
+parseMaybe :: Read a => String -> Maybe a
+parseMaybe s = fst <$> (listToMaybe . reads) s
 

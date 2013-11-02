@@ -162,6 +162,7 @@ data StreamMessage = SMDelete { smdelID     :: Int64
                              }
                    | SMTweet Tweet
                    | SMParseError B.ByteString
+                   | SMBytesReceived Int -- Just for statistics
                      deriving (Show)
 
 instance FromJSON StreamMessage where

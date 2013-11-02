@@ -13,7 +13,6 @@ import qualified Web.Authenticate.OAuth as OA
 import Data.Aeson
 import qualified Data.ByteString.Char8 as B8
 import qualified Data.ByteString as B
-import Data.Word
 import Data.List
 import qualified Data.Vector as V
 import Control.Monad.IO.Class
@@ -24,7 +23,7 @@ import Control.Concurrent hiding (yield)
 import Text.Printf
 
 import TwitterJSON
-import Util (modify', parseMaybeInt)
+import Util
 import Trace
 
 -- Pick up Twitter status updates and related messages from a file or an HTTP connection
@@ -35,19 +34,21 @@ smQueueSink :: (MonadIO m, MonadResource m)
             => TBQueue StreamMessage
             -> Sink StreamMessage m ()
 smQueueSink smQueue = awaitForever $ liftIO . atomically . writeTBQueue smQueue
--- TODO: Sent byte count messages
 
 -- Count bytes passing through using the state (need to be careful that we don't
 -- retain a reference to the ByteString in case we're not looking at the state
 -- for a while)
-countBytesState :: (  MonadIO m {-@-}  , MonadState Word64 m) => Conduit B.ByteString m B.ByteString
+countBytesState :: (MonadIO m, MonadState Int m) => Conduit B.ByteString m B.ByteString
 countBytesState = awaitForever $ \mi -> do
                       modify' (\x -> B.length mi `seq` x + (fromIntegral $ B.length mi))
-                      --liftIO $ B.putStrLn mi {-@-}
                       yield mi
 
-parseStatus :: (MonadIO m, MonadResource m) => Conduit B.ByteString m StreamMessage
+parseStatus :: (MonadIO m, MonadState Int m, MonadResource m)
+            => Conduit B.ByteString m StreamMessage
 parseStatus = do
+    -- Bandwidth message for statistics
+    liftM yield SMBytesReceived =<< get
+    put 0
     -- Use conduit adapter for attoparsec to read the next JSON
     -- object with the Aeson parser from the stream connection
     --
@@ -85,7 +86,7 @@ processStatuses uri oaClient oaCredential manager logFn smQueue retryAPI = do
   success <- catches
     ( do
      -- We use State to keep track of how many bytes we received
-     runResourceT . flip evalStateT (0 :: Word64) $
+     runResourceT . flip evalStateT (0 :: Int) $
          let sink' = countBytesState =$ parseStatus =$ smQueueSink smQueue
              sink  = case logFn of Just fn -> conduitFile fn =$ sink' -- TODO: No flush on crash
                                    Nothing -> sink'
@@ -111,7 +112,7 @@ processStatuses uri oaClient oaCredential manager logFn smQueue retryAPI = do
                                               ++ "Header: " ++ show (responseHeaders res)
                      -- Are we approaching the rate limit?
                      case find ((== "x-rate-limit-remaining") . fst) (responseHeaders res) >>=
-                          parseMaybeInt . B8.unpack . snd of
+                          parseMaybe . B8.unpack . snd :: Maybe Int of
                               Just n  -> when (n < 5) . liftIO . traceS TLWarn $
                                              printf "Rate limit remaining for API '%s' at %i" uri n
                               Nothing -> return ()

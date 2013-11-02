@@ -33,6 +33,7 @@ import Network.URI
 import System.FilePath
 import Text.Printf
 import Control.Exception
+import Data.Time.Clock (getCurrentTime, utctDayTime)
 
 import CfgFile
 import TwitterJSON
@@ -43,6 +44,7 @@ import Util
 import GLHelpers
 import TextureCache
 import qualified RectPacker as RP
+import BoundedSequence as BS
 
 -- TODO: Start using Lens library for records and Reader/State
 -- TODO: Use labelThread for all threads
@@ -50,24 +52,29 @@ import qualified RectPacker as RP
 data LogNetworkMode = ModeNoLog | ModeLogNetwork | ModeReplayLog deriving (Eq, Enum, Show)
 
 data Env = Env
-    { envWindow           :: GLFW.Window
-    , envGLFWEventsQueue  :: TQueue GLFWEvent
-    , envSMQueue          :: TBQueue StreamMessage
-    , envImageCache       :: ImageCache
-    , envTextureCache     :: TextureCache
-    , envLogNetworkFolder :: String
-    , envLogNetworkMode   :: LogNetworkMode
-    , envOAClient         :: OA.OAuth
-    , envOACredential     :: OA.Credential
-    , envManager          :: Manager
-    , envTweetHistSize    :: Int
+    { envWindow            :: GLFW.Window
+    , envGLFWEventsQueue   :: TQueue GLFWEvent
+    , envSMQueue           :: TBQueue StreamMessage
+    , envImageCache        :: ImageCache
+    , envTextureCache      :: TextureCache
+    , envLogNetworkFolder  :: String
+    , envLogNetworkMode    :: LogNetworkMode
+    , envOAClient          :: OA.OAuth
+    , envOACredential      :: OA.Credential
+    , envManager           :: Manager
+    , envTweetHistSize     :: Int
+    , envStatTraceInterval :: Double
     }
 
 data State = State
     { stTweetByID          :: M.Map Int64 Tweet
     , stUILayoutRects      :: [(Int, Int, Int, Int)]
+      -- Statistics
+    , stFrameTimes         :: BS.BoundedSequence Double
+    , stLastStatTrace      :: Double
     , stStatTweetsReceived :: Int
     , stStatDelsReceived   :: Int
+    , stStatBytesRecvAPI   :: Int
     }
 
 type AppDraw = RWST Env () State IO
@@ -88,6 +95,7 @@ data Flag = FlagOAuthFile String
           | FlagConTimeout String
           | FlagTweetHistory String
           | FlagImgMemCacheSize String
+          | FlagStatTraceInterval String
             deriving (Eq, Show)
 
 defLogFolder, defImageCacheFolder, defTraceFn :: String
@@ -104,6 +112,8 @@ defTweetHistory :: Int
 defTweetHistory = 1000
 defImgMemCacheSize :: Int
 defImgMemCacheSize = 1024
+defStatTraceInterval = 10.0
+defStatTraceInterval :: Double
 
 parseCmdLineOpt :: (MonadError String m, MonadIO m) => m [Flag]
 parseCmdLineOpt = do
@@ -166,6 +176,11 @@ parseCmdLineOpt = do
                            (ReqArg FlagConTimeout "NUMBER")
                            ("HTTP request timeout (in µs, default: "
                                ++ show defConTimeout ++ ")")
+                  , Option ['s']
+                           ["stat-trace-interval"]
+                           (ReqArg FlagStatTraceInterval "NUMBER")
+                           ("statistics tracing interval (in seconds, default: "
+                               ++ show defStatTraceInterval ++ ")")
                   , Option ['n']
                            ["tweet-hist"]
                            (ReqArg FlagTweetHistory "NUMBER")
@@ -358,12 +373,9 @@ processSMEvent ev =
     -- TODO: Replace tweet / delete trace messages with summary stats every
     --       couple of messages
     case ev of
-        (SMParseError bs) -> liftIO . traceS TLError $ "\nStream Parse Error: " ++ B8.unpack bs
-        SMTweet tw' ->
-            do cntMsg (stStatTweetsReceived)
-                      (\n s -> s { stStatTweetsReceived = n })
-                      300
-                      "SMTweet"
+        SMParseError bs   -> liftIO . traceS TLError $ "\nStream Parse Error: " ++ B8.unpack bs
+        SMTweet tw'       ->
+            do modify' $ \s -> s { stStatTweetsReceived = stStatTweetsReceived s + 1 }
                -- Always try to fetch the higher resolution profile images
                -- TODO: Looks like a use case for lenses...
                let tw = tw' { twUser = (twUser tw')
@@ -381,21 +393,9 @@ processSMEvent ev =
                                                      then M.deleteMin sInsert
                                                      else sInsert
                                  }
-        SMDelete _ _ ->
-            cntMsg (stStatDelsReceived)
-                   (\n s -> s { stStatDelsReceived = n })
-                   150
-                   "SMDelete"
-        _  -> liftIO . traceS TLInfo $ show ev -- Trace all other messages in full
-        -- Less verbose tracing / counting of messages received
-        where cntMsg :: (State -> Int) -> (Int -> State -> State) -> Int -> String -> AppDraw ()
-              cntMsg r w freq msgName = do
-                  num <- gets r 
-                  let num' = num + 1
-                  modify' (w num')
-                  when (num' `mod` freq == 0) .
-                      liftIO . traceS TLInfo $ printf
-                          "%i total %s messages received" num' msgName
+        SMDelete _ _      -> modify' $ \s -> s { stStatDelsReceived = stStatDelsReceived s + 1 }
+        SMBytesReceived b -> modify' $ \s -> s { stStatBytesRecvAPI = stStatBytesRecvAPI s + b }
+        _                 -> liftIO . traceS TLInfo $ show ev -- Trace all other messages in full
 
 processStatusesAsync :: String -> RetryAPI -> AppDraw ()
 processStatusesAsync uri' retryAPI = do
@@ -426,6 +426,60 @@ processStatusesAsync uri' retryAPI = do
             smQueue
             retryAPI
 
+getCurTick :: IO Double
+getCurTick = do
+    tickUCT <- getCurrentTime
+    -- Microsecond precision, should be fine with a Double considering the
+    -- number of seconds in a day
+    return (fromIntegral (round $ utctDayTime tickUCT * 1000000 :: Integer) / 1000000.0 :: Double)
+    --
+    -- TODO: Compare with GLFW timer
+    --
+    -- Just time <- GLFW.getTime
+    -- return time
+
+traceStats :: AppDraw ()
+traceStats = do
+        time <- liftIO $ getCurTick
+        -- Record frame time
+        modify' $ \s -> s { stFrameTimes = BS.push_ time $ stFrameTimes s }
+        -- Time to trace again?
+        lastSTrace <- gets stLastStatTrace
+        interval <- asks envStatTraceInterval 
+        when (time - lastSTrace > interval) $ do
+            modify' $ \s -> s { stLastStatTrace = time }
+            ic         <- asks envImageCache
+            icStats    <- liftIO $ ImageCache.gatherCacheStats ic
+            tc         <- asks envTextureCache
+            tcStats    <- liftIO $ TextureCache.gatherCacheStats tc
+            numTweets  <- gets stStatTweetsReceived
+            numDels    <- gets stStatDelsReceived
+            frameTimes <- (takeWhile (\x -> time - x < interval) . BS.toList) <$> gets stFrameTimes
+            apiRecv    <- gets stStatBytesRecvAPI
+            let frameDeltas      = case frameTimes of (x:xs) -> goFD x xs; _ -> []
+                goFD prev (x:xs) = (prev - x) : goFD x xs
+                goFD _    []     = []
+                fdMean           = (sum frameDeltas / (fromIntegral $ length frameDeltas))
+                fdWorst          = case frameDeltas of [] -> 0; xs -> maximum xs
+                fdBest           = case frameDeltas of [] -> 0; xs -> minimum xs
+            liftIO . traceS TLInfo $ printf
+                (    "Stat Trace (every %.1fsec)\n"
+                  ++ "Messages Total - SMTweet: %i | SMDelete: %i | Netw. Recv.: %.3fMB\n"
+                  ++ "%s\n"
+                  ++ "%s\n"
+                  ++ "Frametimes - "
+                  ++ "Mean: %.1fFPS/%.1fms | Worst: %.1fFPS/%.1fms | Best: %.1fFPS/%.1fms "
+                )
+                interval
+                numTweets
+                numDels
+                (fromIntegral apiRecv / 1024 / 1024 :: Double)
+                icStats
+                tcStats
+                (1.0 / fdMean ) (fdMean  * 1000)
+                (1.0 / fdWorst) (fdWorst * 1000)
+                (1.0 / fdBest ) (fdBest  * 1000)
+
 run :: AppDraw ()
 run = do
     -- Setup OpenGL / GLFW
@@ -452,14 +506,17 @@ run = do
     -}
     -- Main loop
     let loop = do
+        traceStats
         -- Stream messages
         tqSM <- asks envSMQueue
         processAllEvents (Right tqSM) processSMEvent
         -- GLFW / OpenGL
         draw
         liftIO $ do
+            GL.finish
             GLFW.swapBuffers window
-            --GL.finish
+            GL.finish
+            GL.flush
             GLFW.pollEvents
             err <- GL.get GL.errors
             unless (null err) .
@@ -507,6 +564,7 @@ main = do
                                "default.oauth"
                                flags
         (\(cl, cr) -> (flags, cl, cr)) <$> setupOAuth oauthCfgFn
+        -- TODO: Plenty of flags get no checking
     (flags, oaClient, oaCredential) <- case res of
         Left  err  -> putStrLn ("Error: " ++ err) >> exitFailure
         Right r    -> return r
@@ -529,18 +587,18 @@ main = do
               foldr (\f r -> case f of FlagLogFolder folder -> folder; _ -> r) defLogFolder flags
       when (logNetworkMode == ModeLogNetwork) $
           createDirectoryIfMissing True logNetworkFolder
-      -- image cache concurrent fetches
+      -- Image cache concurrent fetches
       let concImgFetches = foldr (\f r -> case f of
-           FlagConcImgFetches n -> fromMaybe r $ parseMaybeInt n
+           FlagConcImgFetches n -> fromMaybe r $ parseMaybe n
            _                    -> r)
            defConcImgFetches flags
       withSocketsDo $
         let connCount = foldr (\f r -> case f of
-                FlagConKeepAlive n -> fromMaybe r $ parseMaybeInt n
+                FlagConKeepAlive n -> fromMaybe r $ parseMaybe n
                 _                  -> r)
                 defConKeepAlive flags
             timeout = foldr (\f r -> case f of
-                FlagConTimeout n -> fromMaybe r $ parseMaybeInt n
+                FlagConTimeout n -> fromMaybe r $ parseMaybe n
                 _                  -> r)
                 defConTimeout flags
         in  withManagerSettings (def { managerConnCount       = connCount
@@ -548,7 +606,7 @@ main = do
                                      }
                                 ) $ \manager -> liftIO $
           let cacheSize = foldr (\f r -> case f of
-                  FlagImgMemCacheSize n -> fromMaybe r $ parseMaybeInt n
+                  FlagImgMemCacheSize n -> fromMaybe r $ parseMaybe n
                   _                  -> r)
                   defImgMemCacheSize flags
           in  withImageCache manager
@@ -564,28 +622,39 @@ main = do
             withWindow wndWdh wndHgt "Twitter" initGLFWEventsQueue $ \window ->
               withTextureCache cacheSize icache $ \tcache -> do
                 -- Start main loop in RWS / IO monads
+                time <- getCurTick
                 let envInit = Env
-                        { envWindow           = window
-                        , envGLFWEventsQueue  = initGLFWEventsQueue
-                        , envSMQueue          = initSMQueue
-                        , envImageCache       = icache
-                        , envTextureCache     = tcache
-                        , envLogNetworkFolder = logNetworkFolder
-                        , envLogNetworkMode   = logNetworkMode
-                        , envOAClient         = oaClient
-                        , envOACredential     = oaCredential
-                        , envManager          = manager
-                        , envTweetHistSize    = foldr (\f r -> case f of
+                        { envWindow            = window
+                        , envGLFWEventsQueue   = initGLFWEventsQueue
+                        , envSMQueue           = initSMQueue
+                        , envImageCache        = icache
+                        , envTextureCache      = tcache
+                        , envLogNetworkFolder  = logNetworkFolder
+                        , envLogNetworkMode    = logNetworkMode
+                        , envOAClient          = oaClient
+                        , envOACredential      = oaCredential
+                        , envManager           = manager
+                        , envTweetHistSize     = foldr (\f r -> case f of
                                                           FlagTweetHistory n ->
-                                                              fromMaybe r $ parseMaybeInt n
+                                                              fromMaybe r $ parseMaybe n
                                                           _ -> r)
                                                       defTweetHistory flags
+                        , envStatTraceInterval = foldr (\f r -> case f of
+                                                          FlagStatTraceInterval n ->
+                                                              fromMaybe r $ parseMaybe n
+                                                          _ -> r)
+                                                      defStatTraceInterval flags
                         }
                     stateInit = State
                         { stTweetByID          = M.empty
                         , stUILayoutRects      = mkUILayoutRects wndWdh wndHgt 
+                        , stFrameTimes         = -- FPS History for the stat trace interval
+                                                 BS.empty
+                                                     (round $ 60 * envStatTraceInterval envInit)
+                        , stLastStatTrace      = time
                         , stStatTweetsReceived = 0
                         , stStatDelsReceived   = 0
+                        , stStatBytesRecvAPI   = 0
                         }
                 void $ evalRWST run envInit stateInit
       traceS TLInfo "Clean Exit"

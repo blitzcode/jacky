@@ -4,11 +4,8 @@
 module TextureCache ( withTextureCache
                     , TextureCache
                     , TextureCache.fetchImage
+                    , TextureCache.gatherCacheStats
                     ) where
-
-import ImageCache
-import qualified LRUBoundedMap as LBM
-import Trace
 
 import qualified Graphics.Rendering.OpenGL as GL
 import qualified Graphics.Rendering.OpenGL.Raw as GLR
@@ -16,8 +13,14 @@ import qualified Data.Map.Strict as M
 import qualified Data.ByteString as B
 import qualified Data.Vector.Storable as VS
 import Control.Exception
+import Control.Monad
 import Text.Printf
 import Data.IORef
+
+import ImageCache
+import qualified LRUBoundedMap as LBM
+import Trace
+import GLHelpers
 
 data TextureCache = TextureCache { tcCacheEntries :: IORef (LBM.Map B.ByteString GL.TextureObject)
                                  , tcImageCache   :: ImageCache
@@ -37,8 +40,7 @@ withTextureCache maxCacheEntries hic f = do
                  Just err -> traceS TLError $ "LRUBoundedMap: TextureCache: " ++ err
                  Nothing  -> return ()
              -- Shutdown
-             traceS TLInfo $ printf "Shutting down texture cache (%i textures)"
-                 (M.size . fst . LBM.view $ cacheEntries)
+             traceT TLInfo $ "Shutting down texture cache"
              GL.deleteObjectNames . map snd . M.elems . fst . LBM.view $ cacheEntries
         )
         f
@@ -85,4 +87,23 @@ fetchImage tc uri = do
                     writeIORef (tcCacheEntries tc) newEntries
                     return $ Just tex
                 _ -> return Nothing
+
+gatherCacheStats :: TextureCache -> IO String
+gatherCacheStats tc = do
+    cache <- readIORef $ tcCacheEntries tc 
+    let dir = M.elems . fst $ LBM.view cache
+    (mem, maxWdh, maxHgt) <-
+        foldM (\(mem', maxWdh', maxHgt') (_, tex) ->
+                  do GL.textureBinding GL.Texture2D GL.$= Just tex
+                     (w, h) <- getCurTex2DSize
+                     return (mem' + w * h * 4, max w maxWdh', max h maxHgt')
+              )
+              (0, 0, 0)
+              dir
+    return $ printf "Texture Cache - Dir. Capacity: %i/%i | Mem: %3.fMB | Largest Image: %ix%i"
+                    (fst $ LBM.size cache)
+                    (snd $ LBM.size cache)
+                    (fromIntegral mem / 1024 / 1024 :: Double)
+                    maxWdh
+                    maxHgt
 

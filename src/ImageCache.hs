@@ -105,7 +105,6 @@ withImageCache manager memCacheEntryLimit numConcReq cacheFolder f = do
                           Nothing  -> return ()
             case cache of Just err -> traceS TLError $ "LRUBoundedMap: icCacheEntries: "   ++ err
                           Nothing  -> return ()
-            traceS TLInfo =<< gatherCacheStats ic
             -- Shutdown
             traceT TLInfo "Shutting down image fetch threads"
             forM_ threads cancel
@@ -221,8 +220,9 @@ instance Exception DecodeException
 fetchThread :: ImageCache -> Manager -> (forall a. IO a -> IO a) -> IO ()
 fetchThread ic manager unmask =
   handle (\ThreadKilled -> -- Handle this exception here so we exit cleanly
-             traceT TLInfo "Fetch thread received 'ThreadKilled', exiting")
-         . forever . unmask $ do
+             -- traceT TLInfo "Fetch thread received 'ThreadKilled', exiting"
+             return ()
+         ) . forever . unmask $ do
     -- The inner bracket takes care of cleanup, here we decide if the exception is
     -- recoverable or if we should stop the thread
     catches
@@ -303,11 +303,11 @@ gatherCacheStats ic = do
          ((0, 0, 0, 0) :: (Word64, Word64, Word64, Int))
          (M.toList . fst . LBM.view $ entries)
     return $ printf
-        (  "Image Cache Statistics\n"
-        ++ "  Data          - Net Received Total: %.3fMB | Mem Resident %.3fMB\n"
-        ++ "  LRU Maps      - Outstanding: %i/%i | Directory: %i/%i\n"
-        ++ "  Lookups       - Misses: %i | Disk Hits: %i | Mem Hits: %i\n"
-        ++ "  Cache Entries - Fetching: %i | Fetched: %i | Error: %i"
+        (  "Image Cache - "
+        ++ "Netw. Recv. Total: %.3fMB · Mem %.3fMB | "
+        ++ "Req: %i/%i · Dir: %i/%i | "
+        ++ "Misses: %i · DiskHits: %i · MemHits: %i | "
+        ++ "Fetching: %i · Fetched: %i · Error: %i"
         )
         (fromIntegral bytesTransf / 1024 / 1024 :: Double)
         (fromIntegral mem         / 1024 / 1024 :: Double)
