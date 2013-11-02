@@ -64,6 +64,7 @@ data Env = Env
     , envManager           :: Manager
     , envTweetHistSize     :: Int
     , envStatTraceInterval :: Double
+    , envFlags             :: [Flag]
     }
 
 data State = State
@@ -96,6 +97,7 @@ data Flag = FlagOAuthFile String
           | FlagTweetHistory String
           | FlagImgMemCacheSize String
           | FlagStatTraceInterval String
+          | FlagFirehose
             deriving (Eq, Show)
 
 defLogFolder, defImageCacheFolder, defTraceFn :: String
@@ -139,6 +141,10 @@ parseCmdLineOpt = do
                            ++ "  oauth_token_secret    = ...\n"
                            ++ "see https://dev.twitter.com/apps/new"
                            )
+                  , Option []
+                           ["firehose"]
+                           (NoArg FlagFirehose)
+                           "connect to firehose instead of user home timeline"
                   , Option ['f']
                            ["log-folder"]
                            (ReqArg FlagLogFolder "FOLDER")
@@ -482,28 +488,18 @@ traceStats = do
 
 run :: AppDraw ()
 run = do
+    -- Launch thread for parsing status updates
+    flags <- asks envFlags
+    if   FlagFirehose `elem` flags
+    then processStatusesAsync twitterStatusesRandomStreamURL RetryForever
+    else do processStatusesAsync twitterUserStreamURL RetryForever
+            processStatusesAsync (twitterHomeTimeline ++ "?count=200") (RetryNTimes 5)
     -- Setup OpenGL / GLFW
     window <- asks envWindow
     liftIO $ do
         (w, h) <- GLFW.getWindowSize window
         GLFW.swapInterval 1
         setup2DOpenGL w h
-    -- Launch thread for parsing status updates
-    --
-    -- TODO: We should use bracketing to make sure these threads are killed
-    --       before we exit, otherwise they might try to trace after we already
-    --       left withTrace
-    processStatusesAsync
-        twitterStatusesRandomStreamURL
-        RetryForever
-    {-
-    processStatusesAsync
-        twitterUserStreamURL
-        RetryForever
-    processStatusesAsync $
-        twitterHomeTimeline ++ "?count=200"
-        (RetryNTimes 5)
-    -}
     -- Main loop
     let loop = do
         traceStats
@@ -644,6 +640,7 @@ main = do
                                                               fromMaybe r $ parseMaybe n
                                                           _ -> r)
                                                       defStatTraceInterval flags
+                        , envFlags             = flags
                         }
                     stateInit = State
                         { stTweetByID          = M.empty
