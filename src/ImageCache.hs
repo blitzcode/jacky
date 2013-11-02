@@ -7,6 +7,7 @@ module ImageCache ( ImageCache
                   , withImageCache
                   , fetchImage
                   , deleteImage
+                  , gatherCacheStats
                   ) where
 
 import qualified Data.ByteString as B
@@ -292,21 +293,32 @@ gatherCacheStats ic = do
     diskHits    <- readIORef $ icDiskHits   ic
     memHits     <- readIORef $ icMemHits    ic
     entries     <- atomically . readTVar $ icCacheEntries ic
-    let (fetching, fetched, cacheErr) = foldr
-         (\(_, (_, v)) (fetching', fetched', cacheErr') -> case v of
-             Fetching    -> (fetching' + 1, fetched', cacheErr')
-             Fetched _   -> (fetching', fetched' + 1, cacheErr')
-             CacheError  -> (fetching', fetched', cacheErr' + 1)
+    requests    <- atomically . readTVar $ icOutstandingReq ic
+    let (fetching, fetched, cacheErr, mem) = foldr
+         (\(_, (_, v)) (fetching', fetched', cacheErr', mem') -> case v of
+             Fetching                 -> (fetching' + 1, fetched', cacheErr', mem')
+             Fetched (ImageRes w h _) -> (fetching', fetched' + 1, cacheErr', mem' + w * h * 4)
+             CacheError               -> (fetching', fetched', cacheErr' + 1, mem')
          )
-         ((0, 0, 0) :: (Word64, Word64, Word64))
+         ((0, 0, 0, 0) :: (Word64, Word64, Word64, Int))
          (M.toList . fst . LBM.view $ entries)
     return $ printf
         (  "Image Cache Statistics\n"
-        ++ "Network       - Received Total: %.2fKB\n"
-        ++ "Lookups       - Misses: %i | Disk Hits: %i | Mem Hits: %i\n"
-        ++ "Cache Entries - Fetching: %i | Fetched: %i | Error: %i"
-        -- TODO: Add image memory consumption figure
+        ++ "  Data          - Net Received Total: %.3fMB | Mem Resident %.3fMB\n"
+        ++ "  LRU Maps      - Outstanding: %i/%i | Directory: %i/%i\n"
+        ++ "  Lookups       - Misses: %i | Disk Hits: %i | Mem Hits: %i\n"
+        ++ "  Cache Entries - Fetching: %i | Fetched: %i | Error: %i"
         )
-        (fromIntegral bytesTransf / 1024.0 :: Double)
-        misses diskHits memHits fetching fetched cacheErr
+        (fromIntegral bytesTransf / 1024 / 1024 :: Double)
+        (fromIntegral mem         / 1024 / 1024 :: Double)
+        (fst $ LBM.size requests)
+        (snd $ LBM.size requests)
+        (fst $ LBM.size entries)
+        (snd $ LBM.size entries)
+        misses
+        diskHits
+        memHits
+        fetching
+        fetched
+        cacheErr
 

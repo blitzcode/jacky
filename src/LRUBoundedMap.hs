@@ -9,6 +9,7 @@ module LRUBoundedMap ( Map
                      , delete
                      , deleteFindNewest
                      , update
+                     , size
                      , view
                      , valid
                      ) where
@@ -81,6 +82,9 @@ deleteFindNewest (Map m tick limit) = let (delMap, delVal) = DM.deleteFindMaxB m
 -- Update value, don't touch LRU time
 update :: Ord k => k -> v -> Map k v -> Map k v
 update k v (Map m tick limit) = Map (DM.update (Left k) v m) tick limit
+
+size :: Map k v -> (Int, Int)
+size (Map m _ limit) = (DM.size m, limit)
 
 view :: Map ka v -> (M.Map ka (Word64, v), M.Map Word64 (ka, v))
 view (Map m _ _) = DM.view m
