@@ -32,7 +32,6 @@ import Network.URI
 import System.FilePath
 import Text.Printf
 import Control.Exception
-import Data.Time.Clock (getCurrentTime, utctDayTime)
 import Control.Monad.Trans.Control
 
 import CfgFile
@@ -44,8 +43,9 @@ import Util
 import GLHelpers
 import TextureCache
 import qualified RectPacker as RP
-import BoundedSequence as BS
+import qualified BoundedSequence as BS
 import CmdLineOptDefinitions
+import Timing
 
 -- TODO: Start using Lens library for records and Reader/State
 -- TODO: Use labelThread for all threads
@@ -210,8 +210,6 @@ highResProfileImgURL url =
 
 processSMEvent :: StreamMessage -> AppDraw ()
 processSMEvent ev =
-    -- TODO: Replace tweet / delete trace messages with summary stats every
-    --       couple of messages
     case ev of
         SMParseError bs   -> liftIO . traceS TLError $ "\nStream Parse Error: " ++ B8.unpack bs
         SMTweet tw'       ->
@@ -270,18 +268,6 @@ withProcessStatusesAsync uri' retryAPI f = do
               retryAPI
         )
         $ \_ -> runC f
-
-getCurTick :: IO Double
-getCurTick = do
-    tickUCT <- getCurrentTime
-    -- Microsecond precision, should be fine with a Double considering the
-    -- number of seconds in a day
-    return (fromIntegral (round $ utctDayTime tickUCT * 1000000 :: Integer) / 1000000.0 :: Double)
-    --
-    -- TODO: Compare with GLFW timer
-    --
-    -- Just time <- GLFW.getTime
-    -- return time
 
 {-# NOINLINE traceStats #-}
 traceStats :: AppDraw ()
@@ -487,12 +473,12 @@ main = do
                                                           FlagTweetHistory n ->
                                                               fromMaybe r $ parseMaybe n
                                                           _ -> r)
-                                                      defTweetHistory flags
+                                                       defTweetHistory flags
                         , envStatTraceInterval = foldr (\f r -> case f of
                                                           FlagStatTraceInterval n ->
                                                               fromMaybe r $ parseMaybe n
                                                           _ -> r)
-                                                      defStatTraceInterval flags
+                                                       defStatTraceInterval flags
                         }
                     stateInit = State
                         { stTweetByID          = M.empty
