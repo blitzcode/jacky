@@ -126,11 +126,23 @@ processStatuses uri oaClient oaCredential manager logFn smQueue retryAPI = do
                      sourceFile uri $$ sink
                      return True
     )
-    [ Handler $ \(ex :: HttpException) -> do
+    [ Handler $ \(ex :: AsyncException) ->
+                   case ex of
+                       ThreadKilled -> do
+                           traceS TLInfo $ "Received ThreadKilled while processing statuses from '"
+                                            ++ uri ++ "', exiting\n" ++ show ex
+                           void $ throwIO ex -- Clean exit, but re-throw so we're not trapped
+                                             -- inside RetryForever
+                           return True
+                       _            -> do
+                           traceS TLError $ "Async exception while processing statuses from '"
+                                            ++ uri ++ "\n" ++ show ex
+                           return False
+    , Handler $ \(ex :: HttpException) -> do
                    traceS TLError $ "HTTP / connection error while processing statuses from '"
                                     ++ uri ++ "'\n" ++ show ex
                    return False
-    , Handler $ \(ex :: CA.ParseError) ->do
+    , Handler $ \(ex :: CA.ParseError) -> do
                    if   "demandInput" `elem` CA.errorContexts ex
                    then do traceS TLInfo  $ "End-of-Data for '" ++ uri ++ "'\n" ++ show ex
                            return True -- This error is a clean exit
@@ -160,7 +172,7 @@ processStatuses uri oaClient oaCredential manager logFn smQueue retryAPI = do
                         else return ()
       RetryNever     -> return ()
   where retryThis  = processStatuses uri oaClient oaCredential manager logFn smQueue
-        retryDelay = 5 * 1000 * 1000 -- 5 seconds
+        retryDelay = 5 * 1000 * 1000 -- 5 seconds (TODO: Make this configurable)
         retryMsg   = printf "Retrying API request in %isec"
                             (retryDelay `div` 1000 `div` 1000)
  

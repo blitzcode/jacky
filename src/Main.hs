@@ -15,6 +15,7 @@ import Network (withSocketsDo)
 import qualified Data.ByteString.Char8 as B8
 import qualified Data.ByteString as B
 import Control.Concurrent hiding (yield)
+import Control.Concurrent.Async
 import qualified GHC.Conc (getNumProcessors)
 import Control.Concurrent.STM
 import Control.Monad.RWS.Strict
@@ -32,6 +33,7 @@ import System.FilePath
 import Text.Printf
 import Control.Exception
 import Data.Time.Clock (getCurrentTime, utctDayTime)
+import Control.Monad.Trans.Control
 
 import CfgFile
 import TwitterJSON
@@ -63,7 +65,6 @@ data Env = Env
     , envManager           :: Manager
     , envTweetHistSize     :: Int
     , envStatTraceInterval :: Double
-    , envFlags             :: [Flag]
     }
 
 data State = State
@@ -236,8 +237,8 @@ processSMEvent ev =
         SMBytesReceived b -> modify' $ \s -> s { stStatBytesRecvAPI = stStatBytesRecvAPI s + b }
         _                 -> liftIO . traceS TLInfo $ show ev -- Trace all other messages in full
 
-processStatusesAsync :: String -> RetryAPI -> AppDraw ()
-processStatusesAsync uri' retryAPI = do
+withProcessStatusesAsync :: String -> RetryAPI -> AppDraw a -> AppDraw a
+withProcessStatusesAsync uri' retryAPI f = do
     manager          <- asks envManager
     oaClient         <- asks envOAClient
     oaCredential     <- asks envOACredential
@@ -256,17 +257,19 @@ processStatusesAsync uri' retryAPI = do
                                                   ModeReplayLog  -> (logFn, Nothing   )
     -- Launch thread
     --
-    -- TODO: Might want to use bracket / withAsync or something like that to
-    --       make sure we cancel the thread before we shut down
-    void . liftIO . forkIO $
-        processStatuses
-            uri
-            oaClient
-            oaCredential
-            manager
-            logFnMode
-            smQueue
-            retryAPI
+    -- We use some monad-control magic (http://www.yesodweb.com/book/monad-control) to stay
+    -- in our AppDraw monad even though withAsync runs its inner in IO
+    control $ \runC -> liftIO $ withAsync
+        ( processStatuses
+              uri
+              oaClient
+              oaCredential
+              manager
+              logFnMode
+              smQueue
+              retryAPI
+        )
+        $ \_ -> runC f
 
 getCurTick :: IO Double
 getCurTick = do
@@ -325,12 +328,6 @@ traceStats = do
 
 run :: AppDraw ()
 run = do
-    -- Launch thread for parsing status updates
-    flags <- asks envFlags
-    if   FlagFirehose `elem` flags
-    then processStatusesAsync twitterStatusesRandomStreamURL RetryForever
-    else do processStatusesAsync twitterUserStreamURL RetryForever
-            processStatusesAsync (twitterHomeTimeline ++ "?count=200") (RetryNTimes 5)
     -- Setup OpenGL / GLFW
     window <- asks envWindow
     liftIO $ do
@@ -473,7 +470,7 @@ main = do
                 wndHgt = 640
             withWindow wndWdh wndHgt "Twitter" initGLFWEventsQueue $ \window ->
               withTextureCache cacheSize icache $ \tcache -> do
-                -- Start main loop in RWS / IO monads
+                -- Setup reader and state for main RWS monad
                 time <- getCurTick
                 let envInit = Env
                         { envWindow            = window
@@ -496,7 +493,6 @@ main = do
                                                               fromMaybe r $ parseMaybe n
                                                           _ -> r)
                                                       defStatTraceInterval flags
-                        , envFlags             = flags
                         }
                     stateInit = State
                         { stTweetByID          = M.empty
@@ -509,6 +505,24 @@ main = do
                         , stStatDelsReceived   = 0
                         , stStatBytesRecvAPI   = 0
                         }
-                void $ evalRWST run envInit stateInit
+                void $ evalRWST
+                    ( -- Launch thread(s) for parsing status updates
+                      let withPSAsync f =
+                              if   FlagFirehose `elem` flags
+                              then withProcessStatusesAsync
+                                       twitterStatusesRandomStreamURL
+                                       RetryForever
+                                       f
+                              else withProcessStatusesAsync
+                                       twitterUserStreamURL
+                                       RetryForever
+                                       . withProcessStatusesAsync
+                                             (twitterHomeTimeline ++ "?count=200")
+                                             (RetryNTimes 5)
+                                             $ f
+                          -- Enter main loop
+                      in  withPSAsync run
+                    )
+                    envInit stateInit
       traceS TLInfo "Clean Exit"
 
