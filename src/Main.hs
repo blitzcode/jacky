@@ -3,6 +3,8 @@
              , OverloadedStrings
              , FlexibleContexts
              , ScopedTypeVariables
+             , RecordWildCards
+             , NamedFieldPuns
              , LambdaCase #-}
 
 module Main where
@@ -428,47 +430,40 @@ main = do
            _                    -> r)
            defConcImgFetches flags
       withSocketsDo $
-        let connCount = foldr (\f r -> case f of
+        let managerConnCount = foldr (\f r -> case f of
                 FlagConKeepAlive n -> fromMaybe r $ parseMaybe n
                 _                  -> r)
                 defConKeepAlive flags
-            timeout = foldr (\f r -> case f of
+            managerResponseTimeout = Just $ foldr (\f r -> case f of
                 FlagConTimeout n -> fromMaybe r $ parseMaybe n
                 _                -> r)
                 defConTimeout flags
-        in  withManagerSettings (def { managerConnCount       = connCount
-                                     , managerResponseTimeout = Just timeout
-                                     }
-                                ) $ \manager -> liftIO $
+        in  withManagerSettings
+                def { managerConnCount, managerResponseTimeout }
+                $ \envManager -> liftIO $
           let cacheSize = foldr (\f r -> case f of
                   FlagImgMemCacheSize n -> fromMaybe r $ parseMaybe n
                   _                     -> r)
                   defImgMemCacheSize flags
-          in  withImageCache manager
+          in  withImageCache envManager
                              (cacheSize `div` 2)
                              concImgFetches
                              (imgCacheFolder flags)
-                             $ \icache -> do
+                             $ \envImageCache -> do
             -- Event queues filled by GLFW callbacks, stream messages
-            initGLFWEventsQueue <- newTQueueIO       :: IO (TQueue  GLFWEvent)
-            initSMQueue         <- newTBQueueIO 1024 :: IO (TBQueue StreamMessage)
+            envGLFWEventsQueue <- newTQueueIO       :: IO (TQueue  GLFWEvent)
+            envSMQueue         <- newTBQueueIO 1024 :: IO (TBQueue StreamMessage)
             let wndWdh = 1105
                 wndHgt = 640
-            withWindow wndWdh wndHgt "Twitter" initGLFWEventsQueue $ \window ->
-              withTextureCache cacheSize icache $ \tcache -> do
+            withWindow wndWdh wndHgt "Twitter" envGLFWEventsQueue $ \envWindow ->
+              withTextureCache cacheSize envImageCache $ \envTextureCache -> do
                 -- Setup reader and state for main RWS monad
-                time <- getCurTick
+                stLastStatTrace <- getCurTick
                 let envInit = Env
-                        { envWindow            = window
-                        , envGLFWEventsQueue   = initGLFWEventsQueue
-                        , envSMQueue           = initSMQueue
-                        , envImageCache        = icache
-                        , envTextureCache      = tcache
-                        , envLogNetworkFolder  = logNetworkFolder
+                        { envLogNetworkFolder  = logNetworkFolder
                         , envLogNetworkMode    = logNetworkMode
                         , envOAClient          = oaClient
                         , envOACredential      = oaCredential
-                        , envManager           = manager
                         , envTweetHistSize     = foldr (\f r -> case f of
                                                           FlagTweetHistory n ->
                                                               fromMaybe r $ parseMaybe n
@@ -479,6 +474,7 @@ main = do
                                                               fromMaybe r $ parseMaybe n
                                                           _ -> r)
                                                        defStatTraceInterval flags
+                        , ..
                         }
                     stateInit = State
                         { stTweetByID          = M.empty
@@ -486,10 +482,10 @@ main = do
                         , stFrameTimes         = -- FPS History for the stat trace interval
                                                  BS.empty
                                                      (round $ 60 * envStatTraceInterval envInit)
-                        , stLastStatTrace      = time
                         , stStatTweetsReceived = 0
                         , stStatDelsReceived   = 0
                         , stStatBytesRecvAPI   = 0
+                        , ..
                         }
                 void $ evalRWST
                     ( -- Launch thread(s) for parsing status updates

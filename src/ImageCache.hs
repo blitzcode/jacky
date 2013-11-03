@@ -1,5 +1,9 @@
 
-{-# LANGUAGE ScopedTypeVariables, OverloadedStrings, DeriveDataTypeable, RankNTypes #-}
+{-# LANGUAGE   ScopedTypeVariables
+             , OverloadedStrings
+             , DeriveDataTypeable
+             , RecordWildCards
+             , RankNTypes #-}
 
 module ImageCache ( ImageCache
                   , ImageRes(..)
@@ -79,17 +83,14 @@ withImageCache manager memCacheEntryLimit numConcReq cacheFolder f = do
     -- Make sure our cache folder exists
     createDirectoryIfMissing True cacheFolder
     -- Build record 
-    initOutstandingReq <- newTVarIO $ LBM.empty $ memCacheEntryLimit `div` 2
-    initCacheEntries   <- newTVarIO $ LBM.empty memCacheEntryLimit
-    initIORefs         <- forM ([1..4] :: [Int]) (\_ -> newIORef 0 :: IO (IORef Word64))
-    let ic = ImageCache { icCacheFolder    = B8.pack $ addTrailingPathSeparator cacheFolder
-                        , icOutstandingReq = initOutstandingReq
-                        , icCacheEntries   = initCacheEntries
-                        , icBytesTrans     = initIORefs !! 0
-                        , icMisses         = initIORefs !! 1
-                        , icDiskHits       = initIORefs !! 2
-                        , icMemHits        = initIORefs !! 3
-                        }
+    ic <- do 
+        icOutstandingReq <- newTVarIO $ LBM.empty $ memCacheEntryLimit `div` 2
+        icCacheEntries   <- newTVarIO $ LBM.empty memCacheEntryLimit
+        [icBytesTrans, icMisses, icDiskHits, icMemHits]
+            <- forM ([1..4] :: [Int]) $ \_ -> newIORef (0 :: Word64)
+        return $ ImageCache { icCacheFolder = B8.pack $ addTrailingPathSeparator cacheFolder
+                            , ..
+                            }
     bracket -- Fetch thread launch and cleanup
         --
         -- Note the asyncWithUnmask. Otherwise all fetch threads would be

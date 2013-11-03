@@ -1,5 +1,5 @@
 
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings, RecordWildCards #-}
 
 module TextureCache ( withTextureCache
                     , TextureCache
@@ -29,10 +29,8 @@ data TextureCache = TextureCache { tcCacheEntries :: IORef (LBM.Map B.ByteString
 withTextureCache :: Int -> ImageCache -> (TextureCache -> IO ()) -> IO ()
 withTextureCache maxCacheEntries hic f = do
     bracket
-        ( newIORef (LBM.empty maxCacheEntries) >>= \initCacheEntries ->
-              return $ TextureCache { tcCacheEntries = initCacheEntries
-                                    , tcImageCache   = hic
-                                    }
+        ( newIORef (LBM.empty maxCacheEntries) >>= \tcCacheEntries ->
+              return $ TextureCache { tcImageCache = hic, .. }
         )
         ( \tc -> do
              cacheEntries <- readIORef $ tcCacheEntries tc

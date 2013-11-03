@@ -38,7 +38,7 @@ twitterHomeTimeline            = "https://api.twitter.com/1.1/statuses/home_time
 newtype CreatedAtTime = CreatedAtTime { fromCreatedAtTime :: UTCTime } deriving (Show)
 
 instance FromJSON CreatedAtTime where
-    parseJSON (String t) =
+    parseJSON (String t) = {-# SCC parseCreatedAtTime #-} 
         case parseTime defaultTimeLocale "%a %b %d %H:%M:%S %z %Y" $ T.unpack t of
             Just d -> pure $ CreatedAtTime d
             _      -> fail $ "Could not parse 'created at' time" ++ T.unpack t
