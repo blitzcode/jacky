@@ -56,6 +56,7 @@ fetchImage tc uri = do
                 Just (Fetched (ImageRes w h img)) -> {-# SCC textureUpload #-} do
                     [tex] <- GL.genObjectNames 1 :: IO [GL.TextureObject]
                     GL.textureBinding GL.Texture2D GL.$= Just tex
+                    unless (w * h  == VS.length img) $ error "ImageRes size / storage mismatch"
                     VS.unsafeWith img $ \ptr -> do
                         -- TODO: This assumes NPOT / non-square texture support in
                         --       combination with auto generated MIP-maps

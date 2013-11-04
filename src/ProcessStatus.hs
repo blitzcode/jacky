@@ -21,6 +21,7 @@ import Control.Concurrent.STM
 import Control.Exception
 import Control.Concurrent hiding (yield)
 import Text.Printf
+import System.IO
 
 import TwitterJSON
 import Util
@@ -70,6 +71,21 @@ parseStatus = do
             Error   s -> SMParseError $ B8.pack s
     parseStatus
 
+-- Like conduitFile from Conduit.Binary, but with extra options to control the write
+-- mode and flushing
+conduitFileWithOptions :: MonadResource m
+                       => FilePath
+                       -> IOMode
+                       -> Bool
+                       -> Conduit B.ByteString m B.ByteString
+conduitFileWithOptions fp mode flush =
+    bracketP
+        (openBinaryFile fp mode)
+        hClose
+        go
+    where
+        go h = awaitForever $ \bs -> liftIO (B.hPut h bs >> when flush (hFlush h)) >> yield bs
+
 data RetryAPI = RetryNever
               | RetryNTimes Int
               | RetryForever -- This even retries in case of success
@@ -81,17 +97,22 @@ processStatuses :: String
                 -> OA.Credential
                 -> Manager
                 -> Maybe FilePath
+                -> Bool
                 -> TBQueue StreamMessage
                 -> RetryAPI
                 -> IO ()
-processStatuses uri oaClient oaCredential manager logFn smQueue retryAPI = do
+processStatuses uri oaClient oaCredential manager logFn appendLog smQueue retryAPI = do
   let uriIsHTTP = isPrefixOf "http://" uri || isPrefixOf "https://" uri -- File or HTTP?
   success <- catches
     ( do
      -- We use State to keep track of how many bytes we received
      runResourceT . flip evalStateT (0 :: Int) $
          let sink' = countBytesState =$ parseStatus =$ smQueueSink smQueue
-             sink  = case logFn of Just fn -> conduitFile fn =$ sink' -- TODO: No flush on crash
+             sink  = case logFn of Just fn -> conduitFileWithOptions
+                                                  fn
+                                                  (if appendLog then AppendMode else WriteMode)
+                                                  True
+                                              =$ sink'
                                    Nothing -> sink'
          in  if   uriIsHTTP
              then do -- Authenticate, connect and start receiving stream
@@ -171,7 +192,14 @@ processStatuses uri oaClient oaCredential manager logFn smQueue retryAPI = do
                                 retryThis (RetryNTimes $ n - 1)
                         else return ()
       RetryNever     -> return ()
-  where retryThis  = processStatuses uri oaClient oaCredential manager logFn smQueue
+  where retryThis  = processStatuses
+                         uri
+                         oaClient
+                         oaCredential
+                         manager
+                         logFn
+                         True -- Don't overwrite log data we've got so far
+                         smQueue
         retryDelay = 5 * 1000 * 1000 -- 5 seconds (TODO: Make this configurable)
         retryMsg   = printf "Retrying API request in %isec"
                             (retryDelay `div` 1000 `div` 1000)
