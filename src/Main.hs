@@ -35,6 +35,7 @@ import System.FilePath
 import Text.Printf
 import Control.Exception
 import Control.Monad.Trans.Control
+-- import System.Remote.Monitoring
 
 import CfgFile
 import TwitterJSON
@@ -457,6 +458,7 @@ main = do
                 wndHgt = 640
             withWindow wndWdh wndHgt "Twitter" envGLFWEventsQueue $ \envWindow ->
               withTextureCache cacheSize envImageCache $ \envTextureCache -> do
+                -- ekg <- forkServer "localhost" 8000
                 -- Setup reader and state for main RWS monad
                 stLastStatTrace <- getCurTick
                 let envInit = Env

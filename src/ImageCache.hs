@@ -102,9 +102,9 @@ withImageCache manager memCacheEntryLimit numConcReq cacheFolder f = do
             -- Error checking, statistics
             req   <- LBM.valid <$> (atomically . readTVar $ icOutstandingReq ic)
             cache <- LBM.valid <$> (atomically . readTVar $ icCacheEntries   ic)
-            case req   of Just err -> traceS TLError $ "LRUBoundedMap: icOutstandingReq: " ++ err
+            case req   of Just err -> traceS TLError $ "LRUBoundedMap: icOutstandingReq:\n" ++ err
                           Nothing  -> return ()
-            case cache of Just err -> traceS TLError $ "LRUBoundedMap: icCacheEntries: "   ++ err
+            case cache of Just err -> traceS TLError $ "LRUBoundedMap: icCacheEntries:\n"   ++ err
                           Nothing  -> return ()
             -- Shutdown
             traceT TLInfo "Shutting down image fetch threads"
@@ -237,8 +237,9 @@ fetchThread ic manager unmask =
                 let cacheFn = B8.unpack $ mkURICacheFn ic uriUncached
                 imgBS <- fetchDiskCache ic manager uriUncached cacheFn
                 -- Decompress and convert
-                --                                                         -- TODO: toStrict, nasty
-                di <- case toImageRes =<< dynImgToRGBA8 =<< (JP.decodeImage $ BL.toStrict imgBS) of
+                --                                                         
+                di <- {-# SCC decompressAndConvert #-}                     -- TODO: toStrict, nasty
+                      case toImageRes =<< dynImgToRGBA8 =<< (JP.decodeImage $ BL.toStrict imgBS) of
                           Left  err -> throwIO $ DecodeException
                                            { deError   = err
                                            , deURI     = (B8.unpack uriUncached)

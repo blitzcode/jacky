@@ -35,7 +35,7 @@ withTextureCache maxCacheEntries hic f = do
         ( \tc -> do
              cacheEntries <- readIORef $ tcCacheEntries tc
              case LBM.valid cacheEntries of
-                 Just err -> traceS TLError $ "LRUBoundedMap: TextureCache: " ++ err
+                 Just err -> traceS TLError $ "LRUBoundedMap: TextureCache:\n" ++ err
                  Nothing  -> return ()
              -- Shutdown
              traceT TLInfo $ "Shutting down texture cache"
@@ -53,7 +53,7 @@ fetchImage tc uri = do
         (_,          Nothing ) -> do
             hicFetch <- ImageCache.fetchImage (tcImageCache tc) uri
             case hicFetch of
-                Just (Fetched (ImageRes w h img)) -> do
+                Just (Fetched (ImageRes w h img)) -> {-# SCC textureUpload #-} do
                     [tex] <- GL.genObjectNames 1 :: IO [GL.TextureObject]
                     GL.textureBinding GL.Texture2D GL.$= Just tex
                     VS.unsafeWith img $ \ptr -> do
