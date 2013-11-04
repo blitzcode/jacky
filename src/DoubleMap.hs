@@ -23,6 +23,7 @@ import qualified Data.Map.Strict as M
 import Prelude hiding (lookup, null)
 import Control.Applicative hiding (empty)
 import Control.Monad.Writer
+import Text.Printf
 
 -- Map sorted and indexed by two different types of key (assumes both keys are
 -- unique for each element)
@@ -113,20 +114,33 @@ size (Map ma _) = M.size ma
 null :: Map ka kb v -> Bool
 null (Map ma _) = M.null ma
 
-valid :: (Ord ka, Ord kb) => Map ka kb v -> Maybe String
+valid :: (Show ka, Show kb, Ord ka, Ord kb) => Map ka kb v -> Maybe String
 valid (Map ma mb) = 
     let w = execWriter $ do
-                when (M.size ma /= M.size mb) $ tell "A / B map size mismatch\n"
-                forM_ (M.toList ma) $ \(ka, (kb, _)) ->
-                   case M.lookup kb mb of Just (ka', _) -> when (ka /= ka') $
-                                              tell "bad A <- B back reference\n"
-                                          Nothing -> tell "invalid A -> B reference\n"
-                forM_ (M.toList mb) $ \(kb, (ka, _)) ->
-                   case M.lookup ka ma of Just (kb', _) -> when (kb /= kb') $
-                                              tell "bad B <- A back reference\n"
-                                          Nothing -> tell "invalid B -> A reference\n"
-                when (M.valid ma == False || M.valid mb == False) $
-                    tell "inner map not valid\n"
+            unless (M.valid ma) $ tell "inner map A not valid\n"
+            unless (M.valid mb) $ tell "inner map B not valid\n"
+            when (M.size ma /= M.size mb) . tell $
+                printf "A / B map size mismatch (%i / %i)\n" (M.size ma) (M.size mb)
+            forM_ (M.toList ma) $ \(ka, (kb, _)) ->
+                case M.lookup kb mb of Just (ka', _) ->
+                                           when (ka /= ka') . tell $ printf
+                                               "bad A <- B back reference ('%s' <- '%s')\n"
+                                               (show ka )
+                                               (show ka')
+                                       Nothing ->
+                                           tell $ printf
+                                                      "bad A -> B reference ('%s' not in B)\n"
+                                                      (show kb)
+            forM_ (M.toList mb) $ \(kb, (ka, _)) ->
+                case M.lookup ka ma of Just (kb', _) ->
+                                          when (kb /= kb') . tell $ printf
+                                               "bad B <- A back reference ('%s' <- '%s')\n"
+                                               (show kb )
+                                               (show kb')
+                                       Nothing ->
+                                           tell $ printf
+                                                      "bad B -> A reference ('%s' not in A)\n"
+                                                      (show ka)
     in  case w of [] -> Nothing
                   xs -> Just xs
 

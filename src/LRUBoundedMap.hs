@@ -18,6 +18,7 @@ import Prelude hiding (lookup)
 import Data.Word
 import Control.Applicative hiding (empty)
 import Control.Monad.Writer
+import Text.Printf
 
 import qualified DoubleMap as DM
 import qualified Data.Map.Strict as M
@@ -89,13 +90,13 @@ size (Map m _ limit) = (DM.size m, limit)
 view :: Map ka v -> (M.Map ka (Word64, v), M.Map Word64 (ka, v))
 view (Map m _ _) = DM.view m
 
-valid :: Ord k => Map k v -> Maybe String
+valid :: (Show k, Ord k) => Map k v -> Maybe String
 valid (Map m tick limit) =
     let w = execWriter $ do
                 when (limit < 1) $ tell "limit < 1\n"
                 let (_, mb) = DM.view m
                 forM_ (M.toList mb) $ \(kb, _) ->
-                   when (kb >= tick) $ tell "invalid tick in B map\n"
+                   when (kb >= tick) . tell $ printf "invalid tick in B map (%i > %i)\n" kb tick
                 case DM.valid m of
                     Just xs -> tell xs
                     Nothing -> return ()
