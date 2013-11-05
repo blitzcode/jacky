@@ -1,7 +1,0 @@
-
-See
-
-https://github.com/bsl/bindings-GLFW/issues/4
-
-for getting the GLFW-b dependecy working on older OS X versions
-
