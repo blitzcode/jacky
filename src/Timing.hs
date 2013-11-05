@@ -1,25 +1,33 @@
 
 module Timing ( getCurTick
+              , timeIt
               ) where
 
-import Data.Time.Clock (getCurrentTime, utctDayTime)
--- import qualified "GLFW-b" Graphics.UI.GLFW as GLFW
+import Data.Time.Clock
+import Control.Applicative
+import Control.Monad.IO.Class
 
 -- Timing functions for benchmarking
 
--- TODO: Look at various other timing packages for comparison:
---
--- http://hackage.haskell.org/packages/archive/repa-io/latest/doc/html/Data-Array-Repa-IO-Timing.html
--- http://hackage.haskell.org/packages/archive/timeit/1.0.0.0/doc/html/System-TimeIt.html
+-- TODO: Consider just using the criterion package for all if this
+--       http://hackage.haskell.org/package/criterion
 
 -- In seconds
 getCurTick :: IO Double
 getCurTick = do
-    tickUCT <- getCurrentTime
-    return (realToFrac $ utctDayTime tickUCT :: Double)
-    --
+    realToFrac <$> utctDayTime <$> getCurrentTime -- TODO: This should wrap around at midnight...
+
     -- TODO: Compare with GLFW timer
+    --
+    -- import qualified "GLFW-b" Graphics.UI.GLFW as GLFW
     --
     -- Just time <- GLFW.getTime
     -- return time
+
+timeIt :: MonadIO m => m a -> m (Double, a)
+timeIt f = do
+    start <- liftIO $ getCurrentTime
+    r     <- f
+    end   <- liftIO $ getCurrentTime
+    return (realToFrac $ diffUTCTime end start, r)
 

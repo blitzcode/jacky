@@ -100,7 +100,7 @@ texCoord2f u v = GL.texCoord $ GL.TexCoord2 (realToFrac u :: GL.GLfloat) (realTo
 drawQuad :: Float -> Float -> Float -> Float -> (Float, Float, Float) -> IO ()
 drawQuad x y w h (r, g, b) =
     GL.preservingMatrix $ do
-        Just time <- GLFW.getTime
+        time <- getCurTick
         GL.matrixMode GL.$= GL.Modelview 0
         GL.loadIdentity
         GL.translate $
