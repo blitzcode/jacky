@@ -1,7 +1,7 @@
 
 # We use
 # conduit, http-conduit, attoparsec-conduit, aeson, attoparsec, authenticate-oauth,
-# glfw-b, JuicyPixels-3.1.1.1
+# glfw-b, JuicyPixels-3.1.1.1, ansi-terminal, monad-control
 
 WARN_FLAGS = -Wall
 # LLVM_FLAGS = -fllvm -optlo-O3

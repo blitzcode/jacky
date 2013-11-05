@@ -11,6 +11,7 @@ module Trace ( withTrace
 
 import System.IO
 import System.IO.Unsafe (unsafePerformIO)
+import qualified System.Console.ANSI as A
 import Control.Concurrent.MVar
 import Control.Exception
 import Control.Monad
@@ -69,25 +70,28 @@ trace lvl msg = void $ withMVar traceSettings $ \ts -> -- TODO: Have to take an 
    when (lvl /= TLNone && fromEnum lvl <= (fromEnum $ tsLevel ts)) $ do
        tid  <- printf "%-12s" . show <$> myThreadId
        time <- printf "%-32s" . show <$> getZonedTime
-       let lvlDesc = case lvl of
-                         TLError -> "ERROR  "
-                         TLWarn  -> "WARNING"
-                         TLInfo  -> "INFO   "
-                         _       -> ""
-           header  = concat $ intersperse " | " [ lvlDesc, tid, time ]
-           handles = case tsFile   ts of   Just h -> [h];     _ -> []; ++
-                     if   tsEchoOn ts then           [stdout] else []
-           oneLine = (not $ T.any (== '\n') msg) && T.length msg < 75
+       let lvlDesc color = (if color then concat else (!! 1)) $ case lvl of
+               TLError -> [ mkANSICol A.Red   , "ERROR ", reset ]
+               TLWarn  -> [ mkANSICol A.Yellow, "WARN  ", reset ]
+               TLInfo  -> [ mkANSICol A.White , "INFO  ", reset ]
+               _       -> replicate 3 ""
+           reset         = A.setSGRCode []
+           mkANSICol c   = A.setSGRCode $ [ A.SetColor A.Foreground A.Vivid c ]
+           header color  = concat $ intersperse " | " [ lvlDesc color, tid, time ]
+           handles       = case tsFile   ts of   Just h -> [h];     _ -> []; ++
+                           if   tsEchoOn ts then           [stdout] else []
+           oneLine       = (not $ T.any (== '\n') msg) && T.length msg < 75
        forM_ handles $ \h -> do
-           c  <- hIsClosed h
-           hs <- hShow h
-           if   c
+           closed <- hIsClosed h
+           hs     <- hShow h
+           color  <- hIsTerminalDevice h -- Use ANSI colors when outputting to the terminal
+           if   closed
            then TI.putStrLn $ "ERROR: Trace message lost, called trace after shutdown: " <> msg
                               <> "\n" <> T.pack hs <> "\n" <> T.pack (show h)
            else -- Display short, unbroken messages in a single line without padding newline
                 if   oneLine
-                then do TI.hPutStrLn h $ T.pack header <> " - " <> msg
-                else do hPutStrLn h header
+                then do TI.hPutStrLn h $ T.pack (header color) <> " - " <> msg
+                else do hPutStrLn h $ header color
                         TI.hPutStrLn h msg
                         hPutStrLn h ""
 
