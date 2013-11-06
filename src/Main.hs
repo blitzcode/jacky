@@ -49,6 +49,7 @@ import qualified RectPacker as RP
 import qualified BoundedSequence as BS
 import CmdLineOptDefinitions
 import Timing
+import FT2Interface
 
 -- TODO: Start using Lens library for records and Reader/State
 -- TODO: Use labelThread for all threads
@@ -384,6 +385,7 @@ setupOAuth fn = do
 main :: IO ()
 main = do
     runOnAllCores -- Multicore
+    initFreeType
     -- Image cache folder
     cacheFolder <- addTrailingPathSeparator <$> getAppUserDataDirectory defImageCacheFolder
     let imgCacheFolder flagsArg = foldr
