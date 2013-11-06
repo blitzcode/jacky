@@ -28,9 +28,10 @@ import Text.Printf
 
 data TraceLevel = TLNone | TLError | TLWarn | TLInfo deriving (Eq, Enum)
 
-data TraceSettings = TraceSettings { tsFile   :: Maybe Handle
-                                   , tsEchoOn :: Bool
-                                   , tsLevel  :: TraceLevel
+data TraceSettings = TraceSettings { tsFile    :: Maybe Handle
+                                   , tsEchoOn  :: Bool
+                                   , tsColorOn :: Bool
+                                   , tsLevel   :: TraceLevel
                                    }
 
 -- The well-known unsafePerformIO hack. It would be a bit cumbersome to always pass the trace
@@ -39,8 +40,8 @@ data TraceSettings = TraceSettings { tsFile   :: Maybe Handle
 traceSettings :: MVar TraceSettings
 traceSettings = unsafePerformIO newEmptyMVar
 
-withTrace :: Maybe FilePath -> Bool -> Bool -> TraceLevel -> IO () -> IO ()
-withTrace traceFn echoOn appendOn level f =
+withTrace :: Maybe FilePath -> Bool -> Bool -> Bool -> TraceLevel -> IO () -> IO ()
+withTrace traceFn echoOn appendOn colorOn level f =
     bracket
         ( do h <- case traceFn of Just fn -> if   level /= TLNone
                                              then Just <$> openFile fn (if   appendOn
@@ -48,9 +49,10 @@ withTrace traceFn echoOn appendOn level f =
                                                                         else WriteMode)
                                              else return Nothing
                                   _       -> return Nothing
-             let ts = TraceSettings { tsFile   = h
-                                    , tsEchoOn = echoOn
-                                    , tsLevel  = level
+             let ts = TraceSettings { tsFile    = h
+                                    , tsEchoOn  = echoOn
+                                    , tsColorOn = colorOn
+                                    , tsLevel   = level
                                     }
              r <- tryPutMVar traceSettings ts
              unless r $ error "Double initialization of Trace module"
@@ -84,7 +86,8 @@ trace lvl msg = void $ withMVar traceSettings $ \ts -> -- TODO: Have to take an 
        forM_ handles $ \h -> do
            closed <- hIsClosed h
            hs     <- hShow h
-           color  <- hIsTerminalDevice h -- Use ANSI colors when outputting to the terminal
+           -- Use ANSI colors when outputting to the terminal
+           color  <- ((&&) $ tsColorOn ts) <$> hIsTerminalDevice h
            if   closed
            then TI.putStrLn $ "ERROR: Trace message lost, called trace after shutdown: " <> msg
                               <> "\n" <> T.pack hs <> "\n" <> T.pack (show h)

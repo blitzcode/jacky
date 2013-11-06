@@ -413,8 +413,9 @@ main = do
         traceLvl = foldr (\f r -> case f of (FlagTraceLevel lvl) -> mkTrcOpt lvl; _ -> r)
                          TLNone flags
     withTrace (Just traceFn)
-              (FlagTraceEchoOn `elem` flags)
-              (FlagTraceAppend `elem` flags)
+              (      FlagTraceEchoOn       `elem` flags)
+              (      FlagTraceAppend       `elem` flags)
+              (not $ FlagTraceDisableColor `elem` flags)
               traceLvl
               $ do
       mapM_ (traceS TLInfo) [ show flags, show oaClient, show oaCredential ]

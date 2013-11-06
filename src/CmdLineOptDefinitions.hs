@@ -28,6 +28,7 @@ data Flag = FlagOAuthFile String
           | FlagImgMemCacheSize String
           | FlagStatTraceInterval String
           | FlagFirehose
+          | FlagTraceDisableColor
             deriving (Eq, Show)
 
 defLogFolder, defImageCacheFolder, defTraceFn :: String
@@ -143,6 +144,10 @@ parseCmdLineOpt = do
                            ["trace-append"]
                            (NoArg FlagTraceAppend)
                            ("append execution trace file instead of overwriting")
+                  , Option []
+                           ["trace-no-color"]
+                           (NoArg FlagTraceDisableColor)
+                           ("no ANSI colors for trace output (default: on)")
                   , Option []
                            ["verify-img-cache"]
                            (NoArg FlagVerifyImgCache)
