@@ -155,26 +155,26 @@ toImageRes jp =
 popRequestStack :: ImageCache -> IO B.ByteString
 popRequestStack ic = do
     let pop = atomically $ do
-        requests <- readTVar $ icOutstandingReq ic
-        let (requests', maybeURI) = LBM.deleteFindNewest requests
-        case maybeURI of
-            Just (uri, ()) ->
-                do -- Write the stack with the removed top item back
-                   writeTVar (icOutstandingReq ic) requests'
-                   -- Make sure the request is not already in the cache / fetching
-                   --
-                   -- TODO: This should not be necessary, no duplicate requests in LRUBoundedMap,
-                   --       hence there should never be anything in the request queue that's in
-                   --       the cache
-                   cache <- readTVar $ icCacheEntries ic
-                   if   LBM.notMember uri cache
-                   then do -- New request, mark fetch status and return URI
-                           writeTVar (icCacheEntries ic) .
-                               fst $ LBM.insertUnsafe uri Fetching cache
-                           return $ Just uri
-                   else return Nothing -- Already in cache, commit transaction here and return
-                                       -- Nothing so the outer loop can try again
-            Nothing  -> retry -- Empty request list, block till it makes sense to retry
+          requests <- readTVar $ icOutstandingReq ic
+          let (requests', maybeURI) = LBM.deleteFindNewest requests
+          case maybeURI of
+              Just (uri, ()) ->
+                  do -- Write the stack with the removed top item back
+                     writeTVar (icOutstandingReq ic) requests'
+                     -- Make sure the request is not already in the cache / fetching
+                     --
+                     -- TODO: This should not be necessary, no duplicate requests in LRUBoundedMap,
+                     --       hence there should never be anything in the request queue that's in
+                     --       the cache
+                     cache <- readTVar $ icCacheEntries ic
+                     if   LBM.notMember uri cache
+                     then do -- New request, mark fetch status and return URI
+                             writeTVar (icCacheEntries ic) .
+                                 fst $ LBM.insertUnsafe uri Fetching cache
+                             return $ Just uri
+                     else return Nothing -- Already in cache, commit transaction here and return
+                                         -- Nothing so the outer loop can try again
+              Nothing  -> retry -- Empty request list, block till it makes sense to retry
     r <- pop
     case r of
         Nothing  -> popRequestStack ic -- Recurse till we get a URI or block on retry

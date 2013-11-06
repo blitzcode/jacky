@@ -326,24 +326,24 @@ run = do
         setup2DOpenGL w h
     -- Main loop
     let loop = do
-        traceStats
-        -- Stream messages
-        tqSM <- asks envSMQueue
-        processAllEvents (Right tqSM) processSMEvent
-        -- GLFW / OpenGL
-        draw
-        liftIO $ {-# SCC swapAndPoll #-} do
-            -- GL.finish
-            GLFW.swapBuffers window
-            GLFW.pollEvents
-            err <- GL.get GL.errors
-            unless (null err) .
-                traceS TLError $ "OpenGL Error: " ++ concatMap show err
-        tqGLFW <- asks envGLFWEventsQueue
-        processAllEvents (Left tqGLFW) processGLFWEvent
-        -- Done?
-        close <- liftIO $ GLFW.windowShouldClose window
-        unless close loop
+          traceStats
+          -- Stream messages
+          tqSM <- asks envSMQueue
+          processAllEvents (Right tqSM) processSMEvent
+          -- GLFW / OpenGL
+          draw
+          liftIO $ {-# SCC swapAndPoll #-} do
+              -- GL.finish
+              GLFW.swapBuffers window
+              GLFW.pollEvents
+              err <- GL.get GL.errors
+              unless (null err) .
+                  traceS TLError $ "OpenGL Error: " ++ concatMap show err
+          tqGLFW <- asks envGLFWEventsQueue
+          processAllEvents (Left tqGLFW) processGLFWEvent
+          -- Done?
+          close <- liftIO $ GLFW.windowShouldClose window
+          unless close loop
      in loop
 
 verifyImgCache :: FilePath -> IO ()
