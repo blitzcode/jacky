@@ -1,3 +1,9 @@
 *.hi
+*.p_hi
 *.o
-out
+*.p_o
+*.la
+*.lo
+*.prof
+trace.log
+jacky

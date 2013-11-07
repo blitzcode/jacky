@@ -16,14 +16,16 @@ GHC_FLAGS = $(PROF_FLAGS) $(WARN_FLAGS) $(LLVM_FLAGS) -rtsopts -H512m -O2 -threa
 # Profile build
 # Run with '+RTS -p -s' or '+RTS -xc'
 .PHONY: profile
-profile: PROF_FLAGS = -prof -fprof-auto -caf-all -fforce-recomp
+profile: PROF_FLAGS = -prof -fprof-auto -caf-all -osuf p_o -hisuf p_hi
 profile: jacky
 
 # Get some build options out of 'ghc --info'. This is mostly so we can pass
 # '-m32' and '-arch i386' to clang/gcc and FT2's configure script in case we're
-# running on a 32bit version of GHC
-GHC_CFLAGS := $(shell ghc --info | ghc -e "fmap read getContents >>= putStrLn . Data.Maybe.fromJust . lookup \"C compiler flags\"")
-GHC_LDFLAGS := $(shell ghc --info | ghc -e "fmap read getContents >>= putStrLn . unwords . read . Data.Maybe.fromJust . lookup \"Ld Linker flags\"")
+# running with a 32 bit version of GHC
+GHC_CFLAGS := $(shell ghc --info | ghc -e "fmap read getContents >>= \
+              putStrLn . Data.Maybe.fromJust . lookup \"C compiler flags\"")
+GHC_LDFLAGS := $(shell ghc --info | ghc -e "fmap read getContents >>= \
+               putStrLn . unwords . read . Data.Maybe.fromJust . lookup \"Ld Linker flags\"")
 
 # FT2 static library and libs required by it
 FT2_DIR = ./freetype2
@@ -54,7 +56,9 @@ jacky: $(HSSRC) $(CXXOBJ) $(FT2_STATIC_LIB)
 
 .PHONY : clean
 clean:
-	$(RM) $(HSSRC:.hs=.hi) $(HSSRC:.hs=.o) jacky
+	$(RM) jacky
+	$(RM) $(HSSRC:.hs=.hi)   $(HSSRC:.hs=.o)
+	$(RM) $(HSSRC:.hs=.p_hi) $(HSSRC:.hs=.p_o)
 	$(RM) $(CXXOBJ) $(CXXOBJ:.o=.d)
 	cd $(FT2_DIR) && make distclean
 	$(RM) log/*.json trace.log
