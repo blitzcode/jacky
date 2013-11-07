@@ -54,6 +54,10 @@ fetchImage tc uri = do
             hicFetch <- ImageCache.fetchImage (tcImageCache tc) uri
             case hicFetch of
                 Just (Fetched (ImageRes w h img)) -> {-# SCC textureUpload #-} do
+                    -- TODO: Some exception safety would be nice, but even if we
+                    --       wrap this into a bracketOnError there would still
+                    --       be plenty of spots where an error would leak data
+                    --       or leave a data structure in a bad state
                     [tex] <- GL.genObjectNames 1 :: IO [GL.TextureObject]
                     GL.textureBinding GL.Texture2D GL.$= Just tex
                     unless (w * h  == VS.length img) $ error "ImageRes size / storage mismatch"

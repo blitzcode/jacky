@@ -22,8 +22,8 @@ profile: jacky
 # Get some build options out of 'ghc --info'. This is mostly so we can pass
 # '-m32' and '-arch i386' to clang/gcc and FT2's configure script in case we're
 # running with a 32 bit version of GHC
-GHC_CFLAGS := $(shell ghc --info | ghc -e "fmap read getContents >>= \
-              putStrLn . Data.Maybe.fromJust . lookup \"C compiler flags\"")
+GHC_CFLAGS  := $(shell ghc --info | ghc -e "fmap read getContents >>= \
+               putStrLn . Data.Maybe.fromJust . lookup \"C compiler flags\"")
 GHC_LDFLAGS := $(shell ghc --info | ghc -e "fmap read getContents >>= \
                putStrLn . unwords . read . Data.Maybe.fromJust . lookup \"Ld Linker flags\"")
 
@@ -39,7 +39,7 @@ FT2_LDFLAGS = -lz -lbz2 -L/usr/X11/lib -lpng12 $(FT2_STATIC_LIB)
 # TODO: It might be cleaner to just compile this fully by ourselves, see
 #       $(FT2_DIR)/docs/INSTALL.ANY for a guide
 $(FT2_STATIC_LIB):
-	cd $(FT2_DIR) && env CFLAGS="$(GHC_LDFLAGS)" ./configure && make
+	cd $(FT2_DIR) && env CFLAGS="$(GHC_LDFLAGS)" ./configure && make -j
 
 # We assume all .cpp files in the directory are meant to be compiled
 CXXSRC = $(wildcard *.cpp)
@@ -56,7 +56,7 @@ jacky: $(HSSRC) $(CXXOBJ) $(FT2_STATIC_LIB)
 
 .PHONY : clean
 clean:
-	$(RM) jacky
+	$(RM) jacky jacky.prof
 	$(RM) $(HSSRC:.hs=.hi)   $(HSSRC:.hs=.o)
 	$(RM) $(HSSRC:.hs=.p_hi) $(HSSRC:.hs=.p_o)
 	$(RM) $(CXXOBJ) $(CXXOBJ:.o=.d)
