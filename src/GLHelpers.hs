@@ -13,6 +13,9 @@ import qualified "GLFW-b" Graphics.UI.GLFW as GLFW -- Be explicit, we need the n
 import Control.Concurrent.STM
 import Control.Exception
 import Control.Applicative
+import Text.Printf
+
+import Trace
 
 -- Various utility functions related to GL and GLFW
 
@@ -44,6 +47,8 @@ withWindow w h title tq f =
              GLFW.setKeyCallback        window . Just $ keyCallback        tq
              GLFW.setWindowSizeCallback window . Just $ windowSizeCallback tq
              GLFW.makeContextCurrent $ Just window
+             traceS TLInfo =<< getStrings
+             -- traceS TLInfo =<< (show <$> GL.get GL.glExtensions)
              return window
         )
         ( \window -> do GLFW.destroyWindow window
@@ -64,4 +69,13 @@ setup2DOpenGL w h = do
 getCurTex2DSize :: IO (Int, Int)
 getCurTex2DSize = (\case (GL.TextureSize2D w h) -> (fromIntegral w, fromIntegral h))
                          <$> (GL.get $ GL.textureSize2D (Left GL.Texture2D) 0)
+
+getStrings :: IO String
+getStrings =
+    printf "OpenGL - Vendor: %s · Renderer: %s · Version: %s · GLSL: %s · Num Extensions: %i"
+           <$> GL.get GL.vendor
+           <*> GL.get GL.renderer
+           <*> GL.get GL.glVersion
+           <*> GL.get GL.shadingLanguageVersion
+           <*> (length <$> GL.get GL.glExtensions)
 
