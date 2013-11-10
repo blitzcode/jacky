@@ -4,9 +4,11 @@
 # In addition to the Haskell code we have a small FreeType 2 wrapper written in
 # C++ as well as the FreeType 2 library itself (C, using its own Makefile). 
 
+APP_NAME = jacky
+
 # By default, we build everything
 .PHONY : all
-all: jacky
+all: $(APP_NAME)
 
 # GHC compiler flags
 WARN_FLAGS = -Wall
@@ -20,7 +22,7 @@ GHC_FLAGS = $(PROF_FLAGS) $(WARN_FLAGS) $(LLVM_FLAGS) \
 # Run with '+RTS -p -s' or '+RTS -xc'
 .PHONY: profile
 profile: PROF_FLAGS = -prof -fprof-auto -caf-all -osuf p_o -hisuf p_hi
-profile: jacky
+profile: $(APP_NAME)
 
 # Get some build options out of 'ghc --info'. This is mostly so we can pass
 # '-m32' and '-arch i386' to clang/gcc and FT2's configure script in case we're
@@ -54,16 +56,17 @@ CXX_LDFLAGS = -lstdc++ $(CXXOBJ) $(FT2_LDFLAGS)
 HSSRC = $(wildcard *.hs)
 
 # Build the full program
-jacky: $(HSSRC) $(CXXOBJ) $(FT2_STATIC_LIB)
+$(APP_NAME): $(HSSRC) $(CXXOBJ) $(FT2_STATIC_LIB)
 	ghc $(GHC_FLAGS) -o $@ --make Main $(CXX_LDFLAGS)
 
 .PHONY : clean
 clean:
-	$(RM) jacky jacky.prof jacky.aux jacky.ps jacky.hp
+	cd $(FT2_DIR) && make distclean
+	$(RM) $(APP_NAME)
+	$(RM) $(APP_NAME).prof $(APP_NAME).aux $(APP_NAME).ps $(APP_NAME).hp
 	$(RM) $(HSSRC:.hs=.hi)   $(HSSRC:.hs=.o)
 	$(RM) $(HSSRC:.hs=.p_hi) $(HSSRC:.hs=.p_o)
 	$(RM) $(CXXOBJ) $(CXXOBJ:.o=.d)
-	cd $(FT2_DIR) && make distclean
 	$(RM) log/*.json trace.log
 	$(RM) -r ~/.http_img_cache/
 
