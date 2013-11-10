@@ -12,7 +12,7 @@ import qualified Data.Foldable
 
 -- Sequence with a stack interface which drops elements pushed over a specified depth
 
-data BoundedSequence a = BoundedSequence (S.Seq a) !Int
+data BoundedSequence a = BoundedSequence !(S.Seq a) !Int
                          deriving (Show)
 
 empty :: Int -> BoundedSequence a
