@@ -19,6 +19,8 @@ getCurTick = do
 
     -- TODO: Compare with GLFW timer
     --
+    -- {-# LANGUAGE PackageImports #-}
+    --
     -- import qualified "GLFW-b" Graphics.UI.GLFW as GLFW
     --
     -- Just time <- GLFW.getTime

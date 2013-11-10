@@ -35,11 +35,11 @@ windowSizeCallback tq win w h = atomically . writeTQueue tq $ GLFWEventWindowSiz
 withWindow :: Int -> Int -> String -> TQueue GLFWEvent -> (GLFW.Window -> IO ()) -> IO ()
 withWindow w h title tq f =
     bracket
-        ( do 
+        ( do
              GLFW.setErrorCallback . Just $ errorCallback tq
              True <- GLFW.init 
              GLFW.windowHint $ GLFW.WindowHint'Resizable True
-             GLFW.windowHint $ GLFW.WindowHint'Samples 4 -- 4x anti-aliasing
+             -- GLFW.windowHint $ GLFW.WindowHint'Samples 4 -- 4x anti-aliasing
              Just window <- GLFW.createWindow w h title Nothing Nothing
              GLFW.setKeyCallback        window . Just $ keyCallback        tq
              GLFW.setWindowSizeCallback window . Just $ windowSizeCallback tq

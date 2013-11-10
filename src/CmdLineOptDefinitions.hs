@@ -42,7 +42,7 @@ defConKeepAlive = 10
 defConTimeout :: Int
 defConTimeout = 5 * 1000 * 1000
 defTweetHistory :: Int
-defTweetHistory = 1000
+defTweetHistory = 1024
 defImgMemCacheSize :: Int
 defImgMemCacheSize = 1024
 defStatTraceInterval = 10.0

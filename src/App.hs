@@ -59,7 +59,8 @@ data Env = Env
     }
 
 data State = State
-    { stTweetByID          :: M.Map Int64 Tweet
+    { stCurTick            :: Double
+    , stTweetByID          :: M.Map Int64 Tweet
     , stUILayoutRects      :: [(Int, Int, Int, Int)]
       -- Statistics
     , stFrameTimes         :: BS.BoundedSequence Double
@@ -74,9 +75,11 @@ type AppDraw = RWST Env () State IO
 color3f :: Float -> Float -> Float -> IO ()
 color3f r g b = GL.color $ GL.Color3 (realToFrac r :: GL.GLfloat) (realToFrac g) (realToFrac b)
 
+{-
 color4f :: Float -> Float -> Float -> Float -> IO ()
 color4f r g b a = GL.color $
     GL.Color4 (realToFrac r :: GL.GLfloat) (realToFrac g) (realToFrac b) (realToFrac a)
+-}
 
 vertex2f :: Float -> Float -> IO ()
 vertex2f x y = GL.vertex $ GL.Vertex2 (realToFrac x :: GL.GLfloat) (realToFrac y)
@@ -87,12 +90,12 @@ texCoord2f u v = GL.texCoord $ GL.TexCoord2 (realToFrac u :: GL.GLfloat) (realTo
 drawQuad :: Float -> Float -> Float -> Float -> (Float, Float, Float) -> IO ()
 drawQuad x y w h (r, g, b) =
     GL.preservingMatrix $ do
-        let time = 0 :: Double -- <- getCurTick
+        -- let time = 0 :: Double -- <- getCurTick
         GL.matrixMode GL.$= GL.Modelview 0
         GL.loadIdentity
         GL.translate $
             GL.Vector3 (realToFrac $ x + w/2) (realToFrac $ y + h/2) (0.0 :: GL.GLfloat)
-        GL.rotate (realToFrac time * 30 + (realToFrac $ x+y) :: GL.GLfloat) $ GL.Vector3 0.0 0.0 1.0
+        -- GL.rotate (realToFrac time * 30 + (realToFrac $ x+y) :: GL.GLfloat) $ GL.Vector3 0.0 0.0 1.0
         GL.renderPrimitive GL.Quads $ do
             color3f r g b
             texCoord2f 0.0 0.0
@@ -108,7 +111,7 @@ draw :: AppDraw ()
 draw = do
     liftIO $ do
         GL.clearColor GL.$= (GL.Color4 0.2 0.2 0.2 0.0 :: GL.Color4 GL.GLclampf)
-        GL.clear [GL.ColorBuffer]
+        GL.clear [GL.ColorBuffer, GL.DepthBuffer]
 
     tweets <- gets stTweetByID
     tiles  <- gets stUILayoutRects
@@ -168,8 +171,8 @@ mkUILayoutRects wndWdh wndHgt =
         $ RP.packRectangles wndWdh wndHgt 1
         $    replicate 8   (127, 127)
           ++ replicate 32  (63,  63 )
-          ++ replicate 128 (31,  31 )
-          ++ replicate 768 (15,  15 )
+          ++ replicate 256 (31,  31 )
+          ++ replicate 512 (15,  15 )
 
 processGLFWEvent :: GLFWEvent -> AppDraw ()
 processGLFWEvent ev =
@@ -263,12 +266,12 @@ withProcessStatusesAsync uri' retryAPI f = do
 {-# NOINLINE traceStats #-}
 traceStats :: AppDraw ()
 traceStats = do
-        time <- liftIO $ getCurTick
+        time       <- gets stCurTick
         -- Record frame time
         modify' $ \s -> s { stFrameTimes = BS.push_ time $ stFrameTimes s }
         -- Time to trace again?
         lastSTrace <- gets stLastStatTrace
-        interval <- asks envStatTraceInterval 
+        interval   <- asks envStatTraceInterval 
         when (time - lastSTrace > interval) $ do
             modify' $ \s -> s { stLastStatTrace = time }
             ic         <- asks envImageCache
@@ -288,8 +291,7 @@ traceStats = do
                 fdBest           = case frameDeltas of [] -> 0; xs -> minimum xs
                 bytesToMB n      = fromIntegral n / 1024.0 / 1024.0 :: Double
             liftIO . traceS TLInfo $ printf
-                (    "Stat Trace (every %.1fsec)\n"
-                  ++ "Messages Total - SMTweet: %i | SMDelete: %i | Netw. Recv.: %.3fMB\n"
+                (    "Messages Total - SMTweet: %i | SMDelete: %i | Netw. Recv.: %.3fMB\n"
                   ++ "%s\n"
                   ++ "%s\n"
                   ++ "Frametimes - "
@@ -298,7 +300,6 @@ traceStats = do
                   ++ "mutCPU: %.2fs · mutWall: %.2fs · gcCPU: %.2fs · "
                   ++ "gcWall: %.2fs · cpu: %.2fs · wall: %.2fs"
                 )
-                interval
                 numTweets
                 numDels
                 (fromIntegral apiRecv / 1024 / 1024 :: Double)
@@ -320,13 +321,18 @@ traceStats = do
 run :: AppDraw ()
 run = do
     -- Setup OpenGL / GLFW
+    --
+    -- TODO: glSwapInterval and glFinish just don't seem to work properly on OS X,
+    --       or maybe it's an issue with GLFW / Haskell OpenGL, not sure
     window <- asks envWindow
     liftIO $ do
         (w, h) <- GLFW.getWindowSize window
-        GLFW.swapInterval 1
+        -- GLFW.swapInterval 1
         setup2DOpenGL w h
     -- Main loop
     let loop = do
+          time <- liftIO $ getCurTick
+          modify' $ \s -> s { stCurTick = time }
           traceStats
           -- Stream messages
           tqSM <- asks envSMQueue
@@ -334,6 +340,7 @@ run = do
           -- GLFW / OpenGL
           draw
           liftIO $ {-# SCC swapAndPoll #-} do
+              -- GL.flush
               -- GL.finish
               GLFW.swapBuffers window
               GLFW.pollEvents

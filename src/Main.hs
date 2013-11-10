@@ -164,7 +164,7 @@ main = do
               withTextureCache cacheSize envImageCache $ \envTextureCache -> do
                 -- ekg <- forkServer "localhost" 8000
                 -- Setup reader and state for main RWS monad
-                stLastStatTrace <- getCurTick
+                stCurTick <- getCurTick
                 let envInit = Env
                         { envLogNetworkFolder  = logNetworkFolder
                         , envLogNetworkMode    = logNetworkMode
@@ -188,6 +188,8 @@ main = do
                         , stFrameTimes         = -- FPS History for the stat trace interval
                                                  BS.empty
                                                      (round $ 60 * envStatTraceInterval envInit)
+
+                        , stLastStatTrace      = stCurTick
                         , stStatTweetsReceived = 0
                         , stStatDelsReceived   = 0
                         , stStatBytesRecvAPI   = 0
