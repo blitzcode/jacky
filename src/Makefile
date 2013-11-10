@@ -14,7 +14,7 @@ WARN_FLAGS = -Wall
 GHC_FLAGS = $(PROF_FLAGS) $(WARN_FLAGS) $(LLVM_FLAGS) \
             -rtsopts -with-rtsopts=-T -H512m -O2 -threaded
 # TODO: Consider adding -qg1 to the RTS options, seems to be accelerate the
-#       program while reducing CPU load
+#       program while reducing CPU load (https://ghc.haskell.org/trac/ghc/ticket/8513)
 
 # Profile build
 # Run with '+RTS -p -s' or '+RTS -xc'
