@@ -35,6 +35,7 @@ import System.FilePath
 import Text.Printf
 import Control.Exception
 import Control.Monad.Trans.Control
+import GHC.Stats
 -- import System.Remote.Monitoring
 
 import CfgFile
@@ -293,19 +294,24 @@ traceStats = do
             numDels    <- gets stStatDelsReceived
             frameTimes <- (takeWhile (\x -> time - x < interval) . BS.toList) <$> gets stFrameTimes
             apiRecv    <- gets stStatBytesRecvAPI
+            gc         <- liftIO $ getGCStats
             let frameDeltas      = case frameTimes of (x:xs) -> goFD x xs; _ -> []
                 goFD prev (x:xs) = (prev - x) : goFD x xs
                 goFD _    []     = []
                 fdMean           = (sum frameDeltas / (fromIntegral $ length frameDeltas))
                 fdWorst          = case frameDeltas of [] -> 0; xs -> maximum xs
                 fdBest           = case frameDeltas of [] -> 0; xs -> minimum xs
+                bytesToMB n      = fromIntegral n / 1024.0 / 1024.0 :: Double
             liftIO . traceS TLInfo $ printf
                 (    "Stat Trace (every %.1fsec)\n"
                   ++ "Messages Total - SMTweet: %i | SMDelete: %i | Netw. Recv.: %.3fMB\n"
                   ++ "%s\n"
                   ++ "%s\n"
                   ++ "Frametimes - "
-                  ++ "Mean: %.1fFPS/%.1fms | Worst: %.1fFPS/%.1fms | Best: %.1fFPS/%.1fms "
+                  ++ "Mean: %.1fFPS/%.1fms | Worst: %.1fFPS/%.1fms | Best: %.1fFPS/%.1fms\n"
+                  ++ "GC - maxUsed: %.2fMB · curUsed: %.2fMB · peakAlloc: %iMB | "
+                  ++ "mutCPU: %.2fs · mutWall: %.2fs · gcCPU: %.2fs · "
+                  ++ "gcWall: %.2fs · cpu: %.2fs · wall: %.2fs"
                 )
                 interval
                 numTweets
@@ -316,6 +322,15 @@ traceStats = do
                 (1.0 / fdMean ) (fdMean  * 1000)
                 (1.0 / fdWorst) (fdWorst * 1000)
                 (1.0 / fdBest ) (fdBest  * 1000)
+                (bytesToMB $ maxBytesUsed           gc)
+                (bytesToMB $ currentBytesUsed       gc)
+                (            peakMegabytesAllocated gc)
+                (mutatorCpuSeconds  gc)
+                (mutatorWallSeconds gc)
+                (gcCpuSeconds       gc)
+                (gcWallSeconds      gc)
+                (cpuSeconds         gc)
+                (wallSeconds        gc)
 
 run :: AppDraw ()
 run = do

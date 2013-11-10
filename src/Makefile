@@ -11,7 +11,10 @@ all: jacky
 # GHC compiler flags
 WARN_FLAGS = -Wall
 # LLVM_FLAGS = -fllvm -optlo-O3
-GHC_FLAGS = $(PROF_FLAGS) $(WARN_FLAGS) $(LLVM_FLAGS) -rtsopts -H512m -O2 -threaded
+GHC_FLAGS = $(PROF_FLAGS) $(WARN_FLAGS) $(LLVM_FLAGS) \
+            -rtsopts -with-rtsopts=-T -H512m -O2 -threaded
+# TODO: Consider adding -qg1 to the RTS options, seems to be accelerate the
+#       program while reducing CPU load
 
 # Profile build
 # Run with '+RTS -p -s' or '+RTS -xc'
