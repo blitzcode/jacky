@@ -59,7 +59,7 @@ jacky: $(HSSRC) $(CXXOBJ) $(FT2_STATIC_LIB)
 
 .PHONY : clean
 clean:
-	$(RM) jacky jacky.prof
+	$(RM) jacky jacky.prof jacky.aux jacky.ps jacky.hp
 	$(RM) $(HSSRC:.hs=.hi)   $(HSSRC:.hs=.o)
 	$(RM) $(HSSRC:.hs=.p_hi) $(HSSRC:.hs=.p_o)
 	$(RM) $(CXXOBJ) $(CXXOBJ:.o=.d)

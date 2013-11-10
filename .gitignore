@@ -4,6 +4,7 @@
 *.p_o
 *.la
 *.lo
-*.prof
+*.d
 trace.log
 jacky
+jacky.*
