@@ -5,6 +5,7 @@ module GLHelpers ( GLFWEvent(..)
                  , withWindow
                  , setup2DOpenGL
                  , getCurTex2DSize
+                 , getGLStrings
                  ) where
 
 import qualified Graphics.Rendering.OpenGL as GL
@@ -14,8 +15,6 @@ import Control.Concurrent.STM
 import Control.Exception
 import Control.Applicative
 import Text.Printf
-
-import Trace
 
 -- Various utility functions related to GL and GLFW
 
@@ -47,7 +46,6 @@ withWindow w h title tq f =
              GLFW.setKeyCallback        window . Just $ keyCallback        tq
              GLFW.setWindowSizeCallback window . Just $ windowSizeCallback tq
              GLFW.makeContextCurrent $ Just window
-             traceS TLInfo =<< getStrings
              -- traceS TLInfo =<< (show <$> GL.get GL.glExtensions)
              return window
         )
@@ -70,8 +68,8 @@ getCurTex2DSize :: IO (Int, Int)
 getCurTex2DSize = (\case (GL.TextureSize2D w h) -> (fromIntegral w, fromIntegral h))
                          <$> (GL.get $ GL.textureSize2D (Left GL.Texture2D) 0)
 
-getStrings :: IO String
-getStrings =
+getGLStrings :: IO String
+getGLStrings =
     printf "OpenGL - Vendor: %s · Renderer: %s · Version: %s · GLSL: %s · Num Extensions: %i"
            <$> GL.get GL.vendor
            <*> GL.get GL.renderer

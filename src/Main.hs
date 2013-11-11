@@ -12,9 +12,11 @@ import System.IO
 import System.Directory
 import System.FilePath
 import System.Exit
+import qualified System.Info as SI
 -- import System.Remote.Monitoring
 import qualified Data.ByteString.Char8 as B8
 import Data.Maybe
+import Data.List
 import qualified Data.Map.Strict as M
 import Control.Applicative
 import Control.Monad.Error
@@ -81,6 +83,24 @@ verifyImgCache folder = do
                 Left err -> putStrLn $ "\n" ++ fn ++ ": " ++ err
                 Right _  -> putStr "." >> hFlush stdout
     putStrLn ""
+
+traceSystemInfo :: IO ()
+traceSystemInfo = do
+    cpus <- GHC.Conc.getNumProcessors
+    traceS TLInfo =<<
+        ( (++) . concat . intersperse " · " $
+             [ "System - OS: " ++ SI.os
+             , "Arch: " ++ SI.arch
+             , "CPUs: " ++ show cpus
+             , concat [ "Compiler: "
+                      , SI.compilerName
+                      , " / "
+                      , show SI.compilerVersion
+                      , "\n"
+                      ]
+             ]
+        )
+        <$> getGLStrings
 
 main :: IO ()
 main = do
@@ -162,6 +182,8 @@ main = do
                 wndHgt = 640
             withWindow wndWdh wndHgt "Twitter" envGLFWEventsQueue $ \envWindow ->
               withTextureCache cacheSize envImageCache $ \envTextureCache -> do
+                traceSystemInfo
+                -- Start EKG server (disabled for now)
                 -- ekg <- forkServer "localhost" 8000
                 -- Setup reader and state for main RWS monad
                 stCurTick <- getCurTick
@@ -188,7 +210,6 @@ main = do
                         , stFrameTimes         = -- FPS History for the stat trace interval
                                                  BS.empty
                                                      (round $ 60 * envStatTraceInterval envInit)
-
                         , stLastStatTrace      = stCurTick
                         , stStatTweetsReceived = 0
                         , stStatDelsReceived   = 0
