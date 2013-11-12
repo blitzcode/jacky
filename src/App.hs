@@ -51,9 +51,6 @@ import GLHelpers
 --       geometry in vertex buffers, batching up draw calls, sorting by texture
 --       and state change etc.
 
--- TODO: Draw GUI quads with depth so drawing order can be changed without
---       changing final result
-
 -- TODO: Add a title and status bar quad, background gradient
 
 -- TODO: Have list of UI hit boxes with associated mouse over / drag / click
@@ -91,40 +88,66 @@ data State = State
 
 type AppDraw = RWST Env () State IO
 
-color3f :: Float -> Float -> Float -> IO ()
-color3f r g b = GL.color $ GL.Color3 (realToFrac r :: GL.GLfloat) (realToFrac g) (realToFrac b)
 
-{-
-color4f :: Float -> Float -> Float -> Float -> IO ()
-color4f r g b a = GL.color $
-    GL.Color4 (realToFrac r :: GL.GLfloat) (realToFrac g) (realToFrac b) (realToFrac a)
--}
+data QuadPosition = QPCorners    Float Float Float Float -- X1 Y2 X2 Y2
+                  | QPOriginSize Float Float Float Float -- X Y W H
+                  deriving (Show)
 
-vertex2f :: Float -> Float -> IO ()
-vertex2f x y = GL.vertex $ GL.Vertex2 (realToFrac x :: GL.GLfloat) (realToFrac y)
+type RGBA = (Float, Float, Float, Float)
 
-texCoord2f :: Float -> Float -> IO ()
-texCoord2f u v = GL.texCoord $ GL.TexCoord2 (realToFrac u :: GL.GLfloat) (realToFrac v)
+data QuadColor = QCWhite
+               | QCSolid RGBA
+               | QCBottomTopGradient RGBA RGBA
+               | QCLeftRightGradient RGBA RGBA
+               deriving (Show)
 
-drawQuad :: Float -> Float -> Float -> Float -> (Float, Float, Float) -> IO ()
-drawQuad x y w h (r, g, b) =
-    GL.preservingMatrix $ do
-        -- let time = 0 :: Double -- <- getCurTick
-        GL.matrixMode GL.$= GL.Modelview 0
-        GL.loadIdentity
-        GL.translate $
-            GL.Vector3 (realToFrac $ x + w/2) (realToFrac $ y + h/2) (0.0 :: GL.GLfloat)
-        -- GL.rotate (realToFrac time * 30 + (realToFrac $ x+y) :: GL.GLfloat) $ GL.Vector3 0.0 0.0 1.0
-        GL.renderPrimitive GL.Quads $ do
-            color3f r g b
-            texCoord2f 0.0 0.0
-            vertex2f (-w / 2) (-h / 2)
-            texCoord2f 1.0 0.0
-            vertex2f (w / 2) (-h / 2)
-            texCoord2f 1.0 1.0
-            vertex2f (w / 2) (h / 2)
-            texCoord2f 0.0 1.0
-            vertex2f (-w / 2) (h / 2)
+data QuadTransparency = QTNone
+                      | QTBlend Float
+                      | QTSrcAlpha
+
+drawQuad :: QuadPosition
+         -> Float
+         -> QuadColor
+         -> QuadTransparency
+         -> Maybe GL.TextureObject
+         -> IO ()
+drawQuad pos depth col trans tex = do
+    let pos' = case pos of QPCorners x1 y1 x2 y2 -> [ (x1, y1), (x2, y1), (x2, y2), (x1, y2) ]
+                           QPOriginSize x y w h  -> [ (x    , y    )
+                                                    , (x + w, y    )
+                                                    , (x + w, y + h)
+                                                    , (x    , y + h)
+                                                    ]
+        cols = case col of QCWhite                 -> replicate 4 (1, 1, 1, 1)
+                           QCSolid c               -> replicate 4 c
+                           QCBottomTopGradient b t -> b : b : t : t : []
+                           QCLeftRightGradient l r -> l : r : l : r : []
+        texs = [ (0, 0), (1, 0), (1, 1), (0, 1) ]
+    case trans of QTNone         -> GL.blend GL.$= GL.Disabled
+                  QTBlend weight -> do
+                      GL.blend      GL.$= GL.Enabled
+                      GL.blendFunc  GL.$= (GL.ConstantAlpha, GL.OneMinusConstantAlpha)
+                      GL.blendColor GL.$= (GL.Color4 0 0 0 (realToFrac weight :: GL.GLfloat))
+                  QTSrcAlpha     -> do
+                      GL.blend      GL.$= GL.Enabled
+                      GL.blendFunc  GL.$= (GL.SrcAlpha, GL.OneMinusSrcAlpha)
+    case tex of Just _  -> do
+                    GL.texture         GL.Texture2D      GL.$= GL.Enabled
+                    GL.textureBinding  GL.Texture2D      GL.$= tex
+                    GL.textureWrapMode GL.Texture2D GL.S GL.$= (GL.Repeated, GL.ClampToEdge)
+                    GL.textureWrapMode GL.Texture2D GL.T GL.$= (GL.Repeated, GL.ClampToEdge)
+                    -- TODO: Disable magnification filter if we're mapping pixels and texels
+                    --       1:1. Some GPUs introduce blurriness otherwise
+                    GL.textureFilter GL.Texture2D GL.$= ((GL.Linear', Just GL.Linear'), GL.Linear')
+                Nothing -> GL.texture GL.Texture2D GL.$= GL.Disabled
+    GL.matrixMode GL.$= GL.Modelview 0
+    GL.loadIdentity
+    GL.renderPrimitive GL.Quads . forM_ (zip3 pos' cols texs) $
+        \((x, y), (r, g, b, a), (u, v)) -> do
+            color4f r g b a
+            texCoord2f u v
+            vertex3f x y (-depth)
+
 
 draw :: AppDraw ()
 draw = do
@@ -141,14 +164,6 @@ draw = do
         case ce of
             Just tex -> liftIO $ do
                 {-
-                GL.blend      GL.$= GL.Enabled
-                GL.blendFunc  GL.$= (GL.ConstantAlpha, GL.OneMinusConstantAlpha)
-                GL.blendColor GL.$= (GL.Color4 0 0 0 0.5 :: GL.Color4 GL.GLfloat)
-                -}
-
-                GL.texture         GL.Texture2D GL.$= GL.Enabled
-                GL.textureBinding  GL.Texture2D GL.$= Just tex
-
                 (w, h) <- getCurTex2DSize
 
                 GL.textureWrapMode GL.Texture2D GL.S GL.$= (GL.Repeated, GL.ClampToEdge)
@@ -157,22 +172,22 @@ draw = do
                 then GL.textureFilter GL.Texture2D GL.$= ((GL.Linear', Just GL.Linear'), GL.Linear')
                 else GL.textureFilter GL.Texture2D GL.$= ((GL.Linear', Just GL.Linear'), GL.Nearest)
                 --GL.textureMaxAnisotropy GL.Texture2D GL.$= 8.0
+                -}
 
-                drawQuad
-                    (fromIntegral cx)
-                    (fromIntegral cy)
-                    (fromIntegral cw)
-                    (fromIntegral ch)
-                    (1, 1, 1)
+                drawQuad (QPOriginSize (fromIntegral cx) (fromIntegral cy)
+                                       (fromIntegral cw) (fromIntegral ch))
+                         10
+                         QCWhite
+                         QTNone
+                         (Just tex)
 
             _ -> liftIO $ do
-                     GL.texture GL.Texture2D GL.$= GL.Disabled
-                     drawQuad
-                         (fromIntegral cx)
-                         (fromIntegral cy)
-                         (fromIntegral cw)
-                         (fromIntegral ch)
-                         (1, 0, 1)
+                drawQuad (QPOriginSize (fromIntegral cx) (fromIntegral cy)
+                                       (fromIntegral cw) (fromIntegral ch))
+                         10
+                         (QCSolid (1, 0, 1, 1))
+                         QTNone
+                         Nothing
 
 -- Process all available events in both bounded and unbounded STM queues
 processAllEvents :: (MonadIO m) => Either (TQueue a) (TBQueue a) -> (a -> m ()) -> m ()
