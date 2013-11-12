@@ -89,6 +89,7 @@ withWindow w h title tq f =
              True <- GLFW.init 
              GLFW.windowHint $ GLFW.WindowHint'Resizable True
              -- GLFW.windowHint $ GLFW.WindowHint'Samples 4 -- 4x anti-aliasing
+             GLFW.windowHint $ GLFW.WindowHint'Decorated False
              Just window <- GLFW.createWindow w h title Nothing Nothing
              GLFW.setKeyCallback        window . Just $ keyCallback        tq
              GLFW.setWindowSizeCallback window . Just $ windowSizeCallback tq

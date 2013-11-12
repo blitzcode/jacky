@@ -162,12 +162,12 @@ draw = do
                  QTNone
                  Nothing
         drawQuad (QPOriginSize 0 0 w 16)
-                 1
+                 10
                  QCWhite
                  (QTBlend 0.5)
                  Nothing
         drawQuad (QPOriginSize 0 (h - 80) w h)
-                 1
+                 10
                  QCWhite
                  (QTBlend 0.5)
                  Nothing
@@ -193,7 +193,7 @@ draw = do
 
                 drawQuad (QPOriginSize (fromIntegral cx) (fromIntegral cy)
                                        (fromIntegral cw) (fromIntegral ch))
-                         10
+                         50
                          QCWhite
                          QTNone
                          (Just tex)
@@ -201,7 +201,7 @@ draw = do
             _ -> liftIO $ do
                 drawQuad (QPOriginSize (fromIntegral cx) (fromIntegral cy)
                                        (fromIntegral cw) (fromIntegral ch))
-                         10
+                         50
                          (QCSolid (1, 0, 1, 1))
                          QTNone
                          Nothing
@@ -382,7 +382,7 @@ run = do
         setup2DOpenGL w h
     -- Main loop
     let loop = do
-          time <- liftIO $ getCurTick
+          time <- liftIO $ getTick
           modify' $ \s -> s { stCurTick = time }
           traceStats
           -- Stream messages

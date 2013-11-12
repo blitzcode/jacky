@@ -1,21 +1,26 @@
 
-module Timing ( getCurTick
+module Timing ( getTick
               , timeIt
               ) where
 
 import Data.Time.Clock
 import Control.Applicative
 import Control.Monad.IO.Class
+import System.IO.Unsafe
 
 -- Timing functions for benchmarking
 
 -- TODO: Consider just using the criterion package for all if this
 --       http://hackage.haskell.org/package/criterion
 
+{-# NOINLINE startTime #-}
+startTime :: UTCTime
+startTime = unsafePerformIO getCurrentTime
+
 -- In seconds
-getCurTick :: IO Double
-getCurTick = do
-    realToFrac <$> utctDayTime <$> getCurrentTime -- TODO: This should wrap around at midnight...
+getTick :: IO Double
+getTick = do
+    realToFrac <$> (flip diffUTCTime startTime) <$> getCurrentTime
 
     -- TODO: Compare with GLFW timer
     --

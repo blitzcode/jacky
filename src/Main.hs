@@ -183,7 +183,7 @@ main = do
                 -- Start EKG server (disabled for now)
                 -- ekg <- forkServer "localhost" 8000
                 -- Setup reader and state for main RWS monad
-                stCurTick <- getCurTick
+                stCurTick <- getTick
                 let envInit = Env
                         { envLogNetworkFolder  = logNetworkFolder
                         , envLogNetworkMode    = logNetworkMode
