@@ -87,8 +87,9 @@ data State = State
 type AppDraw = RWST Env () State IO
 
 
-data QuadPosition = QPCorners    Float Float Float Float -- X1 Y2 X2 Y2
+data QuadPosition = QPCorners    Float Float Float Float -- X1 Y1 X2 Y2
                   | QPOriginSize Float Float Float Float -- X Y W H
+                  | QPCenterSize Float Float Float Float -- X Y W H
                   deriving (Show)
 
 type RGBA = (Float, Float, Float, Float)
@@ -115,6 +116,11 @@ drawQuad pos depth col trans tex = do
                                                     , (x + w, y    )
                                                     , (x + w, y + h)
                                                     , (x    , y + h)
+                                                    ]
+                           QPCenterSize x y w h  -> [ (x - w / 2, y - h / 2)
+                                                    , (x + w / 2, y - h / 2)
+                                                    , (x + w / 2, y + h / 2)
+                                                    , (x - w / 2, y + h / 2)
                                                     ]
         cols = case col of QCWhite                 -> replicate 4 (1, 1, 1, 1)
                            QCSolid c               -> replicate 4 c
