@@ -46,9 +46,6 @@ import FT2Interface
 
 -- Parse command line options and setup State / Env for main application code
 
--- TODO: Start using Lens library for records and Reader/State
--- TODO: Use labelThread for all threads
-
 setupOAuth :: (MonadError String m, MonadIO m) => FilePath -> m (OA.OAuth, OA.Credential)
 setupOAuth fn = do
     -- OAuth configuration file

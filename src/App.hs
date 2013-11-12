@@ -41,6 +41,25 @@ import GLHelpers
 
 -- Application logic and presentation running in AppDraw
 
+-- TODO: Start using Lens library for records and Reader/State
+
+-- TODO: Consider FRP library like netwire or reactive-banana for UI animations
+
+-- TODO: Use 'linear' package for OpenGL vector / matrix stuff
+
+-- TODO: Replace immediate mode drawing with a rendering manager, storing
+--       geometry in vertex buffers, batching up draw calls, sorting by texture
+--       and state change etc.
+
+-- TODO: Draw GUI quads with depth so drawing order can be changed without
+--       changing final result
+
+-- TODO: Add a title and status bar quad, background gradient
+
+-- TODO: Have list of UI hit boxes with associated mouse over / drag / click
+--       actions. Also store depth like for drawing quads to make occluded
+--       elements not steal events from foreground objects
+
 data LogNetworkMode = ModeNoLog | ModeLogNetwork | ModeReplayLog deriving (Eq, Enum, Show)
 
 data Env = Env

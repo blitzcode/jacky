@@ -49,6 +49,10 @@ import Trace
 -- TODO: Add support for retiring elements from the disk cache, consider not having the disk
 --       cache at all and only use it to speed up application startup / offline mode
 
+-- TODO: Now that all image data ends up in the texture cache, this is mostly a
+--       request queue and a staging area, with some record keeping for fetches
+--       / errors. Maybe we can simplify and speed up some things?
+
 data ImageCache = ImageCache
     { icCacheFolder    :: B.ByteString
     , icOutstandingReq :: TVar (LBM.Map B.ByteString ()) -- No 'v', used as a Set + LRU
