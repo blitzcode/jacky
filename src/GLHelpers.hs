@@ -20,8 +20,11 @@ import Control.Concurrent.STM
 import Control.Exception
 import Control.Applicative
 import Text.Printf
+import Data.Maybe
 
 -- Various utility functions related to OpenGL and GLFW
+
+-- TODO: Add high-DPI display support through getFramebufferSize
 
 setup2DOpenGL :: Int -> Int -> IO ()
 setup2DOpenGL w h = do
@@ -39,12 +42,14 @@ getCurTex2DSize = (\case (GL.TextureSize2D w h) -> (fromIntegral w, fromIntegral
 
 getGLStrings :: IO String
 getGLStrings =
-    printf "OpenGL - Vendor: %s · Renderer: %s · Version: %s · GLSL: %s · Num Extensions: %i"
-           <$> GL.get GL.vendor
-           <*> GL.get GL.renderer
-           <*> GL.get GL.glVersion
-           <*> GL.get GL.shadingLanguageVersion
-           <*> (length <$> GL.get GL.glExtensions)
+  printf
+    "OpenGL - Vendor: %s · Renderer: %s · Version: %s · GLSL: %s · Num Extensions: %i · GLFW: %s"
+    <$> GL.get GL.vendor
+    <*> GL.get GL.renderer
+    <*> GL.get GL.glVersion
+    <*> GL.get GL.shadingLanguageVersion
+    <*> (length <$> GL.get GL.glExtensions)
+    <*> (fromJust <$> GLFW.getVersionString)
 
 -- Immediate mode helpers
 
