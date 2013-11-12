@@ -51,8 +51,6 @@ import GLHelpers
 --       geometry in vertex buffers, batching up draw calls, sorting by texture
 --       and state change etc.
 
--- TODO: Add a title and status bar quad, background gradient
-
 -- TODO: Have list of UI hit boxes with associated mouse over / drag / click
 --       actions. Also store depth like for drawing quads to make occluded
 --       elements not steal events from foreground objects
@@ -151,9 +149,28 @@ drawQuad pos depth col trans tex = do
 
 draw :: AppDraw ()
 draw = do
+    window <- asks envWindow
+    (w, h) <- liftIO $ (\(w, h) -> (fromIntegral w, fromIntegral h)) <$> GLFW.getWindowSize window
+
     liftIO $ do
-        GL.clearColor GL.$= (GL.Color4 0.2 0.2 0.2 0.0 :: GL.Color4 GL.GLclampf)
+        GL.clearColor GL.$= (GL.Color4 0 0 0 0.0 :: GL.Color4 GL.GLclampf)
         GL.clear [GL.ColorBuffer, GL.DepthBuffer]
+        GL.depthFunc GL.$= Just GL.Lequal
+        drawQuad (QPOriginSize 0 0 w h)
+                 100
+                 (QCBottomTopGradient (0.2, 0.2, 0.2, 1) (0.4, 0.4, 1, 1))
+                 QTNone
+                 Nothing
+        drawQuad (QPOriginSize 0 0 w 16)
+                 1
+                 QCWhite
+                 (QTBlend 0.5)
+                 Nothing
+        drawQuad (QPOriginSize 0 (h - 80) w h)
+                 1
+                 QCWhite
+                 (QTBlend 0.5)
+                 Nothing
 
     tweets <- gets stTweetByID
     tiles  <- gets stUILayoutRects
