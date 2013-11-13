@@ -38,6 +38,7 @@ import ProcessStatus
 import qualified RectPacker as RP
 import qualified BoundedSequence as BS
 import GLHelpers
+import GLFWHelpers
 
 -- Application logic and presentation running in AppDraw
 

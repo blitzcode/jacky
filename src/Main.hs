@@ -32,6 +32,7 @@ import qualified Web.Authenticate.OAuth as OA
 
 import App
 import GLHelpers
+import GLFWHelpers
 import TwitterJSON
 import ImageCache
 import TextureCache
