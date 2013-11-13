@@ -240,16 +240,27 @@ processGLFWEvent ev =
            liftIO $ do
                traceS TLError $ "GLFW Error " ++ show e ++ " " ++ show s
                GLFW.setWindowShouldClose window True
-        GLFWEventKey window k _ ks _ ->
+        GLFWEventKey win k {- sc -} _ ks {- mk -} _ ->
            when (ks == GLFW.KeyState'Pressed) $ do
                when (k == GLFW.Key'Escape) $
-                   liftIO $ GLFW.setWindowShouldClose window True
-        GLFWEventWindowSize _ w h -> do
+                   liftIO $ GLFW.setWindowShouldClose win True
+        GLFWEventWindowSize {- win -} _ w h -> do
             -- TODO: Window resizing blocks event processing,
             --       see https://github.com/glfw/glfw/issues/1
             modify' $ \s -> s { stUILayoutRects = mkUILayoutRects w h }
             liftIO $ do setup2DOpenGL w h
                         traceS TLInfo $ printf "Window resized: %i x %i" w h
+        {-
+        GLFWEventFramebufferSize win w h -> do
+            return ()
+        GLFWEventMouseButton win bttn st mk -> do
+            return ()
+        GLFWEventCursorPos win x y -> do
+            return ()
+        GLFWEventScroll win x y -> do
+            return ()
+        -}
+        _ -> return ()
 
 highResProfileImgURL :: B.ByteString -> B.ByteString
 highResProfileImgURL url =
