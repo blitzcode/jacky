@@ -153,12 +153,11 @@ drawQuad pos depth col trans tex = do
             texCoord2f u v
             vertex3f x y (-depth)
 
-
 draw :: AppDraw ()
 draw = do
     window <- asks envWindow
-    (w, h) <- liftIO $ (\(w, h) -> (fromIntegral w, fromIntegral h)) <$> GLFW.getWindowSize window
-
+    (w, h) <- liftIO $ (\(w, h) -> (fromIntegral w, fromIntegral h))
+                    <$> GLFW.getFramebufferSize window
     liftIO $ do
         GL.clearColor GL.$= (GL.Color4 0 0 0 0.0 :: GL.Color4 GL.GLclampf)
         GL.clear [GL.ColorBuffer, GL.DepthBuffer]
@@ -248,12 +247,11 @@ processGLFWEvent ev =
         GLFWEventWindowSize {- win -} _ w h -> do
             -- TODO: Window resizing blocks event processing,
             --       see https://github.com/glfw/glfw/issues/1
+            liftIO $ traceS TLInfo $ printf "Window resized: %i x %i" w h
+        GLFWEventFramebufferSize {- win -} _ w h -> do
             modify' $ \s -> s { stUILayoutRects = mkUILayoutRects w h }
-            liftIO $ do setup2DOpenGL w h
-                        traceS TLInfo $ printf "Window resized: %i x %i" w h
+            liftIO $ setup2D w h
         {-
-        GLFWEventFramebufferSize win w h -> do
-            return ()
         GLFWEventMouseButton win bttn st mk -> do
             return ()
         GLFWEventCursorPos win x y -> do
@@ -396,9 +394,9 @@ run = do
     --       or maybe it's an issue with GLFW / Haskell OpenGL, not sure
     window <- asks envWindow
     liftIO $ do
-        (w, h) <- GLFW.getWindowSize window
+        (w, h) <- GLFW.getFramebufferSize window
         -- GLFW.swapInterval 1
-        setup2DOpenGL w h
+        setup2D w h
     -- Main loop
     let loop = do
           time <- liftIO $ getTick

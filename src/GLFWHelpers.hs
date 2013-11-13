@@ -3,6 +3,7 @@
 
 module GLFWHelpers ( withWindow
                    , GLFWEvent(..)
+                   , highDPIScaleFactor
                    ) where
 
 import Control.Exception
@@ -10,8 +11,6 @@ import Control.Concurrent.STM
 import qualified "GLFW-b" Graphics.UI.GLFW as GLFW -- Be explicit, we need the newer GLFW-b
 
 -- Various utility functions related to GLFW
-
--- TODO: Add high-DPI display support through getFramebufferSize
 
 withWindow :: Int -> Int -> String -> TQueue GLFWEvent -> (GLFW.Window -> IO ()) -> IO ()
 withWindow w h title tq f =
@@ -21,7 +20,7 @@ withWindow w h title tq f =
              True <- GLFW.init
              GLFW.windowHint $ GLFW.WindowHint'Resizable True
              -- GLFW.windowHint $ GLFW.WindowHint'Samples 4 -- 4x anti-aliasing
-             GLFW.windowHint $ GLFW.WindowHint'Decorated False
+             -- GLFW.windowHint $ GLFW.WindowHint'Decorated False
              Just window <- GLFW.createWindow w h title Nothing Nothing
              registerCallbacks window tq
              GLFW.makeContextCurrent $ Just window
@@ -32,6 +31,12 @@ withWindow w h title tq f =
                         GLFW.terminate
         )
         f
+
+highDPIScaleFactor :: GLFW.Window -> IO Double
+highDPIScaleFactor win = do
+    (scWdh, _) <- GLFW.getWindowSize      win
+    (pxWdh, _) <- GLFW.getFramebufferSize win
+    return $ fromIntegral pxWdh / fromIntegral scWdh
 
 -- Convert GLFW callbacks into events delivered to a queue
 
@@ -107,3 +112,4 @@ registerCallbacks window tq = do
     GLFW.setMouseButtonCallback     window . Just $ mouseButtonCallback     tq
     GLFW.setCursorPosCallback       window . Just $ cursorPosCallback       tq
     GLFW.setScrollCallback          window . Just $ scrollCallback          tq
+

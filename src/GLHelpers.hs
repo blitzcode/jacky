@@ -1,7 +1,7 @@
 
 {-# LANGUAGE PackageImports, LambdaCase #-}
 
-module GLHelpers ( setup2DOpenGL
+module GLHelpers ( setup2D
                  , getCurTex2DSize
                  , getGLStrings
                  , color3f
@@ -20,8 +20,8 @@ import Data.Maybe
 
 -- Various utility functions related to OpenGL
 
-setup2DOpenGL :: Int -> Int -> IO ()
-setup2DOpenGL w h = do
+setup2D :: Int -> Int -> IO ()
+setup2D w h = do
     GL.viewport   GL.$= (GL.Position 0 0, GL.Size (fromIntegral w) (fromIntegral h))
     GL.matrixMode GL.$= GL.Projection
     GL.loadIdentity
