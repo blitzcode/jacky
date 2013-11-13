@@ -57,6 +57,10 @@ parseStatus = do
     -- object with the Aeson parser from the stream connection
     --
     -- TODO: Use strict json' instead?
+    --
+    -- TODO: The performance we get is quite far away from the figures listed on
+    --       Aeson's cabal site, do some benchmarking and profiling
+    --
     j <- CA.sinkParser json
     -- The stream connections send individual objects we can decode into SMs,
     -- but the home timeline sends an array of such objects

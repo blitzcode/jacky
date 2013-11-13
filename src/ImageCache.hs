@@ -172,7 +172,7 @@ popRequestStack ic = do
               Just (uri, ()) ->
                   do -- Write the stack with the removed top item back
                      writeTVar (icOutstandingReq ic) requests'
-                     -- Check if the request us already in the cache
+                     -- Check if the request is already in the cache
                      cache <- readTVar $ icCacheEntries ic
                      case snd $ LBM.lookup uri cache of -- Discard LRU update
                          Nothing -> do
