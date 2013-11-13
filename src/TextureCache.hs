@@ -45,13 +45,13 @@ withTextureCache maxCacheEntries hic f = do
 
 -- Fetch an image from the texture cache, or forward the request to the image
 -- cache in case we don't have it
-fetchImage :: TextureCache -> B.ByteString -> IO (Maybe GL.TextureObject)
-fetchImage tc uri = do
+fetchImage :: TextureCache -> Double -> B.ByteString -> IO (Maybe GL.TextureObject)
+fetchImage tc tick uri = do
     cacheEntries <- readIORef $ tcCacheEntries tc
     case LBM.lookup uri cacheEntries of
         (newEntries, Just tex) -> writeIORef (tcCacheEntries tc) newEntries >> return (Just tex)
         (_,          Nothing ) -> do
-            hicFetch <- ImageCache.fetchImage (tcImageCache tc) uri
+            hicFetch <- ImageCache.fetchImage (tcImageCache tc) tick uri
             case hicFetch of
                 Just (Fetched (ImageRes w h img)) -> {-# SCC textureUpload #-} do
                     -- TODO: Some exception safety would be nice, but even if we

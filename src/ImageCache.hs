@@ -43,6 +43,7 @@ import Text.Printf
 
 import qualified LRUBoundedMap as LBM
 import Trace
+import Timing
 
 -- Caching system (disk & memory) for image fetches over HTTP and from disk
 
@@ -66,10 +67,15 @@ data ImageCache = ImageCache
 
 data CacheEntry = Fetching -- We keep in-progress entries in the cache to avoid double fetches
                 | Fetched !ImageRes
-                | CacheError  -- Failed to load / fetch / decode image
+                | CacheError -- Failed to load / fetch / decode image
+                      !Double -- Tick after which we're allowed to retry
+                      !Int    -- Number of retry attempt scheduled next
 
--- TODO: Add 'retryAfterNSec' field to CacheError to deal with failed fetches / decompression
---       while allowing to try again at some point
+instance Show CacheEntry where
+    show Fetching                            = "Fetching"
+    show (Fetched _)                         = "Fetched"
+    show (CacheError retryTick retryAttempt) =
+        "CacheError " ++ show retryTick ++ " " ++ show retryAttempt
 
 data ImageRes = ImageRes !Int !Int !(VS.Vector Word32)
 
@@ -156,7 +162,8 @@ toImageRes jp =
         else Right $ ImageRes w h convert
 
 -- Pop an uncached request of the request stack
-popRequestStack :: ImageCache -> IO B.ByteString
+popRequestStack :: ImageCache
+                -> IO (B.ByteString, Int) -- Return URI and the retry attempt number we're on
 popRequestStack ic = do
     let pop = atomically $ do
           requests <- readTVar $ icOutstandingReq ic
@@ -165,24 +172,28 @@ popRequestStack ic = do
               Just (uri, ()) ->
                   do -- Write the stack with the removed top item back
                      writeTVar (icOutstandingReq ic) requests'
-                     -- Make sure the request is not already in the cache / fetching
-                     --
-                     -- TODO: This should not be necessary, no duplicate requests in LRUBoundedMap,
-                     --       hence there should never be anything in the request queue that's in
-                     --       the cache
+                     -- Check if the request us already in the cache
                      cache <- readTVar $ icCacheEntries ic
-                     if   LBM.notMember uri cache
-                     then do -- New request, mark fetch status and return URI
+                     case snd $ LBM.lookup uri cache of -- Discard LRU update
+                         Nothing -> do
+                             -- New request, mark fetch status and return URI
                              writeTVar (icCacheEntries ic) .
                                  fst $ LBM.insertUnsafe uri Fetching cache
-                             return $ Just uri
-                     else return Nothing -- Already in cache, commit transaction here and return
-                                         -- Nothing so the outer loop can try again
-              Nothing  -> retry -- Empty request list, block till it makes sense to retry
+                             return $ Just (uri, 0) -- No retries
+                         Just (CacheError _ retryAttempt) -> do
+                             -- Marked as an error in the cache, update to fetching and
+                             -- return current retry attempt
+                             writeTVar (icCacheEntries ic) $ LBM.update uri Fetching cache
+                             return $ Just (uri, retryAttempt)
+                         Just entry -> -- TODO: Maybe just commit transaction and trace instead?
+                                       error $ "popRequestStack internal error: '"
+                                           ++ B8.unpack uri ++ "' in request queue, but already "
+                                           ++ "marked as '" ++ (show entry) ++ "' in cache"
+              Nothing        -> retry -- Empty request list, block till it makes sense to retry
     r <- pop
     case r of
         Nothing  -> popRequestStack ic -- Recurse till we get a URI or block on retry
-        Just uri -> return uri
+        Just res -> return res
 
 -- File or HTTP?
 uriIsHTTP :: B.ByteString -> Bool
@@ -206,15 +217,18 @@ fetchDiskCache ic manager uri cacheFn = do
                          incCacheMisses ic
                          -- TODO: Misses HTTP protocol overhead
                          incCacheBytesTransf ic . fromIntegral . BL.length . responseBody $ res
+                         -- TODO: Disk cache writes disabled for now
                          -- BL.writeFile cacheFn $ responseBody res
                      return $ responseBody res
-            else BL.readFile $ B8.unpack uri
+            else BL.readFile $ B8.unpack uri -- TODO: We should restrict fetches of disk files
+                                             --       to certain directories, might be a security
+                                             --       issue otherwise
         Right x -> incCacheDiskHits ic >> return x
 
-modifyCacheEntry :: ImageCache
-                 -> (LBM.Map B.ByteString CacheEntry -> LBM.Map B.ByteString CacheEntry)
-                 -> IO ()
-modifyCacheEntry ic f = atomically . modifyTVar' (icCacheEntries ic) $! f
+modifyCacheEntries :: ImageCache
+                   -> (LBM.Map B.ByteString CacheEntry -> LBM.Map B.ByteString CacheEntry)
+                   -> IO ()
+modifyCacheEntries ic f = atomically . modifyTVar' (icCacheEntries ic) $! f
 
 data DecodeException = DecodeException { deError   :: String
                                        , deURI     :: String
@@ -232,16 +246,24 @@ fetchThread ic manager unmask =
     -- recoverable or if we should stop the thread
     catches
       ( do
-        -- Once we pop a request from the stack we own it, either fill it with valid image data
-        -- or we'll mark it as a cache error
+        -- Once we pop a request from the stack we own it, either fill it with valid
+        -- image data or mark it as a cache error
         bracketOnError
             (popRequestStack ic)
-            (\uriUncached -> modifyCacheEntry ic $ LBM.update uriUncached CacheError)
-            (\uriUncached -> do
+            (\(uriUncached, retryAttempt) -> do
+                time <- (+ (retryDelay retryAttempt)) <$> getTick
+                modifyCacheEntries ic . LBM.update uriUncached $ CacheError time (retryAttempt + 1)
+            )
+            (\(uriUncached, retryAttempt) -> do
+                when (retryAttempt > 0) .
+                    traceS TLWarn $ printf
+                        "Now attempting retry no. %i of failed URI fetch after >=%.1fsec delay: %s"
+                        retryAttempt
+                        (retryDelay $ retryAttempt - 1)
+                        (B8.unpack uriUncached)
                 let cacheFn = B8.unpack $ mkURICacheFn ic uriUncached
                 imgBS <- fetchDiskCache ic manager uriUncached cacheFn
                 -- Decompress and convert
-                --                                                         
                 di <- {-# SCC decompressAndConvert #-}                     -- TODO: toStrict, nasty
                       case toImageRes =<< dynImgToRGBA8 =<< (JP.decodeImage $ BL.toStrict imgBS) of
                           Left  err -> throwIO $ DecodeException
@@ -252,34 +274,42 @@ fetchThread ic manager unmask =
                           Right x   -> return x
                 -- Update cache with image, make sure we actually decompress /
                 -- covert it here instead of just storing a thunk
-                di `seq` modifyCacheEntry ic $! LBM.update uriUncached (Fetched di)
+                di `seq` modifyCacheEntries ic $! LBM.update uriUncached (Fetched di)
             )
       )
       [ Handler $ \(ex :: IOException    ) -> reportEx ex
       , Handler $ \(ex :: HttpException  ) -> reportEx ex
       , Handler $ \(ex :: DecodeException) -> reportEx ex
       ]
-    where reportEx ex = traceS TLError $ "Image Cache Exception: " ++ show ex
+    where reportEx ex           = traceS TLError $ "Image Cache Exception: " ++ show ex
+          retryDelay retryAttempt = ([2, 10, 30, 60, 120] ++ repeat 600) !! retryAttempt :: Double
  
 -- Return the image at the given URI from the cache, or schedule fetching if not present
-fetchImage :: ImageCache -> B.ByteString -> IO (Maybe (CacheEntry))
-fetchImage ic uri = do
+fetchImage :: ImageCache -> Double -> B.ByteString -> IO (Maybe CacheEntry)
+fetchImage ic tick uri = do
     r <- atomically $ do
         cache <- readTVar (icCacheEntries ic)
         case LBM.lookup uri cache of
-            (_,      Nothing) -> do -- New image, add it on top of the fetch stack
-                                    modifyTVar' (icOutstandingReq ic) (fst . LBM.insert uri ())
-                                    return Nothing
-            (cache', e      ) -> do -- Write back cache with update LRU tick, return entry
-                                    writeTVar (icCacheEntries ic) cache'
-                                    return e
+            (_,      Nothing) -> addRequest >> return Nothing -- New image, add request
+            (cache', e@(Just (CacheError retryTick _))) -> do
+                when (tick > retryTick)
+                    -- Time to retry this failed fetch, add to fetch queue. Note that we don't
+                    -- remove the error from the cache, we want to keep the retry count around
+                    addRequest
+                writeTVar (icCacheEntries ic) cache' -- Update LRU
+                return e
+            (cache', e) -> -- Hit, just update LRU
+                           writeTVar (icCacheEntries ic) cache' >> return e
     case r of
         Just _  -> incCacheMemHits ic
         Nothing -> return ()
     return r
+  where addRequest = -- TODO: LBM.insert will not update the time stamp (or modify the map at
+                     --       all) if the request is already present
+                     modifyTVar' (icOutstandingReq ic) (fst . LBM.insert uri ())
 
 deleteImage :: ImageCache -> B.ByteString -> IO ()
-deleteImage ic uri = modifyCacheEntry ic $ LBM.delete uri
+deleteImage ic uri = modifyCacheEntries ic $ LBM.delete uri
 
 -- Cache statistics
 
@@ -304,7 +334,7 @@ gatherCacheStats ic = do
          (\(_, (_, v)) (fetching', fetched', cacheErr', mem') -> case v of
              Fetching                 -> (fetching' + 1, fetched', cacheErr', mem')
              Fetched (ImageRes w h _) -> (fetching', fetched' + 1, cacheErr', mem' + w * h * 4)
-             CacheError               -> (fetching', fetched', cacheErr' + 1, mem')
+             CacheError _ _           -> (fetching', fetched', cacheErr' + 1, mem')
          )
          ((0, 0, 0, 0) :: (Word64, Word64, Word64, Int))
          (M.toList . fst . LBM.view $ entries)

@@ -180,10 +180,11 @@ draw = do
 
     tweets <- gets stTweetByID
     tiles  <- gets stUILayoutRects
+    tick   <- gets stCurTick
     tc     <- asks envTextureCache
 
     forM_ (zip tiles (M.toDescList tweets)) $ \((cx, cy, cw, ch), (_, tw)) -> do
-        ce <- liftIO $ TextureCache.fetchImage tc (usrProfileImageURL . twUser $ tw)
+        ce <- liftIO $ TextureCache.fetchImage tc tick (usrProfileImageURL . twUser $ tw)
         case ce of
             Just tex -> liftIO $ do
                 {-
