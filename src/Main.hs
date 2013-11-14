@@ -38,7 +38,7 @@ import ImageCache
 import TextureCache
 import CfgFile
 import Trace
-import Util
+import ParseMaybe
 import ProcessStatus
 import CmdLineOptDefinitions
 import qualified BoundedSequence as BS

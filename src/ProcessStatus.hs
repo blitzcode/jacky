@@ -24,8 +24,9 @@ import Text.Printf
 import System.IO
 
 import TwitterJSON
-import Util
 import Trace
+import ParseMaybe
+import StateModify
 
 -- Pick up Twitter status updates and related messages from a file or an HTTP connection
 -- and return the results as data structures from TwitterJSON
@@ -125,7 +126,7 @@ processStatuses uri oaClient oaCredential manager logFn appendLog smQueue retryA
                                             ("Accept-Encoding", "deflate, gzip")
                                             -- Need a User-Agent field as well to get a
                                             -- gzip'ed stream from Twitter
-                                          : ("User-Agent", "http-conduit")
+                                          : ("User-Agent", "jacky/http-conduit")
                                           : requestHeaders req'
                                     }
                      reqSigned <- OA.signOAuth oaClient oaCredential req

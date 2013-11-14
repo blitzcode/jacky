@@ -29,7 +29,6 @@ import qualified "GLFW-b" Graphics.UI.GLFW as GLFW
 import qualified Web.Authenticate.OAuth as OA
 
 import Trace
-import Util
 import Timing
 import TwitterJSON
 import ImageCache
@@ -39,6 +38,7 @@ import qualified RectPacker as RP
 import qualified BoundedSequence as BS
 import GLHelpers
 import GLFWHelpers
+import StateModify
 
 -- Application logic and presentation running in AppDraw
 
@@ -136,7 +136,7 @@ drawQuad pos depth col trans tex = do
                   QTSrcAlpha     -> do
                       GL.blend      GL.$= GL.Enabled
                       GL.blendFunc  GL.$= (GL.SrcAlpha, GL.OneMinusSrcAlpha)
-    case tex of Just _  -> do
+    case tex of Just _ -> do
                     GL.texture         GL.Texture2D      GL.$= GL.Enabled
                     GL.textureBinding  GL.Texture2D      GL.$= tex
                     GL.textureWrapMode GL.Texture2D GL.S GL.$= (GL.Repeated, GL.ClampToEdge)
