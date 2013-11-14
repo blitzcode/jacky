@@ -204,7 +204,7 @@ main = do
                         }
                     stateInit = State
                         { stTweetByID          = M.empty
-                        , stUILayoutRects      = mkUILayoutRects wndWdh wndHgt 
+                        , stUILayoutRects      = []
                         , stFrameTimes         = -- FPS History for the stat trace interval
                                                  BS.empty
                                                      (round $ 60 * envStatTraceInterval envInit)

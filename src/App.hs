@@ -39,6 +39,7 @@ import qualified BoundedSequence as BS
 import GLHelpers
 import GLFWHelpers
 import StateModify
+import UI
 
 -- Application logic and presentation running in AppDraw
 
@@ -64,11 +65,13 @@ data Env = Env
     , envSMQueue           :: TBQueue StreamMessage
     , envImageCache        :: ImageCache
     , envTextureCache      :: TextureCache
+    -- TODO: All of the following seem like we don't really need them in the Reader
     , envLogNetworkFolder  :: String
     , envLogNetworkMode    :: LogNetworkMode
     , envOAClient          :: OA.OAuth
     , envOACredential      :: OA.Credential
     , envManager           :: Manager
+    --
     , envTweetHistSize     :: Int
     , envStatTraceInterval :: Double
     }
@@ -87,7 +90,7 @@ data State = State
 
 type AppDraw = RWST Env () State IO
 
-
+{-
 data QuadPosition = QPCorners    Float Float Float Float -- X1 Y1 X2 Y2
                   | QPOriginSize Float Float Float Float -- X Y W H
                   | QPCenterSize Float Float Float Float -- X Y W H
@@ -152,16 +155,16 @@ drawQuad pos depth col trans tex = do
             color4f r g b a
             texCoord2f u v
             vertex3f x y (-depth)
+-}
 
 draw :: AppDraw ()
 draw = do
     window <- asks envWindow
-    (w, h) <- liftIO $ (\(w, h) -> (fromIntegral w, fromIntegral h))
-                    <$> GLFW.getFramebufferSize window
     liftIO $ do
         GL.clearColor GL.$= (GL.Color4 0 0 0 0.0 :: GL.Color4 GL.GLclampf)
         GL.clear [GL.ColorBuffer, GL.DepthBuffer]
         GL.depthFunc GL.$= Just GL.Lequal
+        {-
         drawQuad (QPOriginSize 0 0 w h)
                  100
                  (QCBottomTopGradient (0.2, 0.2, 0.2, 1) (0.4, 0.4, 1, 1))
@@ -177,16 +180,43 @@ draw = do
                  QCWhite
                  (QTBlend 0.5)
                  Nothing
+        -}
 
-    tweets <- gets stTweetByID
-    tiles  <- gets stUILayoutRects
-    tick   <- gets stCurTick
-    tc     <- asks envTextureCache
 
+    rc <- liftIO $ rectFromWndFB window
+    void $ runUI rc 1000 $ do
+        fill (FCBottomTopGradient (0.2, 0.2, 0.2, 1) (0.4, 0.4, 1, 1))
+             FTNone
+             Nothing
+        layer $
+            split SBottom 16
+                ( fill FCWhite (FTBlend 0.5) Nothing
+                )
+                ( split STop 100
+                      ( fill FCWhite (FTBlend 0.5) Nothing
+                      )
+                      ( drawAvatarTiles
+                        -- fill (FCLeftRightGradient (1, 0, 0, 1) (0, 1, 0, 1)) FTNone Nothing
+                      )
+                )
+
+drawAvatarTiles :: UIT AppDraw ()
+drawAvatarTiles = do
+
+    -- TODO: ...
+    --tiles' <- lift $ gets stUILayoutRects
+    dim    <- (\(w, h) -> (round w, round h)) <$> dimensions
+    --when (RP.dimensions tiles' /= dim) $
+    lift $ modify' $ \s -> s { stUILayoutRects = uncurry mkUILayoutRects $ dim }
+
+    tweets <- lift $ gets stTweetByID
+    tiles  <- lift $ gets stUILayoutRects
+    tick   <- lift $ gets stCurTick
+    tc     <- lift $ asks envTextureCache
     forM_ (zip tiles (M.toDescList tweets)) $ \((cx, cy, cw, ch), (_, tw)) -> do
         ce <- liftIO $ TextureCache.fetchImage tc tick (usrProfileImageURL . twUser $ tw)
         case ce of
-            Just tex -> liftIO $ do
+            Just tex -> do
                 {-
                 (w, h) <- getCurTex2DSize
 
@@ -198,20 +228,32 @@ draw = do
                 --GL.textureMaxAnisotropy GL.Texture2D GL.$= 8.0
                 -}
 
+                {-
                 drawQuad (QPOriginSize (fromIntegral cx) (fromIntegral cy)
                                        (fromIntegral cw) (fromIntegral ch))
                          50
                          QCWhite
                          QTNone
                          (Just tex)
+                -}
+                frame (rectFromXYWH (fromIntegral cx) (fromIntegral cy)
+                                    (fromIntegral cw) (fromIntegral ch)
+                      ) $ fill FCWhite FTNone (Just tex)
 
-            _ -> liftIO $ do
+            _ -> do
+                frame (rectFromXYWH (fromIntegral cx) (fromIntegral cy)
+                                    (fromIntegral cw) (fromIntegral ch)
+                      ) $ fill (FCSolid (1, 0, 1, 1)) FTNone Nothing
+                {-
                 drawQuad (QPOriginSize (fromIntegral cx) (fromIntegral cy)
                                        (fromIntegral cw) (fromIntegral ch))
                          50
                          (QCSolid (1, 0, 1, 1))
                          QTNone
                          Nothing
+                      )
+                -}
+
 
 -- Process all available events in both bounded and unbounded STM queues
 processAllEvents :: (MonadIO m) => Either (TQueue a) (TBQueue a) -> (a -> m ()) -> m ()
@@ -222,11 +264,11 @@ processAllEvents tq processEvent = do
         Just e -> processEvent e >> processAllEvents tq processEvent
         _      -> return ()
 
--- Compute new layout of content rectangles for a given window size
+-- Compute new layout of content rectangles for a given framebuffer size
 mkUILayoutRects :: Int -> Int -> [(Int, Int, Int, Int)]
-mkUILayoutRects wndWdh wndHgt =
-    map (\(x, y, w, h) -> (x, wndHgt - y - h {- Flip -}, w, h))
-        $ RP.packRectangles wndWdh wndHgt 1
+mkUILayoutRects fbWdh fbHgt =
+    map (\(x, y, w, h) -> (x, fbHgt - y - h {- Flip -}, w, h))
+        $ RP.packRectangles fbWdh fbHgt 1
         $    replicate 8   (127, 127)
           ++ replicate 32  (63,  63 )
           ++ replicate 256 (31,  31 )
@@ -249,7 +291,6 @@ processGLFWEvent ev =
             --       see https://github.com/glfw/glfw/issues/1
             liftIO $ traceS TLInfo $ printf "Window resized: %i x %i" w h
         GLFWEventFramebufferSize {- win -} _ w h -> do
-            modify' $ \s -> s { stUILayoutRects = mkUILayoutRects w h }
             liftIO $ setup2D w h
         {-
         GLFWEventMouseButton win bttn st mk -> do

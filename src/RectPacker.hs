@@ -3,6 +3,7 @@ module RectPacker ( empty
                   , pack
                   , packRectangles
                   , RectPacker
+                  , dimensions
                   ) where
 
 import Data.Maybe
@@ -20,6 +21,9 @@ data KDTree = Split                !Bool
             | Used
             | Empty
               deriving (Show)
+
+dimensions :: RectPacker -> (Int, Int)
+dimensions (RectPacker _ w h) = (w, h)
 
 empty :: Int -> Int -> RectPacker
 empty w h = RectPacker Empty w h

@@ -92,8 +92,8 @@ withImageCache :: Manager
 withImageCache manager memCacheEntryLimit numConcReq cacheFolder f = do
     -- Make sure our cache folder exists
     createDirectoryIfMissing True cacheFolder
-    -- Build record 
-    ic <- do 
+    -- Build record
+    ic <- do
         icOutstandingReq <- newTVarIO $ LBM.empty $ memCacheEntryLimit `div` 2
         icCacheEntries   <- newTVarIO $ LBM.empty memCacheEntryLimit
         [icBytesTrans, icMisses, icDiskHits, icMemHits]
@@ -158,7 +158,7 @@ toImageRes jp =
                                  (pixToWord32 $ JP.pixelAt jp x y)
             return v
     in  if   w > 512 || h > 512 -- TODO: Hardcoded / arbitrary
-        then Left "Image to large, won't convert"
+        then Left  $ printf "Image to large (%ix%i), won't convert" w h
         else Right $ ImageRes w h convert
 
 -- Pop an uncached request of the request stack
