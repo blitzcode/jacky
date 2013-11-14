@@ -36,7 +36,7 @@ defLogFolder = "./log/"
 defImageCacheFolder = "http_img_cache"
 defTraceFn = "./trace.log"
 defConcImgFetches :: Int
-defConcImgFetches = 50
+defConcImgFetches = 20
 defConKeepAlive :: Int
 defConKeepAlive = 10
 defConTimeout :: Int
