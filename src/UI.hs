@@ -119,23 +119,13 @@ frame inner f = do
     frameAbsolute (rectOffset inner outer) f
 
 frameAbsolute :: Monad m => Rectangle -> UIT m a -> UIT m a
-frameAbsolute rc f = do
-    old <- get
-    put $ old { uisRect = rc }
-    r <- f
-    put old
-    return r
+frameAbsolute rc = withDiscardStateT (\s -> s { uisRect = rc })
 
 -- TODO: Make better use of the depth range. Have a system where user can
 --       specify different priorities of 'front' layers, and all the children of
 --       a given layer can be guaranteed to never exceed a given depth
 layer :: Monad m => UIT m a -> UIT m a
-layer f = do
-    old <- get
-    modify' $ \s -> s { uisDepth = uisDepth s - 1 }
-    r <- f
-    put old
-    return r
+layer = withDiscardStateT (\s -> s { uisDepth = uisDepth s - 1 })
 
 -- TODO: Implement a few more combinators
 --
