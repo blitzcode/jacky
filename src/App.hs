@@ -45,17 +45,8 @@ import UI
 
 -- TODO: Start using Lens library for records and Reader/State
 
--- TODO: Consider FRP library like netwire or reactive-banana for UI animations
-
--- TODO: Use 'linear' package for OpenGL vector / matrix stuff
-
--- TODO: Replace immediate mode drawing with a rendering manager, storing
---       geometry in vertex buffers, batching up draw calls, sorting by texture
---       and state change etc.
-
--- TODO: Have list of UI hit boxes with associated mouse over / drag / click
---       actions. Also store depth like for drawing quads to make occluded
---       elements not steal events from foreground objects
+-- TODO: Use criterion package to benchmark, maybe show real-time results
+--       through EKG
 
 data LogNetworkMode = ModeNoLog | ModeLogNetwork | ModeReplayLog deriving (Eq, Enum, Show)
 
@@ -65,7 +56,8 @@ data Env = Env
     , envSMQueue           :: TBQueue StreamMessage
     , envImageCache        :: ImageCache
     , envTextureCache      :: TextureCache
-    -- TODO: All of the following seem like we don't really need them in the Reader
+    -- TODO: All of the following seem like we don't really need them in the Reader,
+    --       it's just for withProcessStatusesAsync
     , envLogNetworkFolder  :: String
     , envLogNetworkMode    :: LogNetworkMode
     , envOAClient          :: OA.OAuth
@@ -90,73 +82,6 @@ data State = State
 
 type AppDraw = RWST Env () State IO
 
-{-
-data QuadPosition = QPCorners    Float Float Float Float -- X1 Y1 X2 Y2
-                  | QPOriginSize Float Float Float Float -- X Y W H
-                  | QPCenterSize Float Float Float Float -- X Y W H
-                  deriving (Show)
-
-type RGBA = (Float, Float, Float, Float)
-
-data QuadColor = QCWhite
-               | QCSolid RGBA
-               | QCBottomTopGradient RGBA RGBA
-               | QCLeftRightGradient RGBA RGBA
-               deriving (Show)
-
-data QuadTransparency = QTNone
-                      | QTBlend Float
-                      | QTSrcAlpha
-
-drawQuad :: QuadPosition
-         -> Float
-         -> QuadColor
-         -> QuadTransparency
-         -> Maybe GL.TextureObject
-         -> IO ()
-drawQuad pos depth col trans tex = do
-    let pos' = case pos of QPCorners x1 y1 x2 y2 -> [ (x1, y1), (x2, y1), (x2, y2), (x1, y2) ]
-                           QPOriginSize x y w h  -> [ (x    , y    )
-                                                    , (x + w, y    )
-                                                    , (x + w, y + h)
-                                                    , (x    , y + h)
-                                                    ]
-                           QPCenterSize x y w h  -> [ (x - w / 2, y - h / 2)
-                                                    , (x + w / 2, y - h / 2)
-                                                    , (x + w / 2, y + h / 2)
-                                                    , (x - w / 2, y + h / 2)
-                                                    ]
-        cols = case col of QCWhite                 -> replicate 4 (1, 1, 1, 1)
-                           QCSolid c               -> replicate 4 c
-                           QCBottomTopGradient b t -> b : b : t : t : []
-                           QCLeftRightGradient l r -> l : r : l : r : []
-        texs = [ (0, 0), (1, 0), (1, 1), (0, 1) ]
-    case trans of QTNone         -> GL.blend GL.$= GL.Disabled
-                  QTBlend weight -> do
-                      GL.blend      GL.$= GL.Enabled
-                      GL.blendFunc  GL.$= (GL.ConstantAlpha, GL.OneMinusConstantAlpha)
-                      GL.blendColor GL.$= (GL.Color4 0 0 0 (realToFrac weight :: GL.GLfloat))
-                  QTSrcAlpha     -> do
-                      GL.blend      GL.$= GL.Enabled
-                      GL.blendFunc  GL.$= (GL.SrcAlpha, GL.OneMinusSrcAlpha)
-    case tex of Just _ -> do
-                    GL.texture         GL.Texture2D      GL.$= GL.Enabled
-                    GL.textureBinding  GL.Texture2D      GL.$= tex
-                    GL.textureWrapMode GL.Texture2D GL.S GL.$= (GL.Repeated, GL.ClampToEdge)
-                    GL.textureWrapMode GL.Texture2D GL.T GL.$= (GL.Repeated, GL.ClampToEdge)
-                    -- TODO: Disable magnification filter if we're mapping pixels and texels
-                    --       1:1. Some GPUs introduce blurriness otherwise
-                    GL.textureFilter GL.Texture2D GL.$= ((GL.Linear', Just GL.Linear'), GL.Linear')
-                Nothing -> GL.texture GL.Texture2D GL.$= GL.Disabled
-    GL.matrixMode GL.$= GL.Modelview 0
-    GL.loadIdentity
-    GL.renderPrimitive GL.Quads . forM_ (zip3 pos' cols texs) $
-        \((x, y), (r, g, b, a), (u, v)) -> do
-            color4f r g b a
-            texCoord2f u v
-            vertex3f x y (-depth)
--}
-
 draw :: AppDraw ()
 draw = do
     window <- asks envWindow
@@ -164,24 +89,6 @@ draw = do
         GL.clearColor GL.$= (GL.Color4 0 0 0 0.0 :: GL.Color4 GL.GLclampf)
         GL.clear [GL.ColorBuffer, GL.DepthBuffer]
         GL.depthFunc GL.$= Just GL.Lequal
-        {-
-        drawQuad (QPOriginSize 0 0 w h)
-                 100
-                 (QCBottomTopGradient (0.2, 0.2, 0.2, 1) (0.4, 0.4, 1, 1))
-                 QTNone
-                 Nothing
-        drawQuad (QPOriginSize 0 0 w 16)
-                 10
-                 QCWhite
-                 (QTBlend 0.5)
-                 Nothing
-        drawQuad (QPOriginSize 0 (h - 80) w h)
-                 10
-                 QCWhite
-                 (QTBlend 0.5)
-                 Nothing
-        -}
-
 
     rc <- liftIO $ rectFromWndFB window
     void $ runUI rc 1000 $ do
@@ -202,12 +109,11 @@ draw = do
 
 drawAvatarTiles :: UIT AppDraw ()
 drawAvatarTiles = do
-
     -- TODO: ...
-    --tiles' <- lift $ gets stUILayoutRects
+    tiles' <- lift $ gets stUILayoutRects
     dim    <- (\(w, h) -> (round w, round h)) <$> dimensions
-    --when (RP.dimensions tiles' /= dim) $
-    lift $ modify' $ \s -> s { stUILayoutRects = uncurry mkUILayoutRects $ dim }
+    when (null tiles') $
+        lift $ modify' $ \s -> s { stUILayoutRects = uncurry mkUILayoutRects $ dim }
 
     tweets <- lift $ gets stTweetByID
     tiles  <- lift $ gets stUILayoutRects
@@ -227,15 +133,6 @@ drawAvatarTiles = do
                 else GL.textureFilter GL.Texture2D GL.$= ((GL.Linear', Just GL.Linear'), GL.Nearest)
                 --GL.textureMaxAnisotropy GL.Texture2D GL.$= 8.0
                 -}
-
-                {-
-                drawQuad (QPOriginSize (fromIntegral cx) (fromIntegral cy)
-                                       (fromIntegral cw) (fromIntegral ch))
-                         50
-                         QCWhite
-                         QTNone
-                         (Just tex)
-                -}
                 frame (rectFromXYWH (fromIntegral cx) (fromIntegral cy)
                                     (fromIntegral cw) (fromIntegral ch)
                       ) $ fill FCWhite FTNone (Just tex)
@@ -244,16 +141,6 @@ drawAvatarTiles = do
                 frame (rectFromXYWH (fromIntegral cx) (fromIntegral cy)
                                     (fromIntegral cw) (fromIntegral ch)
                       ) $ fill (FCSolid (1, 0, 1, 1)) FTNone Nothing
-                {-
-                drawQuad (QPOriginSize (fromIntegral cx) (fromIntegral cy)
-                                       (fromIntegral cw) (fromIntegral ch))
-                         50
-                         (QCSolid (1, 0, 1, 1))
-                         QTNone
-                         Nothing
-                      )
-                -}
-
 
 -- Process all available events in both bounded and unbounded STM queues
 processAllEvents :: (MonadIO m) => Either (TQueue a) (TBQueue a) -> (a -> m ()) -> m ()
@@ -272,7 +159,7 @@ mkUILayoutRects fbWdh fbHgt =
         $    replicate 8   (127, 127)
           ++ replicate 32  (63,  63 )
           ++ replicate 256 (31,  31 )
-          ++ replicate 512 (15,  15 )
+          ++ replicate 591 (15,  15 )
 
 processGLFWEvent :: GLFWEvent -> AppDraw ()
 processGLFWEvent ev =
@@ -431,8 +318,8 @@ run :: AppDraw ()
 run = do
     -- Setup OpenGL / GLFW
     --
-    -- TODO: glSwapInterval and glFinish just don't seem to work properly on OS X,
-    --       or maybe it's an issue with GLFW / Haskell OpenGL, not sure
+    -- TODO: glSwapInterval and glFlush/Finish just don't seem to work properly
+    --       on OS X. Maybe it's an issue with GLFW / Haskell OpenGL, not sure
     window <- asks envWindow
     liftIO $ do
         (w, h) <- GLFW.getFramebufferSize window

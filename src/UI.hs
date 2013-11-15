@@ -21,7 +21,7 @@ module UI ( UIState
 
 import Control.Monad
 import Control.Applicative
-import Control.Monad.Trans.State.Strict
+import Control.Monad.Trans.State.Lazy -- TODO: Use Strict/Lazy/mtl/transformers?
 import Control.Monad.IO.Class
 import qualified Graphics.Rendering.OpenGL as GL
 import qualified "GLFW-b" Graphics.UI.GLFW as GLFW
@@ -31,6 +31,20 @@ import GLHelpers
 import StateModify
 
 -- Drawing, layout and event handling for the user interface
+
+-- TODO: Consider FRP library like netwire or reactive-banana for UI animations
+
+-- TODO: Use 'linear' package for OpenGL vector / matrix stuff
+
+-- TODO: Replace immediate mode drawing with a rendering manager, storing
+--       geometry in vertex buffers, batching up draw calls, sorting by texture
+--       and state change etc.
+
+-- TODO: We have a lot of overhead by running inside of a StateT on top of a
+--       RWST from App. Also see here:
+--
+--       http://www.haskell.org/haskellwiki/Performance/Monads
+--       http://www.haskell.org/pipermail/haskell-cafe/2011-September/095622.html
 
 -- TODO: Think about having XYWH vs X1Y1X2Y2 and where to use relative vs
 --       absolute coordinates. Probably need to have more of the code in
@@ -42,6 +56,16 @@ data Rectangle = Rectangle { rcX1 :: Float
                            , rcY2 :: Float
                            } deriving (Show)
 
+{-
+newtype ARectangle = ARectangle { fromARect :: Rectangle }
+newtype RRectangle = RRectangle { fromRRect :: Rectangle }
+stuff1 :: ARectangle
+stuff1 = ARectangle $ Rectangle 1 2 3 4
+stuff2 :: RRectangle
+stuff2 = RRectangle $ Rectangle 1 2 3 4
+-}
+
+-- TODO: Record hit boxes and event handlers registered during runUI
 data UIState = UIState { uisRect  :: Rectangle
                        , uisDepth :: Float
                        }
@@ -72,10 +96,10 @@ splitRect side pos rc =
             , Rectangle  x1         (y1 + pos')  x2          y2
             )
     in  case side of
-            SLeft   ->         splitV            pos
-            SRight  ->  swap $ splitV (x2 - x1 - pos)
-            SBottom ->         splitH            pos
-            STop    ->  swap $ splitH (y2 - y1 - pos)
+            SLeft   ->        splitV            pos
+            SRight  -> swap $ splitV (x2 - x1 - pos)
+            SBottom ->        splitH            pos
+            STop    -> swap $ splitH (y2 - y1 - pos)
 
 split :: (Applicative m, Monad m) => Side -> Float -> UIT m () -> UIT m () -> UIT m ()
 split side pos near far = do
@@ -102,6 +126,9 @@ frameAbsolute rc f = do
     put old
     return r
 
+-- TODO: Make better use of the depth range. Have a system where user can
+--       specify different priorities of 'front' layers, and all the children of
+--       a given layer can be guaranteed to never exceed a given depth
 layer :: Monad m => UIT m a -> UIT m a
 layer f = do
     old <- get
@@ -109,6 +136,12 @@ layer f = do
     r <- f
     put old
     return r
+
+-- TODO: Implement a few more combinators
+--
+--       center
+--       layout (using RectPacker)
+--       clip (two types, one clipping the rectangle, the other using glScissor)
 
 dimensions :: Monad m => UIT m (Float, Float)
 dimensions = do
@@ -144,6 +177,7 @@ fill col trans tex = do
     depth <- gets uisDepth
     liftIO $ fillDraw rc depth col trans tex
 
+-- TODO: Avoid redundant state changes in this function
 fillDraw :: Rectangle
          -> Float
          -> FillColor
@@ -167,6 +201,9 @@ fillDraw rc depth col trans tex = do
                       GL.blend      GL.$= GL.Enabled
                       GL.blendFunc  GL.$= (GL.SrcAlpha, GL.OneMinusSrcAlpha)
     case tex of Just _ -> do
+                    -- TODO: Measure speedup from avoiding texture changes, then consider
+                    --       packing textures. Will probably need to do that for text
+                    --       rendering anyway
                     GL.texture         GL.Texture2D      GL.$= GL.Enabled
                     GL.textureBinding  GL.Texture2D      GL.$= tex
                     GL.textureWrapMode GL.Texture2D GL.S GL.$= (GL.Repeated, GL.ClampToEdge)
@@ -182,4 +219,14 @@ fillDraw rc depth col trans tex = do
             color4f r g b a
             texCoord2f u v
             vertex3f x y (-depth)
+
+--{-# INLINE fill #-}
+--{-# INLINE frame #-}
+--{-# INLINE frameAbsolute #-}
+--{-# INLINE fillDraw #-}
+--{-# INLINE rectOffset #-}
+--{-# INLINE layer #-}
+--{-# INLINE runUI #-}
+--{-# INLINE split #-}
+--{-# INLINE splitRect #-}
 

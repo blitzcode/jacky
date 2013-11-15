@@ -48,11 +48,14 @@ withTextureCache maxCacheEntries hic f = do
 fetchImage :: TextureCache -> Double -> B.ByteString -> IO (Maybe GL.TextureObject)
 fetchImage tc tick uri = do
     cacheEntries <- readIORef $ tcCacheEntries tc
+    -- TODO: The overhead for updating LRU ticks on every lookup is quite severe
     case LBM.lookup uri cacheEntries of
         (newEntries, Just tex) -> writeIORef (tcCacheEntries tc) newEntries >> return (Just tex)
         (_,          Nothing ) -> do
             hicFetch <- ImageCache.fetchImage (tcImageCache tc) tick uri
             case hicFetch of
+                -- TODO: Might need to limit amount of texture uploads per-frame. We could
+                --       simply return Nothing after a certain amount of ms or MB
                 Just (Fetched (ImageRes w h img)) -> {-# SCC textureUpload #-} do
                     -- TODO: Some exception safety would be nice, but even if we
                     --       wrap this into a bracketOnError there would still
@@ -64,6 +67,8 @@ fetchImage tc tick uri = do
                     VS.unsafeWith img $ \ptr -> do
                         -- TODO: This assumes NPOT / non-square texture support in
                         --       combination with auto generated MIP-maps
+                        --
+                        -- TODO: Make upload asynchronous using PBOs
                         GL.texImage2D
                             Nothing
                             GL.NoProxy

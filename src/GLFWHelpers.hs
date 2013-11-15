@@ -20,8 +20,10 @@ withWindow w h title tq f =
              True <- GLFW.init
              GLFW.windowHint $ GLFW.WindowHint'Resizable True
              -- GLFW.windowHint $ GLFW.WindowHint'Samples 4 -- 4x anti-aliasing
-             -- GLFW.windowHint $ GLFW.WindowHint'Decorated False
+             GLFW.windowHint $ GLFW.WindowHint'Decorated False
              Just window <- GLFW.createWindow w h title Nothing Nothing
+             (x, _) <- GLFW.getWindowPos window
+             GLFW.setWindowPos window x 0
              registerCallbacks window tq
              GLFW.makeContextCurrent $ Just window
              -- traceS TLInfo =<< (show <$> GL.get GL.glExtensions)

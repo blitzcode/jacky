@@ -176,8 +176,8 @@ main = do
             -- Event queues filled by GLFW callbacks, stream messages
             envGLFWEventsQueue <- newTQueueIO       :: IO (TQueue  GLFWEvent)
             envSMQueue         <- newTBQueueIO 1024 :: IO (TBQueue StreamMessage)
-            let wndWdh = 1104
-                wndHgt = 640
+            let wndWdh = 1280
+                wndHgt = 644
             withWindow wndWdh wndHgt "Twitter" envGLFWEventsQueue $ \envWindow ->
               withTextureCache cacheSize envImageCache $ \envTextureCache -> do
                 traceSystemInfo
