@@ -9,7 +9,6 @@ module TextureCache ( withTextureCache
 
 import qualified Graphics.Rendering.OpenGL as GL
 import qualified Graphics.Rendering.OpenGL.Raw as GLR
-import qualified Data.Map.Strict as M
 import qualified Data.ByteString as B
 import qualified Data.Vector.Storable as VS
 import Control.Exception
@@ -39,7 +38,7 @@ withTextureCache maxCacheEntries hic f = do
                  Nothing  -> return ()
              -- Shutdown
              traceT TLInfo $ "Shutting down texture cache"
-             GL.deleteObjectNames . map snd . M.elems . fst . LBM.view $ cacheEntries
+             GL.deleteObjectNames . map snd . LBM.view $ cacheEntries
         )
         f
 
@@ -87,7 +86,7 @@ fetchImage tc tick uri = do
                     -- 'GL.generateMipmap GL.Texture2D GL.$= GL.Enabled' instead
                     GLR.glGenerateMipmap GLR.gl_TEXTURE_2D
                     -- Insert into cache, delete any overflow
-                    let (newEntries, delTex) = LBM.insertUnsafe uri tex cacheEntries
+                    let (newEntries, delTex) = LBM.insert uri tex cacheEntries
                     case delTex of Just (_, obj) -> GL.deleteObjectNames [obj]; _ -> return ()
                     -- Remove from image cache
                     deleteImage (tcImageCache tc) uri
@@ -99,7 +98,7 @@ fetchImage tc tick uri = do
 gatherCacheStats :: TextureCache -> IO String
 gatherCacheStats tc = do
     cache <- readIORef $ tcCacheEntries tc 
-    let dir = M.elems . fst $ LBM.view cache
+    let dir = LBM.view cache
     (mem, maxWdh, maxHgt) <-
         foldM (\(mem', maxWdh', maxHgt') (_, tex) ->
                   do GL.textureBinding GL.Texture2D GL.$= Just tex

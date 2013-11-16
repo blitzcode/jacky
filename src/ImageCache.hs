@@ -31,7 +31,6 @@ import System.Directory
 import System.FilePath
 import Control.Monad
 import Control.Monad.IO.Class
-import qualified Data.Map.Strict as M
 import Data.Conduit
 import Network.HTTP.Conduit
 import System.IO.Error
@@ -167,7 +166,7 @@ popRequestStack :: ImageCache
 popRequestStack ic = do
     let pop = atomically $ do
           requests <- readTVar $ icOutstandingReq ic
-          let (requests', maybeURI) = LBM.deleteFindNewest requests
+          let (requests', maybeURI) = LBM.pop requests
           case maybeURI of
               Just (uri, ()) ->
                   do -- Write the stack with the removed top item back
@@ -178,7 +177,7 @@ popRequestStack ic = do
                          Nothing -> do
                              -- New request, mark fetch status and return URI
                              writeTVar (icCacheEntries ic) .
-                                 fst $ LBM.insertUnsafe uri Fetching cache
+                                 fst $ LBM.insert uri Fetching cache
                              return $ Just (uri, 0) -- No retries
                          Just (CacheError _ retryAttempt) -> do
                              -- Marked as an error in the cache, update to fetching and
@@ -247,7 +246,9 @@ fetchThread ic manager unmask =
     catches
       ( do
         -- Once we pop a request from the stack we own it, either fill it with valid
-        -- image data or mark it as a cache error
+        -- image data or mark it as a cache error. Note that we never want to call
+        -- LBM.insert on the cache directory, only LBM.update. Our entry might have
+        -- been removed while we're fetching it, don't add it back
         bracketOnError
             (popRequestStack ic)
             (\(uriUncached, retryAttempt) -> do
@@ -304,12 +305,10 @@ fetchImage ic tick uri = do
         Just _  -> incCacheMemHits ic
         Nothing -> return ()
     return r
-  where addRequest = -- TODO: LBM.insert will not update the time stamp (or modify the map at
-                     --       all) if the request is already present
-                     modifyTVar' (icOutstandingReq ic) (fst . LBM.insert uri ())
+  where addRequest = modifyTVar' (icOutstandingReq ic) (fst . LBM.insert uri ())
 
 deleteImage :: ImageCache -> B.ByteString -> IO ()
-deleteImage ic uri = modifyCacheEntries ic $ LBM.delete uri
+deleteImage ic uri = modifyCacheEntries ic (fst . LBM.delete uri)
 
 -- Cache statistics
 
@@ -331,13 +330,13 @@ gatherCacheStats ic = do
     entries     <- atomically . readTVar $ icCacheEntries ic
     requests    <- atomically . readTVar $ icOutstandingReq ic
     let (fetching, fetched, cacheErr, mem) = foldr
-         (\(_, (_, v)) (fetching', fetched', cacheErr', mem') -> case v of
+         (\(_, v) (fetching', fetched', cacheErr', mem') -> case v of
              Fetching                 -> (fetching' + 1, fetched', cacheErr', mem')
              Fetched (ImageRes w h _) -> (fetching', fetched' + 1, cacheErr', mem' + w * h * 4)
              CacheError _ _           -> (fetching', fetched', cacheErr' + 1, mem')
          )
          ((0, 0, 0, 0) :: (Word64, Word64, Word64, Int))
-         (M.toList . fst . LBM.view $ entries)
+         (LBM.view entries)
     return $ printf
         (  "Image Cache - "
         ++ "Netw. Recv. Total: %.3fMB · Mem %.3fMB | "
