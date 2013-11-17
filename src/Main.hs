@@ -104,7 +104,6 @@ traceSystemInfo = do
 main :: IO ()
 main = do
     runOnAllCores -- Multicore
-    initFreeType
     -- Image cache folder
     cacheFolder <- addTrailingPathSeparator <$> getAppUserDataDirectory defImageCacheFolder
     let imgCacheFolder flagsArg = foldr
@@ -180,57 +179,58 @@ main = do
             let wndWdh = 1280
                 wndHgt = 644
             withWindow wndWdh wndHgt "Twitter" envGLFWEventsQueue $ \envWindow ->
-              withTextureCache cacheSize envImageCache $ \envTextureCache -> do
-                traceSystemInfo
-                -- Start EKG server (disabled for now)
-                -- ekg <- forkServer "localhost" 8000
-                -- Setup reader and state for main RWS monad
-                stCurTick <- getTick
-                let envInit = Env
-                        { envLogNetworkFolder  = logNetworkFolder
-                        , envLogNetworkMode    = logNetworkMode
-                        , envOAClient          = oaClient
-                        , envOACredential      = oaCredential
-                        , envTweetHistSize     = foldr (\f r -> case f of
-                                                          FlagTweetHistory n ->
-                                                              fromMaybe r $ parseMaybe n
-                                                          _ -> r)
-                                                       defTweetHistory flags
-                        , envStatTraceInterval = foldr (\f r -> case f of
-                                                          FlagStatTraceInterval n ->
-                                                              fromMaybe r $ parseMaybe n
-                                                          _ -> r)
-                                                       defStatTraceInterval flags
-                        , ..
-                        }
-                    stateInit = State
-                        { stTweetByID          = M.empty
-                        , stUILayoutRects      = []
-                        , stFrameTimes         = -- FPS History for the stat trace interval
-                                                 BS.empty
-                                                     (round $ 60 * envStatTraceInterval envInit)
-                        , stLastStatTrace      = stCurTick
-                        , stStatTweetsReceived = 0
-                        , stStatDelsReceived   = 0
-                        , stStatBytesRecvAPI   = 0
-                        , ..
-                        }
-                void $ flip runReaderT envInit $ flip runStateT stateInit $
-                    -- Launch thread(s) for parsing status updates
-                    let withPSAsync f =
-                            if   FlagFirehose `elem` flags
-                            then withProcessStatusesAsync
-                                     twitterStatusesRandomStreamURL
-                                     RetryForever
-                                     f
-                            else withProcessStatusesAsync
-                                     twitterUserStreamURL
-                                     RetryForever
-                                     . withProcessStatusesAsync
-                                           (twitterHomeTimeline ++ "?count=200")
-                                           (RetryNTimes 5)
-                                           $ f
-                        -- Enter main loop
-                    in  withPSAsync run
+              withTextureCache cacheSize envImageCache $ \envTextureCache ->
+                withFT2 $ do
+                  traceSystemInfo
+                  -- Start EKG server (disabled for now)
+                  -- ekg <- forkServer "localhost" 8000
+                  -- Setup reader and state for main RWS monad
+                  stCurTick <- getTick
+                  let envInit = Env
+                          { envLogNetworkFolder  = logNetworkFolder
+                          , envLogNetworkMode    = logNetworkMode
+                          , envOAClient          = oaClient
+                          , envOACredential      = oaCredential
+                          , envTweetHistSize     = foldr (\f r -> case f of
+                                                            FlagTweetHistory n ->
+                                                                fromMaybe r $ parseMaybe n
+                                                            _ -> r)
+                                                         defTweetHistory flags
+                          , envStatTraceInterval = foldr (\f r -> case f of
+                                                            FlagStatTraceInterval n ->
+                                                                fromMaybe r $ parseMaybe n
+                                                            _ -> r)
+                                                         defStatTraceInterval flags
+                          , ..
+                          }
+                      stateInit = State
+                          { stTweetByID          = M.empty
+                          , stUILayoutRects      = []
+                          , stFrameTimes         = -- FPS History for stat trace interval
+                                                   BS.empty . round $
+                                                       60 * envStatTraceInterval envInit
+                          , stLastStatTrace      = stCurTick
+                          , stStatTweetsReceived = 0
+                          , stStatDelsReceived   = 0
+                          , stStatBytesRecvAPI   = 0
+                          , ..
+                          }
+                  void $ flip runReaderT envInit $ flip runStateT stateInit $
+                      -- Launch thread(s) for parsing status updates
+                      let withPSAsync f =
+                              if   FlagFirehose `elem` flags
+                              then withProcessStatusesAsync
+                                       twitterStatusesRandomStreamURL
+                                       RetryForever
+                                       f
+                              else withProcessStatusesAsync
+                                       twitterUserStreamURL
+                                       RetryForever
+                                       . withProcessStatusesAsync
+                                             (twitterHomeTimeline ++ "?count=200")
+                                             (RetryNTimes 5)
+                                             $ f
+                          -- Enter main loop
+                      in  withPSAsync run
       traceS TLInfo "Clean Exit"
 
