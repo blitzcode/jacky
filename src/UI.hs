@@ -13,7 +13,7 @@ module UI ( UIState
           , frame
           , layer
           , dimensions
-          , RGBA
+          , RGBA(..)
           , FillColor(..)
           , FillTransparency(..)
           , fill
@@ -50,10 +50,10 @@ import StateModify
 --       absolute coordinates. Probably need to have more of the code in
 --       place. Having newtype wrappers for abs/rel might avoid bugs and
 --       make the API safer
-data Rectangle = Rectangle { rcX1 :: Float
-                           , rcY1 :: Float
-                           , rcX2 :: Float
-                           , rcY2 :: Float
+data Rectangle = Rectangle { rcX1 :: {-# UNPACK #-} !Float
+                           , rcY1 :: {-# UNPACK #-} !Float
+                           , rcX2 :: {-# UNPACK #-} !Float
+                           , rcY2 :: {-# UNPACK #-} !Float
                            } deriving (Show)
 
 {-
@@ -66,8 +66,8 @@ stuff2 = RRectangle $ Rectangle 1 2 3 4
 -}
 
 -- TODO: Record hit boxes and event handlers registered during runUI
-data UIState = UIState { uisRect  :: Rectangle
-                       , uisDepth :: Float
+data UIState = UIState { uisRect  :: {-# UNPACK #-} !Rectangle
+                       , uisDepth :: {-# UNPACK #-} !Float
                        }
 
 type UIT m a = StateT UIState m a
@@ -144,16 +144,20 @@ runUI rc depth f = do
                         , uisDepth = depth
                         }
 
-type RGBA = (Float, Float, Float, Float)
+data RGBA = RGBA {-# UNPACK #-} !Float
+                 {-# UNPACK #-} !Float
+                 {-# UNPACK #-} !Float
+                 {-# UNPACK #-} !Float
+                 deriving (Show)
 
 data FillColor = FCWhite
-               | FCSolid RGBA
-               | FCBottomTopGradient RGBA RGBA
-               | FCLeftRightGradient RGBA RGBA
+               | FCSolid !RGBA
+               | FCBottomTopGradient !RGBA !RGBA
+               | FCLeftRightGradient !RGBA !RGBA
                deriving (Show)
 
 data FillTransparency = FTNone
-                      | FTBlend Float
+                      | FTBlend !Float
                       | FTSrcAlpha
                       deriving (Show)
 
@@ -177,7 +181,7 @@ fillDraw :: Rectangle
 fillDraw rc depth col trans tex = do
     let (Rectangle x1 y1 x2 y2) = rc
         pos' = [ (x1, y1), (x2, y1), (x2, y2), (x1, y2) ]
-        cols = case col of FCWhite                 -> replicate 4 (1, 1, 1, 1)
+        cols = case col of FCWhite                 -> replicate 4 (RGBA 1 1 1 1)
                            FCSolid c               -> replicate 4 c
                            FCBottomTopGradient b t -> b : b : t : t : []
                            FCLeftRightGradient l r -> l : r : l : r : []
@@ -205,12 +209,12 @@ fillDraw rc depth col trans tex = do
     GL.matrixMode GL.$= GL.Modelview 0
     GL.loadIdentity
     GL.renderPrimitive GL.Quads . forM_ (zip3 pos' cols texs) $
-        \((x, y), (r, g, b, a), (u, v)) -> do
+        \((x, y), (RGBA r g b a), (u, v)) -> do
             color4f r g b a
             texCoord2f u v
             vertex3f x y (-depth)
 
---{-# INLINE fill #-}
+{-# INLINE fill #-}
 --{-# INLINE frame #-}
 --{-# INLINE frameAbsolute #-}
 --{-# INLINE fillDraw #-}

@@ -100,7 +100,7 @@ draw = do
 
     rc <- liftIO $ rectFromWndFB window
     void $ runUI rc 1000 $ do
-        fill (FCBottomTopGradient (0.2, 0.2, 0.2, 1) (0.4, 0.4, 1, 1))
+        fill (FCBottomTopGradient (RGBA 0.2 0.2 0.2 1) (RGBA 0.4 0.4 1 1))
              FTNone
              Nothing
         layer $
@@ -148,7 +148,7 @@ drawAvatarTiles = do
             _ -> do
                 frame (rectFromXYWH (fromIntegral cx) (fromIntegral cy)
                                     (fromIntegral cw) (fromIntegral ch)
-                      ) $ fill (FCSolid (1, 0, 1, 1)) FTNone Nothing
+                      ) $ fill (FCSolid (RGBA 1 0 1 1)) FTNone Nothing
 
 -- Process all available events in both bounded and unbounded STM queues
 processAllEvents :: (MonadIO m) => Either (TQueue a) (TBQueue a) -> (a -> m ()) -> m ()
