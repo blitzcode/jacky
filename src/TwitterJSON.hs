@@ -44,17 +44,17 @@ instance FromJSON CreatedAtTime where
             _      -> fail $ "Could not parse 'created at' time" ++ T.unpack t
     parseJSON _ = fail "CreatedAtTime: Not a string"
 
-data User = User { usrID              :: Int64
-                 , usrName            :: T.Text
-                 , usrScreenName      :: T.Text
-                 , usrURL             :: Maybe B.ByteString
-                 , usrDesc            :: Maybe T.Text
-                 , usrFollowersCnt    :: Int
-                 , usrStatusesCnt     :: Int
-                 , usrCreatedAt       :: CreatedAtTime
-                 , usrVerified        :: Bool
-                 , usrLang            :: B.ByteString
-                 , usrProfileImageURL :: B.ByteString
+data User = User { usrID              :: !Int64
+                 , usrName            :: !T.Text
+                 , usrScreenName      :: !T.Text
+                 , usrURL             :: !(Maybe B.ByteString)
+                 , usrDesc            :: !(Maybe T.Text)
+                 , usrFollowersCnt    :: !Int
+                 , usrStatusesCnt     :: !Int
+                 , usrCreatedAt       :: !CreatedAtTime
+                 , usrVerified        :: !Bool
+                 , usrLang            :: !B.ByteString
+                 , usrProfileImageURL :: !B.ByteString
                  } deriving (Show)
 
 instance FromJSON User where
@@ -72,19 +72,19 @@ instance FromJSON User where
              <*> o .:  "profile_image_url"
     parseJSON _ = fail "Expected Object"
 
-data Tweet = Tweet { twCreatedAt             :: CreatedAtTime
-                   , twID                    :: Int64
-                   , twText                  :: T.Text
-                   , twUser                  :: User
-                   , twSource                :: T.Text
-                   , twReplyToStatusID       :: Maybe Int64
-                   , twReplyToUserID         :: Maybe Int64
-                   , twReplyToUserScreenName :: Maybe T.Text
-                   , twFilterLevel           :: Maybe B.ByteString
-                   , twLang                  :: B.ByteString
-                   , twFavoriteCount         :: Maybe Int
-                   , twRetweetCount          :: Maybe Int
-                   , twRetweetedStatus       :: Maybe Tweet -- Contains original
+data Tweet = Tweet { twCreatedAt             :: !CreatedAtTime
+                   , twID                    :: !Int64
+                   , twText                  :: !T.Text
+                   , twUser                  :: !User
+                   , twSource                :: !T.Text
+                   , twReplyToStatusID       :: !(Maybe Int64)
+                   , twReplyToUserID         :: !(Maybe Int64)
+                   , twReplyToUserScreenName :: !(Maybe T.Text)
+                   , twFilterLevel           :: !(Maybe B.ByteString)
+                   , twLang                  :: !B.ByteString
+                   , twFavoriteCount         :: !(Maybe Int)
+                   , twRetweetCount          :: !(Maybe Int)
+                   , twRetweetedStatus       :: !(Maybe Tweet) -- Contains original
                    } deriving (Show)
 
 -- Newtype for Tweets sorted by different criteria
@@ -134,35 +134,35 @@ instance FromJSON Tweet where
 -- TODO: The record fields in the different value constructors are a bit nasty,
 --       maybe we can make this more type safe with DataKinds or by breaking out
 --       more of them into separate records like we already did for Tweet
-data StreamMessage = SMDelete { smdelID     :: Int64
-                              , smdelUserID :: Int64
+data StreamMessage = SMDelete { smdelID     :: !Int64
+                              , smdelUserID :: !Int64
                               }
-                   | SMScrubGeo { smsgUserID       :: Int64
-                                , smsgUpToStatusID :: Int64
+                   | SMScrubGeo { smsgUserID       :: !Int64
+                                , smsgUpToStatusID :: !Int64
                                 }
                    | SMLimit Int
                    | SMStatusWithheld
                    | SMUserWithheld
-                   | SMDisconnect { smdcCode       :: Int
-                                  , smdcStreamName :: String
-                                  , smdcReason     :: String
+                   | SMDisconnect { smdcCode       :: !Int
+                                  , smdcStreamName :: !String
+                                  , smdcReason     :: !String
                                   }
-                   | SMWarning { smwCode        :: B.ByteString
-                               , smwMessage     :: B.ByteString
-                               , smwUserID      :: Maybe Int64
-                               , smwPercentFull :: Maybe Int
+                   | SMWarning { smwCode        :: !B.ByteString
+                               , smwMessage     :: !B.ByteString
+                               , smwUserID      :: !(Maybe Int64)
+                               , smwPercentFull :: !(Maybe Int)
                                }
                    | SMFriends [Int64]
                    | SMFriendsStr
-                   | SMEvent { smeTargetUser :: Maybe Int64
-                             , smeSourceUser :: Maybe Int64
-                             , smeEventName  :: B.ByteString
-                             , smeTargetObj  :: Maybe B.ByteString
-                             , smeCreatedAt  :: CreatedAtTime
+                   | SMEvent { smeTargetUser :: !(Maybe Int64)
+                             , smeSourceUser :: !(Maybe Int64)
+                             , smeEventName  :: !B.ByteString
+                             , smeTargetObj  :: !(Maybe B.ByteString)
+                             , smeCreatedAt  :: !CreatedAtTime
                              }
-                   | SMTweet Tweet
-                   | SMParseError B.ByteString
-                   | SMBytesReceived Int -- Just for statistics
+                   | SMTweet !Tweet
+                   | SMParseError !B.ByteString
+                   | SMBytesReceived !Int -- Just for statistics
                      deriving (Show)
 
 instance FromJSON StreamMessage where
