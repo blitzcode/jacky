@@ -13,8 +13,10 @@ module App ( LogNetworkMode(..)
 import Control.Applicative
 import Control.Concurrent.Async
 import Control.Concurrent.STM
-import Control.Monad.RWS.Strict
 import Control.Monad.Trans.Control
+import Control.Monad.Reader
+import Control.Monad.State hiding (State)
+import Data.Monoid
 import Data.Int
 import qualified Data.Map.Strict as M
 import qualified Data.ByteString.Char8 as B8
@@ -80,7 +82,13 @@ data State = State
     , stStatBytesRecvAPI   :: Int
     }
 
-type AppDraw = RWST Env () State IO
+-- Don't use RWST, the writer causes a slowdown
+--
+-- http://www.reddit.com/r/haskell/comments/1qrp8l/improving_performance_of_complex_monad/
+-- http://permalink.gmane.org/gmane.comp.lang.haskell.libraries/18040
+-- http://comments.gmane.org/gmane.comp.lang.haskell.libraries/18980
+--
+type AppDraw = StateT State (ReaderT Env IO)
 
 draw :: AppDraw ()
 draw = do

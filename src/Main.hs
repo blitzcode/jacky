@@ -23,7 +23,8 @@ import Control.Monad.Error
 import Control.Exception
 import Control.Concurrent hiding (yield)
 import Control.Concurrent.STM
-import Control.Monad.RWS.Strict
+import Control.Monad.Reader
+import Control.Monad.State hiding (State)
 import Network (withSocketsDo) 
 import Network.HTTP.Conduit
 import qualified GHC.Conc (getNumProcessors)
@@ -214,24 +215,22 @@ main = do
                         , stStatBytesRecvAPI   = 0
                         , ..
                         }
-                void $ evalRWST
-                    ( -- Launch thread(s) for parsing status updates
-                      let withPSAsync f =
-                              if   FlagFirehose `elem` flags
-                              then withProcessStatusesAsync
-                                       twitterStatusesRandomStreamURL
-                                       RetryForever
-                                       f
-                              else withProcessStatusesAsync
-                                       twitterUserStreamURL
-                                       RetryForever
-                                       . withProcessStatusesAsync
-                                             (twitterHomeTimeline ++ "?count=200")
-                                             (RetryNTimes 5)
-                                             $ f
-                          -- Enter main loop
-                      in  withPSAsync run
-                    )
-                    envInit stateInit
+                void $ flip runReaderT envInit $ flip runStateT stateInit $
+                    -- Launch thread(s) for parsing status updates
+                    let withPSAsync f =
+                            if   FlagFirehose `elem` flags
+                            then withProcessStatusesAsync
+                                     twitterStatusesRandomStreamURL
+                                     RetryForever
+                                     f
+                            else withProcessStatusesAsync
+                                     twitterUserStreamURL
+                                     RetryForever
+                                     . withProcessStatusesAsync
+                                           (twitterHomeTimeline ++ "?count=200")
+                                           (RetryNTimes 5)
+                                           $ f
+                        -- Enter main loop
+                    in  withPSAsync run
       traceS TLInfo "Clean Exit"
 
