@@ -53,7 +53,6 @@ executable jacky
                     , http-conduit         >=1.9
                     , JuicyPixels          >=3.1.1.1
                     , authenticate-oauth   >=1.4
-                    , monad-control        >=0.3
                     , attoparsec-conduit   >=1.0
                     , aeson                >=0.6
                     , OpenGLRaw            >=1.3

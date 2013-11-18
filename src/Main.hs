@@ -13,6 +13,8 @@ import System.Directory
 import System.FilePath
 import System.Exit
 import qualified System.Info as SI
+import Network.HTTP.Conduit
+import Network.URI
 -- import System.Remote.Monitoring
 import qualified Data.ByteString.Char8 as B8
 import Data.Maybe
@@ -23,10 +25,10 @@ import Control.Monad.Error
 import Control.Exception
 import Control.Concurrent hiding (yield)
 import Control.Concurrent.STM
+import Control.Concurrent.Async
 import Control.Monad.Reader
 import Control.Monad.State hiding (State)
 import Network (withSocketsDo) 
-import Network.HTTP.Conduit
 import qualified GHC.Conc (getNumProcessors)
 import qualified Codec.Picture as JP
 import qualified Web.Authenticate.OAuth as OA
@@ -101,6 +103,51 @@ traceSystemInfo = do
         )
         <$> getGLStrings
 
+data LogNetworkMode = ModeNoLog | ModeLogNetwork | ModeReplayLog deriving (Eq, Enum, Show)
+
+withProcessStatusesAsync :: OA.OAuth
+                         -> OA.Credential
+                         -> Manager
+                         -> LogNetworkMode
+                         -> String
+                         -> TBQueue StreamMessage
+                         -> String
+                         -> RetryAPI
+                         -> IO a
+                         -> IO a
+withProcessStatusesAsync oaClient
+                         oaCredential
+                         manager
+                         logNetworkMode
+                         logNetworkFolder
+                         smQueue
+                         uri'
+                         retryAPI
+                         f = do
+    -- Pass the URI right through if we're not logging network data, add a log
+    -- filename when logging is enabled, pass the log file as the URI when
+    -- replaying previous log data
+    --
+    -- TODO: This will potentially overwrite older network logs of
+    --       requests with identical parameters to identical API endpoints
+    let logFn            = logNetworkFolder </> (escapeURIString isUnescapedInURIComponent uri') 
+        (uri, logFnMode) = case logNetworkMode of ModeNoLog      -> (uri' , Nothing   )
+                                                  ModeLogNetwork -> (uri' , Just logFn)
+                                                  ModeReplayLog  -> (logFn, Nothing   )
+    -- Launch thread
+    withAsync
+        ( processStatuses
+              uri
+              oaClient
+              oaCredential
+              manager
+              logFnMode
+              False
+              smQueue
+              retryAPI
+        )
+        $ \_ -> f
+
 main :: IO ()
 main = do
     runOnAllCores -- Multicore
@@ -163,74 +210,76 @@ main = do
                 defConTimeout flags
         in  withManagerSettings
                 def { managerConnCount, managerResponseTimeout }
-                $ \envManager -> liftIO $
-          let cacheSize = foldr (\f r -> case f of
-                  FlagImgMemCacheSize n -> fromMaybe r $ parseMaybe n
-                  _                     -> r)
-                  defImgMemCacheSize flags
-          in  withImageCache envManager
-                             (cacheSize `div` 2)
-                             concImgFetches
-                             (imgCacheFolder flags)
-                             $ \envImageCache -> do
-            -- Event queues filled by GLFW callbacks, stream messages
-            envGLFWEventsQueue <- newTQueueIO       :: IO (TQueue  GLFWEvent)
-            envSMQueue         <- newTBQueueIO 1024 :: IO (TBQueue StreamMessage)
-            let wndWdh = 1280
-                wndHgt = 644
-            withWindow wndWdh wndHgt "Twitter" envGLFWEventsQueue $ \envWindow ->
-              withTextureCache cacheSize envImageCache $ \envTextureCache ->
-                withFT2 $ do
-                  traceSystemInfo
-                  -- Start EKG server (disabled for now)
-                  -- ekg <- forkServer "localhost" 8000
-                  -- Setup reader and state for main RWS monad
-                  stCurTick <- getTick
-                  let envInit = Env
-                          { envLogNetworkFolder  = logNetworkFolder
-                          , envLogNetworkMode    = logNetworkMode
-                          , envOAClient          = oaClient
-                          , envOACredential      = oaCredential
-                          , envTweetHistSize     = foldr (\f r -> case f of
-                                                            FlagTweetHistory n ->
-                                                                fromMaybe r $ parseMaybe n
-                                                            _ -> r)
-                                                         defTweetHistory flags
-                          , envStatTraceInterval = foldr (\f r -> case f of
-                                                            FlagStatTraceInterval n ->
-                                                                fromMaybe r $ parseMaybe n
-                                                            _ -> r)
-                                                         defStatTraceInterval flags
-                          , ..
-                          }
-                      stateInit = State
-                          { stTweetByID          = M.empty
-                          , stUILayoutRects      = []
-                          , stFrameTimes         = -- FPS History for stat trace interval
-                                                   BS.empty . round $
-                                                       60 * envStatTraceInterval envInit
-                          , stLastStatTrace      = stCurTick
-                          , stStatTweetsReceived = 0
-                          , stStatDelsReceived   = 0
-                          , stStatBytesRecvAPI   = 0
-                          , ..
-                          }
-                  void $ flip runReaderT envInit $ flip runStateT stateInit $
-                      -- Launch thread(s) for parsing status updates
-                      let withPSAsync f =
-                              if   FlagFirehose `elem` flags
-                              then withProcessStatusesAsync
-                                       twitterStatusesRandomStreamURL
-                                       RetryForever
-                                       f
-                              else withProcessStatusesAsync
-                                       twitterUserStreamURL
-                                       RetryForever
-                                       . withProcessStatusesAsync
-                                             (twitterHomeTimeline ++ "?count=200")
-                                             (RetryNTimes 5)
-                                             $ f
-                          -- Enter main loop
-                      in  withPSAsync run
+                $ \manager -> liftIO $ do
+          -- Launch thread(s) for parsing status updates
+          envSMQueue <- newTBQueueIO 1024 :: IO (TBQueue StreamMessage)
+          let withPSAsync f =
+                  if   FlagFirehose `elem` flags
+                  then withProcessStatusesAsync'
+                           twitterStatusesRandomStreamURL
+                           RetryForever
+                           f
+                  else withProcessStatusesAsync'
+                           twitterUserStreamURL
+                           RetryForever
+                           . withProcessStatusesAsync'
+                                 (twitterHomeTimeline ++ "?count=200")
+                                 (RetryNTimes 5)
+                                 $ f
+              withProcessStatusesAsync' = withProcessStatusesAsync oaClient
+                                                                   oaCredential
+                                                                   manager
+                                                                   logNetworkMode
+                                                                   logNetworkFolder
+                                                                   envSMQueue
+           in withPSAsync $
+            let cacheSize = foldr (\f r -> case f of
+                    FlagImgMemCacheSize n -> fromMaybe r $ parseMaybe n
+                    _                     -> r)
+                    defImgMemCacheSize flags
+            in  withImageCache manager
+                               (cacheSize `div` 2)
+                               concImgFetches
+                               (imgCacheFolder flags)
+                               $ \envImageCache -> do
+              -- Event queues filled by GLFW callbacks
+              envGLFWEventsQueue <- newTQueueIO :: IO (TQueue GLFWEvent)
+              let wndWdh = 1280
+                  wndHgt = 644
+              withWindow wndWdh wndHgt "Twitter" envGLFWEventsQueue $ \envWindow ->
+                withTextureCache cacheSize envImageCache $ \envTextureCache ->
+                  withFT2 $ do
+                    traceSystemInfo
+                    -- Start EKG server (disabled for now)
+                    -- ekg <- forkServer "localhost" 8000
+                    -- Setup reader and state for main AppDraw monad
+                    stCurTick <- getTick
+                    let envInit = Env
+                            { envTweetHistSize     = foldr (\f r -> case f of
+                                                              FlagTweetHistory n ->
+                                                                  fromMaybe r $ parseMaybe n
+                                                              _ -> r)
+                                                           defTweetHistory flags
+                            , envStatTraceInterval = foldr (\f r -> case f of
+                                                              FlagStatTraceInterval n ->
+                                                                  fromMaybe r $ parseMaybe n
+                                                              _ -> r)
+                                                           defStatTraceInterval flags
+                            , ..
+                            }
+                        stateInit = State
+                            { stTweetByID          = M.empty
+                            , stUILayoutRects      = []
+                            , stFrameTimes         = -- FPS History for stat trace interval
+                                                     BS.empty . round $
+                                                         60 * envStatTraceInterval envInit
+                            , stLastStatTrace      = stCurTick
+                            , stStatTweetsReceived = 0
+                            , stStatDelsReceived   = 0
+                            , stStatBytesRecvAPI   = 0
+                            , ..
+                            }
+                    -- Enter main loop
+                    void . flip runReaderT envInit . flip runStateT stateInit $ run
       traceS TLInfo "Clean Exit"
 

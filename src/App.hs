@@ -1,19 +1,15 @@
 
 {-# LANGUAGE PackageImports, OverloadedStrings #-}
 
-module App ( LogNetworkMode(..)
-           , Env(..)
+module App ( Env(..)
            , State(..)
            , AppDraw
            , run
-           , withProcessStatusesAsync
            , mkUILayoutRects
            ) where
 
 import Control.Applicative
-import Control.Concurrent.Async
 import Control.Concurrent.STM
-import Control.Monad.Trans.Control
 import Control.Monad.Reader
 import Control.Monad.State hiding (State)
 import Data.Monoid
@@ -21,21 +17,16 @@ import Data.Int
 import qualified Data.Map.Strict as M
 import qualified Data.ByteString.Char8 as B8
 import qualified Data.ByteString as B
-import Network.HTTP.Conduit
-import Network.URI
 import Text.Printf
-import System.FilePath
 import GHC.Stats
 import qualified Graphics.Rendering.OpenGL as GL
 import qualified "GLFW-b" Graphics.UI.GLFW as GLFW
-import qualified Web.Authenticate.OAuth as OA
 
 import Trace
 import Timing
 import TwitterJSON
 import ImageCache
 import TextureCache
-import ProcessStatus
 import qualified RectPacker as RP
 import qualified BoundedSequence as BS
 import GLHelpers
@@ -50,22 +41,12 @@ import UI
 -- TODO: Use criterion package to benchmark, maybe show real-time results
 --       through EKG
 
-data LogNetworkMode = ModeNoLog | ModeLogNetwork | ModeReplayLog deriving (Eq, Enum, Show)
-
 data Env = Env
     { envWindow            :: GLFW.Window
     , envGLFWEventsQueue   :: TQueue GLFWEvent
     , envSMQueue           :: TBQueue StreamMessage
     , envImageCache        :: ImageCache
     , envTextureCache      :: TextureCache
-    -- TODO: All of the following seem like we don't really need them in the Reader,
-    --       it's just for withProcessStatusesAsync
-    , envLogNetworkFolder  :: String
-    , envLogNetworkMode    :: LogNetworkMode
-    , envOAClient          :: OA.OAuth
-    , envOACredential      :: OA.Credential
-    , envManager           :: Manager
-    --
     , envTweetHistSize     :: Int
     , envStatTraceInterval :: Double
     }
@@ -231,41 +212,6 @@ processSMEvent ev =
         SMDelete _ _      -> modify' $ \s -> s { stStatDelsReceived = stStatDelsReceived s + 1 }
         SMBytesReceived b -> modify' $ \s -> s { stStatBytesRecvAPI = stStatBytesRecvAPI s + b }
         _                 -> liftIO . traceS TLInfo $ show ev -- Trace all other messages in full
-
-withProcessStatusesAsync :: String -> RetryAPI -> AppDraw a -> AppDraw a
-withProcessStatusesAsync uri' retryAPI f = do
-    manager          <- asks envManager
-    oaClient         <- asks envOAClient
-    oaCredential     <- asks envOACredential
-    smQueue          <- asks envSMQueue
-    logNetworkFolder <- asks envLogNetworkFolder
-    logNetworkMode   <- asks envLogNetworkMode
-    -- Pass the URI right through if we're not logging network data, add a log
-    -- filename when logging is enabled, pass the log file as the URI when
-    -- replaying previous log data
-    --
-    -- TODO: This will potentially overwrite older network logs of
-    --       requests with identical parameters to identical API endpoints
-    let logFn            = logNetworkFolder </> (escapeURIString isUnescapedInURIComponent uri') 
-        (uri, logFnMode) = case logNetworkMode of ModeNoLog      -> (uri' , Nothing   )
-                                                  ModeLogNetwork -> (uri' , Just logFn)
-                                                  ModeReplayLog  -> (logFn, Nothing   )
-    -- Launch thread
-    --
-    -- We use some monad-control magic (http://www.yesodweb.com/book/monad-control) to stay
-    -- in our AppDraw monad even though withAsync runs its inner in IO
-    control $ \runC -> liftIO $ withAsync
-        ( processStatuses
-              uri
-              oaClient
-              oaCredential
-              manager
-              logFnMode
-              False
-              smQueue
-              retryAPI
-        )
-        $ \_ -> runC f
 
 {-# NOINLINE traceStats #-}
 traceStats :: AppDraw ()
