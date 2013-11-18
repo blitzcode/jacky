@@ -26,10 +26,6 @@ import Data.Maybe
 -- truncated element.
 --
 -- TODO: Map.size is O(1) while HashMap.size is O(n), maybe cache the size?
---
--- TODO: Even though the linked-list implementation allows us to use an
---       unordered container, this is still not much faster than the previous
---       version of this code based on DoubleMap
 
 data Map k v = Map { mFirst :: !(Maybe k)
                    , mLast  :: !(Maybe k)
