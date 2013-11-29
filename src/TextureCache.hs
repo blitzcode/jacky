@@ -41,7 +41,7 @@ withTextureCache maxCacheEntries hic f = do
                  Nothing  -> return ()
              -- Shutdown
              traceT TLInfo $ "Shutting down texture cache"
-             GL.deleteObjectNames . map snd . LBM.view $ cacheEntries
+             GL.deleteObjectNames . map snd . LBM.toList $ cacheEntries
         )
         f
 
@@ -107,7 +107,7 @@ fetchImage tc tick uri = do
 gatherCacheStats :: TextureCache -> IO String
 gatherCacheStats tc = do
     cache <- readIORef $ tcCacheEntries tc 
-    let dir = LBM.view cache
+    let dir = LBM.toList cache
     (mem, maxWdh, maxHgt) <-
         foldM (\(mem', maxWdh', maxHgt') (_, tex) ->
                   do GL.textureBinding GL.Texture2D GL.$= Just tex

@@ -69,6 +69,7 @@ data CacheEntry = Fetching -- We keep in-progress entries in the cache to avoid 
                 | CacheError -- Failed to load / fetch / decode image
                       !Double -- Tick after which we're allowed to retry
                       !Int    -- Number of retry attempt scheduled next
+                deriving Eq
 
 instance Show CacheEntry where
     show Fetching                            = "Fetching"
@@ -77,6 +78,7 @@ instance Show CacheEntry where
         "CacheError " ++ show retryTick ++ " " ++ show retryAttempt
 
 data ImageRes = ImageRes !Int !Int !(VS.Vector Word32)
+                         deriving Eq
 
 mkURICacheFn :: ImageCache -> B.ByteString -> B.ByteString
 mkURICacheFn ic url = icCacheFolder ic
@@ -166,7 +168,7 @@ popRequestStack :: ImageCache
 popRequestStack ic = do
     let pop = atomically $ do
           requests <- readTVar $ icOutstandingReq ic
-          let (requests', maybeURI) = LBM.pop requests
+          let (requests', maybeURI) = LBM.popNewest requests
           case maybeURI of
               Just (uri, ()) ->
                   do -- Write the stack with the removed top item back
@@ -336,7 +338,7 @@ gatherCacheStats ic = do
              CacheError _ _           -> (fetching', fetched', cacheErr' + 1, mem')
          )
          ((0, 0, 0, 0) :: (Word64, Word64, Word64, Int))
-         (LBM.view entries)
+         (LBM.toList entries)
     return $ printf
         (  "Image Cache - "
         ++ "Netw. Recv. Total: %.3fMB · Mem %.3fMB | "
