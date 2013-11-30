@@ -100,7 +100,7 @@ traceSystemInfo = do
                       , " / "
                       , show SI.compilerVersion
                       ]
-             , printf "FreeType 2: %i.%i.%i\n" ft2maj ft2min ft2patch
+             , printf "FreeType Version: %i.%i.%i\n" ft2maj ft2min ft2patch
              ]
         )
         <$> getGLStrings
