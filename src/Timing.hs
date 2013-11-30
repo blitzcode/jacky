@@ -8,9 +8,9 @@ import Control.Applicative
 import Control.Monad.IO.Class
 import System.IO.Unsafe
 
--- Timing functions for benchmarking
+-- Timing functions
 
--- TODO: Consider just using the criterion package for all if this
+-- TODO: Consider just using the criterion package for all performance measurements
 --       http://hackage.haskell.org/package/criterion
 
 {-# NOINLINE startTime #-}

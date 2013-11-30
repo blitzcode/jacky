@@ -175,7 +175,7 @@ popRequestStack ic = do
                      writeTVar (icOutstandingReq ic) requests'
                      -- Check if the request is already in the cache
                      cache <- readTVar $ icCacheEntries ic
-                     case snd $ LBM.lookup uri cache of -- Discard LRU update
+                     case LBM.lookupNoLRU uri cache of
                          Nothing -> do
                              -- New request, mark fetch status and return URI
                              writeTVar (icCacheEntries ic) .
@@ -284,7 +284,7 @@ fetchThread ic manager unmask =
       , Handler $ \(ex :: HttpException  ) -> reportEx ex
       , Handler $ \(ex :: DecodeException) -> reportEx ex
       ]
-    where reportEx ex           = traceS TLError $ "Image Cache Exception: " ++ show ex
+    where reportEx ex             = traceS TLError $ "Image Cache Exception: " ++ show ex
           retryDelay retryAttempt = ([2, 10, 30, 60, 120] ++ repeat 600) !! retryAttempt :: Double
  
 -- Return the image at the given URI from the cache, or schedule fetching if not present

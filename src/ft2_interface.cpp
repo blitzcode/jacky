@@ -4,8 +4,7 @@
 #include <cstdio>
 #include <cstdlib>
 
-#include <ft2build.h>
-#include FT_FREETYPE_H
+#define CHECK_ERROR(x) do { if ((x) != 0) return (x); } while (0)
 
 const char * errorToString(FT_Error error)
 {
@@ -16,14 +15,13 @@ const char * errorToString(FT_Error error)
 
     static const struct
     {
-        int          err_code;
-        const char*  err_msg;
+        int         err_code;
+        const char *err_msg;
     } ft_errors [] =
 
     #include FT_ERRORS_H
 
-    unsigned int i = 0;
-    while (ft_errors[i].err_msg != NULL) 
+    for (unsigned int i=0; ft_errors[i].err_msg != NULL; i++)
     {
         if (ft_errors[i].err_code == error)
             return ft_errors[i].err_msg;
@@ -32,23 +30,22 @@ const char * errorToString(FT_Error error)
     return NULL;
 }
 
-FT_Library library;
+FT_Library g_library;
+FT_Face    g_face;
 
-void initFreeType()
+FT_Error initFreeType()
 {
-    int error = FT_Init_FreeType(&library);
-    if (error)
-        printf("FT2 Error\n");
+    CHECK_ERROR(FT_Init_FreeType(&g_library));
 
-    printf("FT2 Init\n");
+    CHECK_ERROR(FT_New_Face(g_library, "/System/Library/Fonts/HelveticaLight.ttf", 0, &g_face));
+
+    return 0;
 }
 
-void shutdownFreeType()
+FT_Error shutdownFreeType()
 {
-    int error = FT_Done_FreeType(library);
-    if (error)
-        printf("FT2 Error\n");
+    CHECK_ERROR(FT_Done_FreeType(g_library));
 
-    printf("FT2 Shutdown\n");
+    return 0;
 }
 

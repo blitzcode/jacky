@@ -23,7 +23,7 @@ import GLHelpers
 
 -- This is only a mutable structure so we can use the bracket pattern to free
 -- all textures on shutdown. Otherwise, we could implement this part of the caching
--- system in a functionally pure way.  
+-- system in a functionally pure way
 data TextureCache = TextureCache { tcCacheEntries :: IORef (LBM.Map B.ByteString GL.TextureObject)
                                  , tcImageCache   :: ImageCache
                                  }
@@ -56,7 +56,6 @@ withTextureCache maxCacheEntries hic f = do
 fetchImage :: TextureCache -> Double -> B.ByteString -> IO (Maybe GL.TextureObject)
 fetchImage tc tick uri = do
     cacheEntries <- readIORef $ tcCacheEntries tc
-    -- TODO: The overhead for updating LRU on every lookup is quite severe
     case LBM.lookup uri cacheEntries of
         (newEntries, Just tex) -> writeIORef (tcCacheEntries tc) newEntries >> return (Just tex)
         (_,          Nothing ) -> do
