@@ -19,6 +19,7 @@ import Network.URI
 import qualified Data.ByteString.Char8 as B8
 import Data.Maybe
 import Data.List
+import Text.Printf
 import qualified Data.Map.Strict as M
 import Control.Applicative
 import Control.Monad.Error
@@ -87,7 +88,8 @@ verifyImgCache folder = do
 
 traceSystemInfo :: IO ()
 traceSystemInfo = do
-    cpus <- GHC.Conc.getNumProcessors
+    cpus                       <- GHC.Conc.getNumProcessors
+    (ft2maj, ft2min, ft2patch) <- libraryVersion
     traceS TLInfo =<<
         ( (++) . concat . intersperse " · " $
              [ "System - OS: " ++ SI.os
@@ -97,8 +99,8 @@ traceSystemInfo = do
                       , SI.compilerName
                       , " / "
                       , show SI.compilerVersion
-                      , "\n"
                       ]
+             , printf "FreeType 2: %i.%i.%i\n" ft2maj ft2min ft2patch
              ]
         )
         <$> getGLStrings

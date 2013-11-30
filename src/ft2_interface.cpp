@@ -22,10 +22,8 @@ const char * errorToString(FT_Error error)
     #include FT_ERRORS_H
 
     for (unsigned int i=0; ft_errors[i].err_msg != NULL; i++)
-    {
         if (ft_errors[i].err_code == error)
             return ft_errors[i].err_msg;
-    }
 
     return NULL;
 }
@@ -39,6 +37,8 @@ FT_Error initFreeType()
 
     CHECK_ERROR(FT_New_Face(g_library, "/System/Library/Fonts/HelveticaLight.ttf", 0, &g_face));
 
+    CHECK_ERROR(FT_Set_Pixel_Sizes(g_face, 0, 16));
+
     return 0;
 }
 
@@ -47,5 +47,12 @@ FT_Error shutdownFreeType()
     CHECK_ERROR(FT_Done_FreeType(g_library));
 
     return 0;
+}
+
+FT_Int * libraryVersion()
+{
+    static FT_Int ver[3];
+    FT_Library_Version(g_library, &ver[0], &ver[1], &ver[2]);
+    return ver;
 }
 
