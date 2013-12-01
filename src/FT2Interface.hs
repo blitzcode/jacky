@@ -1,5 +1,5 @@
 
-{-# LANGUAGE DeriveDataTypeable, ScopedTypeVariables #-}
+{-# LANGUAGE DeriveDataTypeable #-}
 
 module FT2Interface ( withFT2
                     , libraryVersion
@@ -16,6 +16,8 @@ import Foreign.Ptr
 import Foreign.Storable
 import Foreign.Marshal.Array
 
+import Trace
+
 -- Haskell wrapper around our ft2_interface.{h,cpp} C++ interface for the
 -- FreeType 2 library
 
@@ -29,8 +31,10 @@ instance Exception FT2Exception
 withFT2 :: (IO ()) -> IO ()
 withFT2 f = do
     bracket_
-        ( checkReturn "init"     =<< c_initFreeType     )
-        ( checkReturn "shutdown" =<< c_shutdownFreeType )
+        ( checkReturn "init" =<< c_initFreeType )
+        ( do traceS TLInfo "Shutting down FreeType"
+             checkReturn "shutdown" =<< c_shutdownFreeType
+        )
         f
 
 -- Check a FT return value and throw an exception for errors
