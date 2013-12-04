@@ -93,7 +93,7 @@ FT_Error initFreeType()
 
     std::vector<Glyph> glyphs;
 
-    const unsigned int text[] = { 'H', 'g', 0xB3, '!', 's', '@' };
+    const unsigned int text[] = { 'H', 'g', '!', '@', 0xC2 };
     const size_t ln = sizeof(text) / sizeof(unsigned int);
 
     int pen_x = 0, pen_y = 0;

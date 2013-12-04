@@ -35,10 +35,14 @@ import StateModify
 -- TODO: Consider FRP library like netwire or reactive-banana for UI animations
 
 -- TODO: Use 'linear' package for OpenGL vector / matrix stuff
+--       https://github.com/ocharles/blog/blob/master/code/2013-12-02-linear-example.hs
 
 -- TODO: Replace immediate mode drawing with a rendering manager, storing
 --       geometry in vertex buffers, batching up draw calls, sorting by texture
 --       and state change etc.
+
+-- TODO: Replace fixed-function rendering with GLSL shaders
+--       http://www.arcadianvisions.com/blog/?p=224
 
 -- TODO: We have a lot of overhead by running inside of a StateT on top of a
 --       RWST from App. Also see here:
