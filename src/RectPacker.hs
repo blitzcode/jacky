@@ -12,6 +12,8 @@ import Data.List
 -- KDTree for finding a tight layout for a number of rectangles inside a larger bounding
 -- rectangle. Useful for packing textures (fonts, lightmaps), UI elements, etc.
 
+-- TODO: We could do a lot better, see http://clb.demon.fi/files/RectangleBinPack.pdf
+
 data RectPacker = RectPacker !KDTree !Int !Int deriving (Show)
 
 data KDTree = Split                !Bool
