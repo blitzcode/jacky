@@ -1,2 +1,2 @@
-import Distribution.Make
-main = defaultMain
+import Distribution.Simple
+main = defaultMainWithHooks autoconfUserHooks

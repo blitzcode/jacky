@@ -1,1 +1,5 @@
-# Dummy, do nothing for now
+cd src/freetype2
+# TODO: Get those flags from GHC like in the Makefile
+env CFLAGS=-m32
+./configure 
+make -j
