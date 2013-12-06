@@ -19,6 +19,7 @@ import Control.Monad.IO.Class
 import Control.Monad.State.Strict
 import Control.Concurrent.STM
 import Control.Exception
+import Control.Applicative
 import Control.Concurrent hiding (yield)
 import Text.Printf
 import System.IO
@@ -52,7 +53,7 @@ parseStatus :: (MonadIO m, MonadState Int m, MonadResource m)
             => Conduit B.ByteString m StreamMessage
 parseStatus = do
     -- Bandwidth message for statistics
-    liftM yield SMBytesReceived =<< get
+    yield <$> SMBytesReceived =<< get
     put 0
     -- Use conduit adapter for attoparsec to read the next JSON
     -- object with the Aeson parser from the stream connection
