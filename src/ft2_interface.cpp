@@ -31,7 +31,26 @@ const char * errorToString(FT_Error error)
 }
 
 FT_Library g_library;
-FT_Face    g_face;
+
+FT_Error initFreeType()
+{
+    CHECK_ERROR(FT_Init_FreeType(&g_library));
+    return 0;
+}
+
+FT_Error shutdownFreeType()
+{
+    CHECK_ERROR(FT_Done_FreeType(g_library));
+
+    return 0;
+}
+
+FT_Int * libraryVersion()
+{
+    static FT_Int ver[3];
+    FT_Library_Version(g_library, &ver[0], &ver[1], &ver[2]);
+    return ver;
+}
 
 void debugPrintBitmap(
     unsigned char *buffer,
@@ -66,16 +85,16 @@ void debugPrintBitmap(FT_Bitmap bitmap)
     debugPrintBitmap(bitmap.buffer, bitmap.width, bitmap.rows, bitmap.pitch);
 }
 
-struct Glyph
+FT_Error debugPrintTest()
 {
-    FT_UInt   index;
-    FT_Vector pos;
-    FT_Glyph  image;
-};
+    FT_Face face;
 
-FT_Error initFreeType()
-{
-    CHECK_ERROR(FT_Init_FreeType(&g_library));
+    struct Glyph
+    {
+        FT_UInt   index;
+        FT_Vector pos;
+        FT_Glyph  image;
+    };
 
     CHECK_ERROR(FT_New_Face(
             g_library,
@@ -84,12 +103,12 @@ FT_Error initFreeType()
             //"/Users/Tim/Downloads/news-cycle/newscycle-regular.ttf",
             //"/System/Library/Fonts/LucidaGrande.ttc",
             0,
-            &g_face));
+            &face));
 
-    if (FT_HAS_KERNING(g_face) == 0)
+    if (FT_HAS_KERNING(face) == 0)
         printf("ERROR: Font has no kerning!\n");
 
-    CHECK_ERROR(FT_Set_Pixel_Sizes(g_face, 0, 32));
+    CHECK_ERROR(FT_Set_Pixel_Sizes(face, 0, 32));
 
     std::vector<Glyph> glyphs;
 
@@ -106,12 +125,12 @@ FT_Error initFreeType()
     for (unsigned int i=0, previous=0; i<ln; i++)
     {
         Glyph glyph;
-        glyph.index = FT_Get_Char_Index(g_face, text[i]);
+        glyph.index = FT_Get_Char_Index(face, text[i]);
 
          if (previous != 0 && glyph.index != 0)
          {
              FT_Vector delta;
-             CHECK_ERROR(FT_Get_Kerning(g_face, previous, glyph.index, FT_KERNING_UNFITTED, &delta));
+             CHECK_ERROR(FT_Get_Kerning(face, previous, glyph.index, FT_KERNING_UNFITTED, &delta));
              //pen_x += delta.x >> 6;
              //printf("%d\n", delta.x);
          }
@@ -119,11 +138,11 @@ FT_Error initFreeType()
          glyph.pos.x = pen_x;
          glyph.pos.y = pen_y;
 
-         error = FT_Load_Glyph(g_face, glyph.index, FT_LOAD_DEFAULT);
+         error = FT_Load_Glyph(face, glyph.index, FT_LOAD_DEFAULT);
          if (error)
              continue;
 
-         error = FT_Get_Glyph(g_face->glyph, &glyph.image);
+         error = FT_Get_Glyph(face->glyph, &glyph.image);
          if (error)
              continue;
 
@@ -155,7 +174,7 @@ FT_Error initFreeType()
          bbox.yMax = std::max(bbox.yMax, glyph_bbox.yMax);
 
          //FT_Glyph_Transform(glyph.image, NULL, &glyph.pos);
-         pen_x += g_face->glyph->advance.x >> 6;
+         pen_x += face->glyph->advance.x >> 6;
 
          previous = glyph.index;
          glyphs.push_back(glyph);
@@ -225,19 +244,5 @@ FT_Error initFreeType()
     */
 
     return 0;
-}
-
-FT_Error shutdownFreeType()
-{
-    CHECK_ERROR(FT_Done_FreeType(g_library));
-
-    return 0;
-}
-
-FT_Int * libraryVersion()
-{
-    static FT_Int ver[3];
-    FT_Library_Version(g_library, &ver[0], &ver[1], &ver[2]);
-    return ver;
 }
 

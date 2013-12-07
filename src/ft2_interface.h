@@ -13,6 +13,7 @@ FT_Error initFreeType();
 FT_Error shutdownFreeType();
 const char * errorToString(FT_Error error);
 FT_Int * libraryVersion();
+FT_Error debugPrintTest();
 
 }
 

@@ -251,6 +251,7 @@ main = do
               withWindow wndWdh wndHgt "Twitter" envGLFWEventsQueue $ \envWindow ->
                 withTextureCache cacheSize envImageCache $ \envTextureCache ->
                   withFT2 $ do
+                    when (FlagFT2Test `elem` flags) $ debugPrintTest
                     traceSystemInfo
                     -- Start EKG server (disabled for now)
                     -- ekg <- forkServer "localhost" 8000

@@ -29,6 +29,7 @@ data Flag = FlagOAuthFile String
           | FlagStatTraceInterval String
           | FlagFirehose
           | FlagTraceDisableColor
+          | FlagFT2Test
             deriving (Eq, Show)
 
 defLogFolder, defImageCacheFolder, defTraceFn :: String
@@ -152,6 +153,10 @@ parseCmdLineOpt = do
                            ["verify-img-cache"]
                            (NoArg FlagVerifyImgCache)
                            "debug: try to read & decode all cached images"
+                  , Option []
+                           ["ft2-test"]
+                           (NoArg FlagFT2Test)
+                           "debug: output some text rendered by FreeType 2 to the terminal"
                   , Option ['h']
                            ["help"]
                            (NoArg FlagHelp)

@@ -3,6 +3,7 @@
 
 module FT2Interface ( withFT2
                     , libraryVersion
+                    , debugPrintTest
                     , FT2Exception(..)
                     ) where
 
@@ -51,6 +52,9 @@ libraryVersion = do
     else do [major, minor, patch] <- forM [0..2] $ \i -> fromIntegral <$> peek (ver `advancePtr` i)
             return (major, minor, patch)
 
+debugPrintTest :: IO ()
+debugPrintTest = checkReturn "debugPrintTest" =<< c_debugPrintTest
+
 foreign import ccall unsafe "ft2_interface.h initFreeType"
     c_initFreeType :: IO CInt
 foreign import ccall unsafe "ft2_interface.h shutdownFreeType"
@@ -59,4 +63,6 @@ foreign import ccall unsafe "ft2_interface.h errorToString"
     c_errorToString :: CInt -> IO CString
 foreign import ccall unsafe "ft2_interface.h libraryVersion"
     c_libraryVersion :: IO (Ptr CInt)
+foreign import ccall unsafe "ft2_interface.h debugPrintTest"
+    c_debugPrintTest :: IO CInt
 
