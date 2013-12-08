@@ -86,10 +86,10 @@ verifyImgCache folder = do
                 Right _  -> putStr "." >> hFlush stdout
     putStrLn ""
 
-traceSystemInfo :: IO ()
-traceSystemInfo = do
+traceSystemInfo :: FT2State -> IO ()
+traceSystemInfo ft2 = do
     cpus                       <- GHC.Conc.getNumProcessors
-    (ft2maj, ft2min, ft2patch) <- libraryVersion
+    (ft2maj, ft2min, ft2patch) <- getFT2Version ft2
     traceS TLInfo =<<
         ( (++) . concat . intersperse " · " $
              [ "System - OS: " ++ SI.os
@@ -250,9 +250,21 @@ main = do
                   wndHgt = 644
               withWindow wndWdh wndHgt "Twitter" envGLFWEventsQueue $ \envWindow ->
                 withTextureCache cacheSize envImageCache $ \envTextureCache ->
-                  withFT2 $ do
-                    when (FlagFT2Test `elem` flags) $ debugPrintTest
-                    traceSystemInfo
+                  withFT2 $ \ft2 -> do
+                    when (FlagFT2Test `elem` flags) $ debugPrintTest ft2
+                    loadTypeFace ft2
+                                 "Futura:h24"
+                                 "/Library/Fonts/Futura.ttc"
+                                 24
+                    loadTypeFace ft2
+                                 "HelvecticaLight:h48"
+                                 "/System/Library/Fonts/HelveticaLight.ttf"
+                                 48
+                    loadTypeFace ft2
+                                 "LucidaGrande:h32"
+                                 "/System/Library/Fonts/LucidaGrande.ttc"
+                                 32
+                    traceSystemInfo ft2
                     -- Start EKG server (disabled for now)
                     -- ekg <- forkServer "localhost" 8000
                     -- Setup reader and state for main AppDraw monad

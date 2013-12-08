@@ -30,14 +30,13 @@ executable jacky
   ghc-options:      -Wall -rtsopts -with-rtsopts=-T -H512m -O2 -threaded
   ghc-prof-options: -fprof-auto -caf-all
 
-  c-sources:        src/ft2_interface.cpp
+  c-sources:        src/ft2_interface.c
   include-dirs:     src/freetype2/include/
-  cc-options:       -g -O3 -mtune=native -Wall -Wextra -Wno-unused-parameter
+  cc-options:       -std=c99 -g -O3 -mtune=native -Wall -Wextra -Wno-unused-parameter
 
   -- TODO: We could get rid of the first three libraries by configuring FT2 to build without them
   -- TODO: We're currently loading the FT2 dylib, link statically
-  -- TODO: Can't use GHCi / Template Haskell because of the stdc++ depedency
-  extra-libraries: z bz2 png12 freetype stdc++
+  extra-libraries: z bz2 png12 freetype
   extra-lib-dirs: /usr/X11/lib src/freetype2/objs/.libs/
 
   default-language: Haskell2010

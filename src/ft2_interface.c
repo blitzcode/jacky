@@ -1,10 +1,9 @@
 
 #include "ft2_interface.h"
 
-#include <cstdio>
-#include <cstdlib>
-#include <vector>
-#include <cassert>
+#include <stdio.h>
+#include <stdlib.h>
+#include <assert.h>
 
 #define CHECK_ERROR(x) do { if ((x) != 0) return (x); } while (0)
 
@@ -30,77 +29,47 @@ const char * errorToString(FT_Error error)
     return NULL;
 }
 
-FT_Library g_library;
-
-FT_Error initFreeType()
-{
-    CHECK_ERROR(FT_Init_FreeType(&g_library));
-    return 0;
-}
-
-FT_Error shutdownFreeType()
-{
-    CHECK_ERROR(FT_Done_FreeType(g_library));
-
-    return 0;
-}
-
-FT_Int * libraryVersion()
-{
-    static FT_Int ver[3];
-    FT_Library_Version(g_library, &ver[0], &ver[1], &ver[2]);
-    return ver;
-}
-
-void debugPrintBitmap(
-    unsigned char *buffer,
+void debugPrintBuffer(
+    const unsigned char *buffer,
     unsigned int width,
     unsigned int height,
     unsigned int pitch)
 {
-    std::printf("\n");
+    printf("\n");
     for (unsigned int y=0; y<height; y++)
     {
         for (unsigned int x=0; x<width; x++)
         {
             unsigned char opacity = buffer[x + y * pitch];
             if (opacity == 0)
-                std::printf("· ");
+                printf("· ");
             else if (opacity < 64)
-                std::printf("░░");
+                printf("░░");
             else if (opacity < 128)
-                std::printf("▒▒");
+                printf("▒▒");
             else if (opacity < 192)
-                std::printf("▓▓");
+                printf("▓▓");
             else
-                std::printf("██");
+                printf("██");
         }
-        std::printf("\n");
+        printf("\n");
     }
-    std::printf("\n");
+    printf("\n");
 }
 
 void debugPrintBitmap(FT_Bitmap bitmap)
 {
-    debugPrintBitmap(bitmap.buffer, bitmap.width, bitmap.rows, bitmap.pitch);
+    debugPrintBuffer(bitmap.buffer, bitmap.width, bitmap.rows, bitmap.pitch);
 }
 
-FT_Error debugPrintTest()
+FT_Error debugPrintTest(FT_Library library)
 {
     FT_Face face;
 
-    struct Glyph
-    {
-        FT_UInt   index;
-        FT_Vector pos;
-        FT_Glyph  image;
-    };
-
     CHECK_ERROR(FT_New_Face(
-            g_library,
+            library,
             //"/Library/Fonts/Futura.ttc",
             "/System/Library/Fonts/HelveticaLight.ttf",
-            //"/Users/Tim/Downloads/news-cycle/newscycle-regular.ttf",
             //"/System/Library/Fonts/LucidaGrande.ttc",
             0,
             &face));
@@ -110,7 +79,14 @@ FT_Error debugPrintTest()
 
     CHECK_ERROR(FT_Set_Pixel_Sizes(face, 0, 32));
 
-    std::vector<Glyph> glyphs;
+    typedef struct
+    {
+        FT_UInt   index;
+        FT_Vector pos;
+        FT_Glyph  image;
+    } Glyph;
+
+    Glyph glyphs[32];
 
     const unsigned int text[] = { 'H', 'g', '!', '@', 0xC2 };
     const size_t ln = sizeof(text) / sizeof(unsigned int);
@@ -124,30 +100,29 @@ FT_Error debugPrintTest()
 
     for (unsigned int i=0, previous=0; i<ln; i++)
     {
-        Glyph glyph;
-        glyph.index = FT_Get_Char_Index(face, text[i]);
+        glyphs[i].index = FT_Get_Char_Index(face, text[i]);
 
-         if (previous != 0 && glyph.index != 0)
+         if (previous != 0 && glyphs[i].index != 0)
          {
              FT_Vector delta;
-             CHECK_ERROR(FT_Get_Kerning(face, previous, glyph.index, FT_KERNING_UNFITTED, &delta));
+             CHECK_ERROR(FT_Get_Kerning(face, previous, glyphs[i].index, FT_KERNING_UNFITTED, &delta));
              //pen_x += delta.x >> 6;
              //printf("%d\n", delta.x);
          }
 
-         glyph.pos.x = pen_x;
-         glyph.pos.y = pen_y;
+         glyphs[i].pos.x = pen_x;
+         glyphs[i].pos.y = pen_y;
 
-         error = FT_Load_Glyph(face, glyph.index, FT_LOAD_DEFAULT);
+         error = FT_Load_Glyph(face, glyphs[i].index, FT_LOAD_DEFAULT);
          if (error)
              continue;
 
-         error = FT_Get_Glyph(face->glyph, &glyph.image);
+         error = FT_Get_Glyph(face->glyph, &glyphs[i].image);
          if (error)
              continue;
 
          FT_BBox glyph_bbox;
-         FT_Glyph_Get_CBox(glyph.image, FT_GLYPH_BBOX_PIXELS, &glyph_bbox);
+         FT_Glyph_Get_CBox(glyphs[i].image, FT_GLYPH_BBOX_PIXELS, &glyph_bbox);
 
          /*
          printf("xmin:%i, xmax:%i, ymin:%i, ymax:%i, bearx:%i, beary:%i\n",
@@ -163,21 +138,24 @@ FT_Error debugPrintTest()
          //glyph_bbox.yMax += g_face->glyph->metrics.horiBearingY >> 6;
          //glyph_bbox.yMin -= (glyph_bbox.yMax - glyph_bbox.yMin) - (g_face->glyph->metrics.horiBearingY >> 6);
 
-         glyph_bbox.xMin += glyph.pos.x;
-         glyph_bbox.xMax += glyph.pos.x;
-         glyph_bbox.yMin += glyph.pos.y;
-         glyph_bbox.yMax += glyph.pos.y;
+         glyph_bbox.xMin += glyphs[i].pos.x;
+         glyph_bbox.xMax += glyphs[i].pos.x;
+         glyph_bbox.yMin += glyphs[i].pos.y;
+         glyph_bbox.yMax += glyphs[i].pos.y;
 
-         bbox.xMin = std::min(bbox.xMin, glyph_bbox.xMin);
-         bbox.xMax = std::max(bbox.xMax, glyph_bbox.xMax);
-         bbox.yMin = std::min(bbox.yMin, glyph_bbox.yMin);
-         bbox.yMax = std::max(bbox.yMax, glyph_bbox.yMax);
+         if (bbox.xMin > glyph_bbox.xMin)
+             bbox.xMin = glyph_bbox.xMin;
+         if (bbox.xMax < glyph_bbox.xMax)
+             bbox.xMax = glyph_bbox.xMax;
+         if (bbox.yMin > glyph_bbox.yMin)
+             bbox.yMin = glyph_bbox.yMin;
+         if (bbox.yMax < glyph_bbox.yMax)
+             bbox.yMax = glyph_bbox.yMax;
 
          //FT_Glyph_Transform(glyph.image, NULL, &glyph.pos);
          pen_x += face->glyph->advance.x >> 6;
 
-         previous = glyph.index;
-         glyphs.push_back(glyph);
+         previous = glyphs[i].index;
     }
     //printf("\n\n");
 
@@ -187,8 +165,8 @@ FT_Error debugPrintTest()
     const int string_wdh = bbox.xMax - bbox.xMin;
     const int string_hgt = bbox.yMax - bbox.yMin;
 
-    std::vector<unsigned char> image(string_wdh * string_hgt);
-    std::fill(image.begin(), image.end(), 0);
+    unsigned char *image = alloca(string_wdh * string_hgt);
+    memset(image, 0, string_wdh * string_hgt);
 
     const int start_x = 0;
     const int start_y = 0;
@@ -220,28 +198,7 @@ FT_Error debugPrintTest()
         FT_Done_Glyph(glyphs[i].image);
     }
 
-    debugPrintBitmap(&image[0], string_wdh, string_hgt, string_wdh);
-
-    /*
-    // error = FT_Load_Char( face, text[n], FT_LOAD_RENDER );
-
-    FT_ULong charcode = 0x2126;
-    FT_UInt glyph_index = FT_Get_Char_Index(g_face, charcode);
-
-    CHECK_ERROR(FT_Load_Glyph(g_face, glyph_index, FT_LOAD_DEFAULT)); // FT_LOAD_RENDER
-
-    FT_GlyphSlot glyph = g_face->glyph;
-
-    FT_Render_Mode render_mode = FT_RENDER_MODE_NORMAL;
-    CHECK_ERROR(FT_Render_Glyph(glyph, render_mode));
-
-    FT_Bitmap bitmap = glyph->bitmap;
-
-    // my_draw_bitmap( &slot->bitmap, pen_x + slot->bitmap_left, pen_y - slot->bitmap_top );
-    // pen_x += slot->advance.x >> 6;
-
-    debugPrintBitmap(bitmap);
-    */
+    debugPrintBuffer(image, string_wdh, string_hgt, string_wdh);
 
     return 0;
 }
