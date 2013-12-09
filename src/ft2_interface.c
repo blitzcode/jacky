@@ -29,6 +29,32 @@ const char * errorToString(FT_Error error)
     return NULL;
 }
 
+FT_Error renderGlyph(
+    FT_Face face,
+    FT_ULong char_code,
+    unsigned int *advance_horz_out,
+    int *bearing_x_out,
+    int *bearing_y_out,
+    unsigned int *bitmap_width_out,
+    unsigned int *bitmap_pitch_out,
+    unsigned int *bitmap_rows_out,
+    unsigned char **bitmap)
+{
+    // This combines FT_Get_Char_Index, FT_Load_Glyph and FT_Glyph_To_Bitmap
+    CHECK_ERROR(FT_Load_Char(face, char_code, FT_LOAD_RENDER));
+
+    (* advance_horz_out) = face->glyph->advance.x >> 6;
+    (* bearing_x_out   ) = face->glyph->bitmap_left;
+    (* bearing_y_out   ) = face->glyph->bitmap_top;
+    (* bitmap_width_out) = face->glyph->bitmap.width;
+    (* bitmap_pitch_out) = face->glyph->bitmap.pitch;
+    (* bitmap_rows_out ) = face->glyph->bitmap.rows;
+    (* bitmap          ) = face->glyph->bitmap.buffer;
+
+    return 0;
+}
+
+// Print buffer to the terminal using Unicode block drawing characters
 void debugPrintBuffer(
     const unsigned char *buffer,
     unsigned int width,
@@ -62,6 +88,7 @@ void debugPrintBitmap(FT_Bitmap bitmap)
     debugPrintBuffer(bitmap.buffer, bitmap.width, bitmap.rows, bitmap.pitch);
 }
 
+// Basic font rendering test / sandbox
 FT_Error debugPrintTest(FT_Library library)
 {
     FT_Face face;

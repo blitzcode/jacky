@@ -1,18 +1,25 @@
 
-{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE DeriveDataTypeable, RecordWildCards #-}
 
 module FT2Interface ( withFT2
                     , FT2State
                     , getFT2Version
-                    , loadTypeFace
+                    , loadTypeface
+                    , renderGlyph
+                    , Glyph(..)
                     , debugPrintTest
                     , FT2Exception(..)
                     ) where
 
 import Control.Applicative
 import Control.Monad
+import Control.Monad.Trans.Maybe
+import Control.Monad.IO.Class
 import Data.Typeable
 import Data.IORef
+import Data.Word
+import qualified Data.Vector.Storable as VS
+import qualified Data.Vector.Storable.Mutable as VSM
 import qualified Data.HashMap.Strict as HM
 import Control.Exception
 import Foreign.C.Types
@@ -21,6 +28,8 @@ import Foreign.Ptr
 import Foreign.Storable
 import Foreign.Marshal.Array
 import Foreign.Marshal.Alloc
+import Foreign.Marshal.Utils
+import Foreign.ForeignPtr.Safe
 
 import Trace
 
@@ -40,11 +49,11 @@ type FT2FaceHandle = Ptr FT2Face
 data FT2Library
 type FT2LibraryHandle = Ptr FT2Library
 
-data TypeFace = TypeFace { tfHandle :: FT2FaceHandle
+data Typeface = Typeface { tfHandle :: FT2FaceHandle
                          }
 
 data FT2State = FT2State { fsLibrary   :: FT2LibraryHandle
-                         , fsTypeFaces :: IORef (HM.HashMap String TypeFace)
+                         , fsTypefaces :: IORef (HM.HashMap String Typeface)
                          }
 
 withFT2 :: (FT2State -> IO a) -> IO a
@@ -58,7 +67,7 @@ withFT2 f = do
               FT2State <$> (peek ptr) <*> newIORef HM.empty
         )
         ( \ft2 -> do traceS TLInfo "Shutting down FreeType"
-                     faces <- readIORef $ fsTypeFaces ft2
+                     faces <- readIORef $ fsTypefaces ft2
                      forM_ (HM.elems faces) $ \face ->
                          checkReturn "shutdown" =<<
                              c_FT_Done_Face (tfHandle face)
@@ -66,9 +75,9 @@ withFT2 f = do
         )
         f
 
-loadTypeFace :: FT2State -> String -> String -> Int -> IO ()
-loadTypeFace ft2 faceName fontFile pixelHeight = do
-    faces <- readIORef $ fsTypeFaces ft2
+loadTypeface :: FT2State -> String -> String -> Int -> IO ()
+loadTypeface ft2 faceName fontFile pixelHeight = do
+    faces <- readIORef $ fsTypefaces ft2
     unless (HM.member faceName faces) $ -- Do nothing if there's a name collision
         withCString fontFile $ \fontFileCStr ->
             alloca $ \facePtr -> do
@@ -77,9 +86,66 @@ loadTypeFace ft2 faceName fontFile pixelHeight = do
                 onException -- Free the face if we fail here
                     ( cr =<< c_FT_Set_Pixel_Sizes face (fromIntegral pixelHeight) 0 )
                     ( cr =<< c_FT_Done_Face face )
-                let newFace = TypeFace { tfHandle = face }
-                writeIORef (fsTypeFaces ft2) $ HM.insert faceName newFace faces
-    where cr = checkReturn ("loadTypeFace " ++ faceName)
+                let newFace = Typeface { tfHandle = face }
+                writeIORef (fsTypefaces ft2) $ HM.insert faceName newFace faces
+    where cr = checkReturn ("loadTypeface " ++ faceName)
+
+data Glyph = Glyph { -- Glyph metrics
+                     -- http://www.freetype.org/freetype2/docs/tutorial/metrics.png
+                     --
+                     gAdvanceHorz :: Int              -- Horizontal offset for the next glyph
+                   , gBearingX    :: Int              -- X & Y offset for positioning the bitmap
+                   , gBearingY    :: Int              --   relative to the current pen position
+                     -- Glyph bitmap
+                   , gBitmap      :: VS.Vector Word8  -- Glyph grayscale image
+                   , gWidth       :: Int              -- Dimensions of glyph image
+                   , gHeight      :: Int              -- ...
+                   }
+
+renderGlyph :: FT2State -> Char -> String -> IO (Maybe Glyph)
+renderGlyph ft2 c faceName = do
+    runMaybeT $ do
+        faces <- liftIO . readIORef $ fsTypefaces ft2
+        face <- case HM.lookup faceName faces of -- Fail if we can't find the typeface
+                    Nothing -> mzero
+                    Just x  -> return x
+        -- Call C wrapper
+        liftIO $ with 0       $ \advanceHorz ->
+                 with 0       $ \bearingX    ->
+                 with 0       $ \bearingY    ->
+                 with 0       $ \bitmapWidth ->
+                 with 0       $ \bitmapPitch ->
+                 with 0       $ \bitmapRows  ->
+                 with nullPtr $ \bitmap      -> do
+                     checkReturn "renderGlyph" =<<
+                         c_renderGlyph (tfHandle face)
+                                       (fromIntegral $ fromEnum c)
+                                       advanceHorz
+                                       bearingX
+                                       bearingY
+                                       bitmapWidth
+                                       bitmapPitch
+                                       bitmapRows
+                                       bitmap
+                     -- Extract data passed back through pointers
+                     gAdvanceHorz <- fromIntegral <$> peek advanceHorz
+                     gBearingX    <- fromIntegral <$> peek bearingX
+                     gBearingY    <- fromIntegral <$> peek bearingY
+                     gWidth       <- fromIntegral <$> peek bitmapWidth
+                     pitch        <- fromIntegral <$> peek bitmapPitch
+                     gHeight      <- fromIntegral <$> peek bitmapRows
+                     -- Copy and convert bitmap image
+                     bitmapVS     <- VS.unsafeFromForeignPtr0
+                                         <$> (newForeignPtr_ =<< peek bitmap)
+                                         <*> pure (pitch * gHeight)
+                     let gBitmap = VS.create $ do
+                             v <- VSM.new $ gWidth * gHeight
+                             forM_ [(x, y) | y <- [0..gHeight - 1], x <- [0..gWidth - 1]]
+                                 $ \(x, y) ->
+                                     VSM.write v (x + y * gWidth)
+                                         . fromIntegral $ bitmapVS VS.! (x + y * pitch)
+                             return v
+                     return $ Glyph { .. }
 
 -- Check a FT return value and throw an exception for errors
 checkReturn :: String -> CInt -> IO ()
@@ -123,4 +189,15 @@ foreign import ccall unsafe "ft2_interface.h errorToString"
     c_errorToString :: CInt -> IO CString
 foreign import ccall unsafe "ft2_interface.h debugPrintTest"
     c_debugPrintTest :: FT2LibraryHandle -> IO CInt
+foreign import ccall unsafe "ft2_interface.h debugPrintTest"
+    c_renderGlyph :: FT2FaceHandle
+                  -> CULong
+                  -> Ptr CUInt
+                  -> Ptr CInt
+                  -> Ptr CInt
+                  -> Ptr CUInt
+                  -> Ptr CUInt
+                  -> Ptr CUInt
+                  -> Ptr (Ptr CUChar)
+                  -> IO CInt
 

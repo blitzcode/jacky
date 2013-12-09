@@ -252,15 +252,15 @@ main = do
                 withTextureCache cacheSize envImageCache $ \envTextureCache ->
                   withFT2 $ \ft2 -> do
                     when (FlagFT2Test `elem` flags) $ debugPrintTest ft2
-                    loadTypeFace ft2
+                    loadTypeface ft2
                                  "Futura:h24"
                                  "/Library/Fonts/Futura.ttc"
                                  24
-                    loadTypeFace ft2
+                    loadTypeface ft2
                                  "HelvecticaLight:h48"
                                  "/System/Library/Fonts/HelveticaLight.ttf"
                                  48
-                    loadTypeFace ft2
+                    loadTypeface ft2
                                  "LucidaGrande:h32"
                                  "/System/Library/Fonts/LucidaGrande.ttc"
                                  32
