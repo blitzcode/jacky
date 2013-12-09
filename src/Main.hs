@@ -211,7 +211,7 @@ main = do
                 _                -> r)
                 defConTimeout flags
         in  withManagerSettings
-                def { managerConnCount, managerResponseTimeout }
+                 conduitManagerSettings { managerConnCount, managerResponseTimeout }
                 $ \manager -> liftIO $ do
           -- Launch thread(s) for parsing status updates
           envSMQueue <- newTBQueueIO 1024 :: IO (TBQueue StreamMessage)
