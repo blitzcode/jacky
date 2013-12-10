@@ -205,7 +205,7 @@ getKerning face left right = do
         checkReturn "getKerning" =<<
             c_FT_Get_Kerning (tfHandle face) leftIdx rightIdx 0 kerningVec
         kernHorz <- fromIntegral <$> peek kerningVec
-        return $ kernHorz `shiftR` 6
+        return $ kernHorz `shiftR` 6 -- Offset is in 26.6 fixed-point
 
 -- Check a FT return value and throw an exception for errors
 checkReturn :: String -> CInt -> IO ()
