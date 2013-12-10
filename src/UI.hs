@@ -1,5 +1,5 @@
 
-{-# LANGUAGE PackageImports, RecordWildCards #-}
+{-# LANGUAGE PackageImports, RecordWildCards, LambdaCase #-}
 
 module UI ( UIState
           , UIT
@@ -176,23 +176,25 @@ textBitmap :: MonadIO m
 textBitmap ft2 faceName string = do
     (Rectangle x1 y1 _ _) <- gets uisRect
     liftIO $ foldM_
-        ( \xoffs c -> do
-              Just Glyph { .. } <- renderGlyph ft2 c faceName
-              GL.windowPos (GL.Vertex2 (fromIntegral $ xoffs + gBearingX)
-                                       (fromIntegral $ (round y1) + (gBearingY - gHeight))
-                                       :: GL.Vertex2 GL.GLint)
-              -- Our pixels are just 8 bit, might not conform to the default 32 bit alignment
-              GL.rowAlignment GL.Unpack GL.$= 1
-              -- Draw black text
-              GL.blend      GL.$= GL.Enabled
-              GL.blendFunc  GL.$= (GL.SrcAlpha, GL.OneMinusSrcAlpha)
-              -- GL.depthMask GL.$= GL.Disabled
-              VS.unsafeWith gBitmap (\ptr ->
-                  GL.drawPixels (GL.Size (fromIntegral gWidth) (fromIntegral gHeight))
-                                (GL.PixelData GL.Alpha GL.UnsignedByte ptr)) 
-              -- GL.depthMask GL.$= GL.Enabled
-              GL.blend      GL.$= GL.Disabled
-              return $ xoffs + gAdvanceHorz
+        ( \xoffs c ->
+              renderGlyph ft2 c faceName >>= \case
+                  Just Glyph { .. } -> do
+                      GL.windowPos (GL.Vertex2 (fromIntegral $ xoffs + gBearingX)
+                                               (fromIntegral $ (round y1) + (gBearingY - gHeight))
+                                               :: GL.Vertex2 GL.GLint)
+                      -- Our pixels are 8 bit, might not conform to the default 32 bit alignment
+                      GL.rowAlignment GL.Unpack GL.$= 1
+                      -- Draw black text
+                      GL.blend      GL.$= GL.Enabled
+                      GL.blendFunc  GL.$= (GL.SrcAlpha, GL.OneMinusSrcAlpha)
+                      -- GL.depthMask GL.$= GL.Disabled
+                      VS.unsafeWith gBitmap (\ptr ->
+                          GL.drawPixels (GL.Size (fromIntegral gWidth) (fromIntegral gHeight))
+                                        (GL.PixelData GL.Alpha GL.UnsignedByte ptr)) 
+                      -- GL.depthMask GL.$= GL.Enabled
+                      GL.blend      GL.$= GL.Disabled
+                      return $ xoffs + gAdvanceHorz
+                  Nothing -> return xoffs
         ) (round x1) string
 
 fill :: MonadIO m
