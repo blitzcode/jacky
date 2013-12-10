@@ -348,8 +348,7 @@
     FT_GlyphLoader  gloader    = load->gloader;
     FT_Int          n_contours = load->n_contours;
     FT_Outline*     outline;
-    TT_Face         face       = (TT_Face)load->face;
-    FT_UShort       n_ins, max_ins;
+    FT_UShort       n_ins;
     FT_Int          n_points;
     FT_ULong        tmp;
 
@@ -418,30 +417,6 @@
     FT_TRACE5(( "  Instructions size: %u\n", n_ins ));
 
     /* check it */
-    max_ins = face->max_profile.maxSizeOfInstructions;
-    if ( n_ins > max_ins )
-    {
-      /* don't trust `maxSizeOfInstructions'; */
-      /* only do a rough safety check         */
-      if ( (FT_Int)n_ins > load->byte_len )
-      {
-        FT_TRACE1(( "TT_Load_Simple_Glyph:"
-                    " too many instructions (%d) for glyph with length %d\n",
-                    n_ins, load->byte_len ));
-        return FT_THROW( Too_Many_Hints );
-      }
-
-      tmp = load->exec->glyphSize;
-      error = Update_Max( load->exec->memory,
-                          &tmp,
-                          sizeof ( FT_Byte ),
-                          (void*)&load->exec->glyphIns,
-                          n_ins );
-      load->exec->glyphSize = (FT_UShort)tmp;
-      if ( error )
-        return error;
-    }
-
     if ( ( limit - p ) < n_ins )
     {
       FT_TRACE0(( "TT_Load_Simple_Glyph: instruction count mismatch\n" ));
@@ -453,6 +428,20 @@
 
     if ( IS_HINTED( load->load_flags ) )
     {
+      /* we don't trust `maxSizeOfInstructions' in the `maxp' table */
+      /* and thus update the bytecode array size by ourselves       */
+
+      tmp   = load->exec->glyphSize;
+      error = Update_Max( load->exec->memory,
+                          &tmp,
+                          sizeof ( FT_Byte ),
+                          (void*)&load->exec->glyphIns,
+                          n_ins );
+
+      load->exec->glyphSize = (FT_UShort)tmp;
+      if ( error )
+        return error;
+
       load->glyph->control_len  = n_ins;
       load->glyph->control_data = load->exec->glyphIns;
 
@@ -799,9 +788,13 @@
     }
 #endif
 
-    /* round pp2 and pp4 */
+    /* round phantom points */
+    zone->cur[zone->n_points - 4].x =
+      FT_PIX_ROUND( zone->cur[zone->n_points - 4].x );
     zone->cur[zone->n_points - 3].x =
       FT_PIX_ROUND( zone->cur[zone->n_points - 3].x );
+    zone->cur[zone->n_points - 2].y =
+      FT_PIX_ROUND( zone->cur[zone->n_points - 2].y );
     zone->cur[zone->n_points - 1].y =
       FT_PIX_ROUND( zone->cur[zone->n_points - 1].y );
 
@@ -839,13 +832,10 @@
 #endif
 
     /* save glyph phantom points */
-    if ( !loader->preserve_pps )
-    {
-      loader->pp1 = zone->cur[zone->n_points - 4];
-      loader->pp2 = zone->cur[zone->n_points - 3];
-      loader->pp3 = zone->cur[zone->n_points - 2];
-      loader->pp4 = zone->cur[zone->n_points - 1];
-    }
+    loader->pp1 = zone->cur[zone->n_points - 4];
+    loader->pp2 = zone->cur[zone->n_points - 3];
+    loader->pp3 = zone->cur[zone->n_points - 2];
+    loader->pp4 = zone->cur[zone->n_points - 1];
 
 #ifdef TT_CONFIG_OPTION_SUBPIXEL_HINTING
     if ( driver->interpreter_version == TT_INTERPRETER_VERSION_38 )
@@ -1244,12 +1234,13 @@
           return FT_THROW( Too_Many_Hints );
         }
 
-        tmp = loader->exec->glyphSize;
+        tmp   = loader->exec->glyphSize;
         error = Update_Max( loader->exec->memory,
                             &tmp,
                             sizeof ( FT_Byte ),
                             (void*)&loader->exec->glyphIns,
                             n_ins );
+
         loader->exec->glyphSize = (FT_UShort)tmp;
         if ( error )
           return error;
@@ -1292,8 +1283,11 @@
    * specification defines the initial position of horizontal phantom points
    * as
    *
-   *   pp1 = (xmin - lsb, 0)      ,
-   *   pp2 = (pp1 + aw, 0)        .
+   *   pp1 = (round(xmin - lsb), 0)      ,
+   *   pp2 = (round(pp1 + aw), 0)        .
+   *
+   * Note that the rounding to the grid is not documented currently in the
+   * specification.
    *
    * However, the specification lacks the precise definition of vertical
    * phantom points.  Greg Hitchcock provided the following explanation.
@@ -1309,8 +1303,8 @@
    *
    *   and the initial position of vertical phantom points is
    *
-   *     pp3 = (x, ymax + tsb)       ,
-   *     pp4 = (x, pp3 - ah)         .
+   *     pp3 = (x, round(ymax + tsb))       ,
+   *     pp4 = (x, round(pp3 - ah))         .
    *
    *   See below for value `x'.
    *
@@ -1335,25 +1329,72 @@
    *
    * Usually we have
    *
-   *   x = aw / 2      ,
+   *   x = aw / 2      ,                                                (1)
    *
-   * but there is a compatibility case where it can be set to
+   * but there is one compatibility case where it can be set to
    *
    *   x = -DefaultDescender -
-   *         ((DefaultAscender - DefaultDescender - aw) / 2)     .
+   *         ((DefaultAscender - DefaultDescender - aw) / 2)     .      (2)
+   *
+   * and another one with
+   *
+   *   x = 0     .                                                      (3)
+   *
+   * In Windows, the history of those values is quite complicated,
+   * depending on the hinting engine (that is, the graphics framework).
+   *
+   *   framework        from                 to       formula
+   *  ----------------------------------------------------------
+   *    GDI       Windows 98               current      (1)
+   *              (Windows 2000 for NT)
+   *    GDI+      Windows XP               Windows 7    (2)
+   *    GDI+      Windows 8                current      (3)
+   *    DWrite    Windows 7                current      (3)
+   *
+   * For simplicity, FreeType uses (1) for grayscale subpixel hinting and
+   * (3) for everything else.
    *
    */
+#ifdef TT_CONFIG_OPTION_SUBPIXEL_HINTING
+
 #define TT_LOADER_SET_PP( loader )                                          \
-          do {                                                              \
+          do                                                                \
+          {                                                                 \
+            FT_Bool  subpixel_  = loader->exec                              \
+                                    ? loader->exec->subpixel_hinting        \
+                                    : 0;                                    \
+            FT_Bool  grayscale_ = loader->exec                              \
+                                    ? loader->exec->grayscale_hinting       \
+                                    : 0;                                    \
+            FT_Bool  use_aw_2_  = (FT_Bool)( subpixel_ && grayscale_ );     \
+                                                                            \
+                                                                            \
             (loader)->pp1.x = (loader)->bbox.xMin - (loader)->left_bearing; \
             (loader)->pp1.y = 0;                                            \
             (loader)->pp2.x = (loader)->pp1.x + (loader)->advance;          \
             (loader)->pp2.y = 0;                                            \
-            (loader)->pp3.x = (loader)->advance / 2;                        \
+            (loader)->pp3.x = use_aw_2_ ? (loader)->advance / 2 : 0;        \
             (loader)->pp3.y = (loader)->bbox.yMax + (loader)->top_bearing;  \
-            (loader)->pp4.x = (loader)->advance / 2;                        \
+            (loader)->pp4.x = use_aw_2_ ? (loader)->advance / 2 : 0;        \
             (loader)->pp4.y = (loader)->pp3.y - (loader)->vadvance;         \
           } while ( 0 )
+
+#else /* !TT_CONFIG_OPTION_SUBPIXEL_HINTING */
+
+#define TT_LOADER_SET_PP( loader )                                          \
+          do                                                                \
+          {                                                                 \
+            (loader)->pp1.x = (loader)->bbox.xMin - (loader)->left_bearing; \
+            (loader)->pp1.y = 0;                                            \
+            (loader)->pp2.x = (loader)->pp1.x + (loader)->advance;          \
+            (loader)->pp2.y = 0;                                            \
+            (loader)->pp3.x = 0;                                            \
+            (loader)->pp3.y = (loader)->bbox.yMax + (loader)->top_bearing;  \
+            (loader)->pp4.x = 0;                                            \
+            (loader)->pp4.y = (loader)->pp3.y - (loader)->vadvance;         \
+          } while ( 0 )
+
+#endif /* !TT_CONFIG_OPTION_SUBPIXEL_HINTING */
 
 
   /*************************************************************************/
