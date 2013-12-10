@@ -82,10 +82,10 @@ draw = do
         GL.clear [GL.ColorBuffer, GL.DepthBuffer]
         GL.depthFunc GL.$= Just GL.Lequal
 
-    ft2       <- asks envFT2
     tweetText <- (maybe "" (\(tw, _) -> T.unpack $ twText tw) . M.maxView) <$> gets stTweetByID
     rc        <- liftIO $ rectFromWndFB window
-    Just face <- liftIO $ getLoadedTypeface ft2 "Helvetica" 48
+    ft2       <- asks envFT2
+    Just face <- liftIO $ getLoadedTypeface ft2 "Verdana" 12
     void $ runUI rc 1000 $ do
         fill (FCBottomTopGradient (RGBA 0.2 0.2 0.2 1) (RGBA 0.4 0.4 1 1))
              FTNone

@@ -193,6 +193,10 @@ renderGlyph face c = do
             gBitmap `seq` return $ Glyph { .. }
 
 -- Return horizontal kerning for the two passed characters in the given typeface
+--
+-- TODO: It seems that FT2 can't actually use the type of kerning information present in
+--       most fonts (kern vs GPOS table)
+--
 getKerning :: Typeface -> Char -> Char -> IO Int
 getKerning face left right = do
     [leftIdx, rightIdx] <-

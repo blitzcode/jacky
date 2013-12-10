@@ -79,6 +79,7 @@ data UIState = UIState { uisRect  :: {-# UNPACK #-} !Rectangle
 
 type UIT m a = StateT UIState m a
 
+-- TODO: Maybe we should rather put this in the GLFW module or somewhere else?
 rectFromWndFB :: GLFW.Window -> IO Rectangle
 rectFromWndFB wnd = do
     (rcX2, rcY2) <- liftIO $ (\(w, h) -> (fromIntegral w, fromIntegral h))
@@ -168,6 +169,7 @@ data FillTransparency = FTNone
                       | FTSrcAlpha
                       deriving (Show)
 
+-- Very basic text rendering. Have FT2 render all the glyphs and draw them using glDrawPixels
 textBitmap :: MonadIO m
      => Typeface
      -> String
@@ -175,10 +177,14 @@ textBitmap :: MonadIO m
 textBitmap face string = do
     (Rectangle x1 y1 _ _) <- gets uisRect
     liftIO $ foldM_
-        ( \xoffs c ->
+        ( \(xoffs, prevc) c ->
               renderGlyph face c >>= \case
                   Glyph { .. } -> do
-                      GL.windowPos (GL.Vertex2 (fromIntegral $ xoffs + gBearingX)
+                      -- Set lower-left origin for glyph, taking into account kerning, bearing etc.
+                      kernHorz <- getKerning face prevc c
+                      -- Debug print kerning pairs
+                      -- when (kernHorz /= 0) . putStrLn $ [c, prevc, ' '] ++ show kernHorz
+                      GL.windowPos (GL.Vertex2 (fromIntegral $ xoffs + gBearingX + kernHorz)
                                                (fromIntegral $ (round y1) + (gBearingY - gHeight))
                                                :: GL.Vertex2 GL.GLint)
                       -- Our pixels are 8 bit, might not conform to the default 32 bit alignment
@@ -192,8 +198,8 @@ textBitmap face string = do
                                         (GL.PixelData GL.Alpha GL.UnsignedByte ptr)) 
                       -- GL.depthMask GL.$= GL.Enabled
                       GL.blend      GL.$= GL.Disabled
-                      return $ xoffs + gAdvanceHorz
-        ) (round x1) string
+                      return $ (xoffs + gAdvanceHorz, c)
+        ) (round x1, toEnum 0) string
 
 fill :: MonadIO m
      => FillColor
