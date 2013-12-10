@@ -18,6 +18,15 @@ FT_Error renderGlyph(
     unsigned int *bitmap_pitch_out,
     unsigned int *bitmap_rows_out,
     unsigned char **bitmap);
+void faceInfo(
+    FT_Face face,
+    FT_String **family_name_out,
+    FT_String **style_name_out,
+    FT_Long *num_glyphs_out,
+    int *has_kerning_out,
+    FT_Short *height_out,
+    FT_Short *ascender_out,
+    FT_Short *descender_out);
 
 #endif // FT2_INTERFACE_H
 

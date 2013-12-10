@@ -15,10 +15,10 @@ import Control.Applicative
 import Control.Monad
 import Control.Monad.Trans.Maybe
 import Control.Monad.IO.Class
-import Control.DeepSeq
 import Data.Typeable
 import Data.IORef
 import Data.Word
+import Text.Printf
 import qualified Data.Vector.Storable as VS
 import qualified Data.Vector.Storable.Mutable as VSM
 import qualified Data.HashMap.Strict as HM
@@ -87,6 +87,34 @@ loadTypeface ft2 faceName fontFile pixelHeight = do
                 onException -- Free the face if we fail here
                     ( cr =<< c_FT_Set_Pixel_Sizes face (fromIntegral pixelHeight) 0 )
                     ( cr =<< c_FT_Done_Face face )
+                -- Trace what we just loaded
+                with     nullPtr $ \familyName ->
+                    with nullPtr $ \styleName  ->
+                    with 0       $ \numGlyphs  ->
+                    with 0       $ \hasKerning ->
+                    with 0       $ \height     ->
+                    with 0       $ \ascender   ->
+                    with 0       $ \descender  -> do
+                        c_faceInfo face
+                                   familyName
+                                   styleName
+                                   numGlyphs
+                                   hasKerning
+                                   height
+                                   ascender
+                                   descender
+                        traceS TLInfo =<< printf
+                            "Font: %s, %s · Hgt/Asc/Dsc: %i/%i/%ipx · %iGlys · %s"
+                            <$> (peekCAString =<< peek familyName)
+                            <*> (peekCAString =<< peek styleName)
+                            <*> (fromIntegral <$> peek height    :: IO Int)
+                            <*> (fromIntegral <$> peek ascender  :: IO Int)
+                            <*> (fromIntegral <$> peek descender :: IO Int)
+                            <*> (fromIntegral <$> peek numGlyphs :: IO Int)
+                            <*> ((\x -> if   x /= 0
+                                        then "Kern"
+                                        else "NoKern") <$> peek hasKerning)
+                -- Store in state
                 let newFace = Typeface { tfHandle = face }
                 writeIORef (fsTypefaces ft2) $ HM.insert faceName newFace faces
     where cr = checkReturn ("loadTypeface " ++ faceName)
@@ -206,4 +234,14 @@ foreign import ccall unsafe "ft2_interface.h renderGlyph"
                   -> Ptr CUInt
                   -> Ptr (Ptr CUChar)
                   -> IO CInt
+foreign import ccall unsafe "ft2_interface.h faceInfo"
+    c_faceInfo :: FT2FaceHandle
+                  -> Ptr CString
+                  -> Ptr CString
+                  -> Ptr CLong
+                  -> Ptr CInt
+                  -> Ptr CShort
+                  -> Ptr CShort
+                  -> Ptr CShort
+                  -> IO ()
 

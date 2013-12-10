@@ -88,6 +88,30 @@ FT_Error renderGlyph(
     return 0;
 }
 
+void faceInfo(
+    FT_Face face,
+    FT_String **family_name_out,
+    FT_String **style_name_out,
+    FT_Long *num_glyphs_out,
+    int *has_kerning_out,
+    FT_Short *height_out,
+    FT_Short *ascender_out,
+    FT_Short *descender_out)
+{
+    (* family_name_out) = face->family_name;
+    (* style_name_out ) = face->style_name;
+    (* num_glyphs_out ) = face->num_glyphs;
+    (* has_kerning_out) = FT_HAS_KERNING(face);
+    if (face->size != NULL)
+    {
+        (* height_out   ) = face->size->metrics.height    >> 6;
+        (* ascender_out ) = face->size->metrics.ascender  >> 6;
+        (* descender_out) = face->size->metrics.descender >> 6;
+    }
+    else
+        (* height_out) = (* ascender_out) = (* descender_out) = 0;
+}
+
 // Basic font rendering test / sandbox
 FT_Error debugPrintTest(FT_Library library)
 {
