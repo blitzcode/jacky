@@ -169,16 +169,15 @@ data FillTransparency = FTNone
                       deriving (Show)
 
 textBitmap :: MonadIO m
-     => FT2State
-     -> String
+     => Typeface
      -> String
      -> UIT m ()
-textBitmap ft2 faceName string = do
+textBitmap face string = do
     (Rectangle x1 y1 _ _) <- gets uisRect
     liftIO $ foldM_
         ( \xoffs c ->
-              renderGlyph ft2 c faceName >>= \case
-                  Just Glyph { .. } -> do
+              renderGlyph face c >>= \case
+                  Glyph { .. } -> do
                       GL.windowPos (GL.Vertex2 (fromIntegral $ xoffs + gBearingX)
                                                (fromIntegral $ (round y1) + (gBearingY - gHeight))
                                                :: GL.Vertex2 GL.GLint)
@@ -194,7 +193,6 @@ textBitmap ft2 faceName string = do
                       -- GL.depthMask GL.$= GL.Enabled
                       GL.blend      GL.$= GL.Disabled
                       return $ xoffs + gAdvanceHorz
-                  Nothing -> return xoffs
         ) (round x1) string
 
 fill :: MonadIO m
@@ -219,8 +217,8 @@ fillDraw rc depth col trans tex = do
         pos' = [ (x1, y1), (x2, y1), (x2, y2), (x1, y2) ]
         cols = case col of FCWhite                 -> replicate 4 (RGBA 1 1 1 1)
                            FCSolid c               -> replicate 4 c
-                           FCBottomTopGradient b t -> b : b : t : t : []
-                           FCLeftRightGradient l r -> l : r : l : r : []
+                           FCBottomTopGradient b t -> [b, b, t, t]
+                           FCLeftRightGradient l r -> [l, r, l, r]
         texs = [ (0, 0), (1, 0), (1, 1), (0, 1) ]
     case trans of FTNone         -> GL.blend GL.$= GL.Disabled
                   FTBlend weight -> do

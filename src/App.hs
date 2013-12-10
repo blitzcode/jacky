@@ -51,7 +51,7 @@ data Env = Env
     , envTextureCache      :: TextureCache
     , envTweetHistSize     :: Int
     , envStatTraceInterval :: Double
-    , envFT2               :: FT2State
+    , envFT2               :: FT2Library
     }
 
 data State = State
@@ -85,6 +85,7 @@ draw = do
     ft2       <- asks envFT2
     tweetText <- (maybe "" (\(tw, _) -> T.unpack $ twText tw) . M.maxView) <$> gets stTweetByID
     rc        <- liftIO $ rectFromWndFB window
+    Just face <- liftIO $ getLoadedTypeface ft2 "Helvetica" 48
     void $ runUI rc 1000 $ do
         fill (FCBottomTopGradient (RGBA 0.2 0.2 0.2 1) (RGBA 0.4 0.4 1 1))
              FTNone
@@ -92,17 +93,14 @@ draw = do
         layer $
             split SBottom 16
                 ( do fill FCWhite (FTBlend 0.5) Nothing
-                     textBitmap ft2
-                                "Verdana:h12"
+                     textBitmap face
                                 ( "Some more text down here - 1234567890 !@#$%^&*()_+" ++
                                   " - Jacky Font Rendering Test @ Ä Ö Ü 漢字 / Many words"
                                 )
                 )
                 ( split STop 100
                       ( do fill FCWhite (FTBlend 0.5) Nothing
-                           textBitmap ft2
-                                      "LucidaGrande:h32"
-                                      tweetText
+                           textBitmap face tweetText
                       )
                       ( drawAvatarTiles
                         -- fill (FCLeftRightGradient (1, 0, 0, 1) (0, 1, 0, 1)) FTNone Nothing
@@ -295,22 +293,10 @@ run = do
     -- Load fonts
     ft2 <- asks envFT2
     liftIO $ do
-        loadTypeface ft2
-                     "Futura:h24"
-                     "/Library/Fonts/Futura.ttc"
-                     24
-        loadTypeface ft2
-                     "HelvecticaLight:h48"
-                     "/System/Library/Fonts/HelveticaLight.ttf"
-                     48
-        loadTypeface ft2
-                     "LucidaGrande:h32"
-                     "/System/Library/Fonts/LucidaGrande.ttc"
-                     32
-        loadTypeface ft2
-                     "Verdana:h12"
-                     "/Library/Fonts/Microsoft/Verdana.ttf"
-                     12
+        void $ loadTypeface ft2 "/Library/Fonts/Futura.ttc"                24
+        void $ loadTypeface ft2 "/System/Library/Fonts/HelveticaLight.ttf" 48
+        void $ loadTypeface ft2 "/System/Library/Fonts/LucidaGrande.ttc"   32
+        void $ loadTypeface ft2 "/Library/Fonts/Microsoft/Verdana.ttf"     12
     -- Main loop
     let loop = do
           time <- liftIO $ getTick

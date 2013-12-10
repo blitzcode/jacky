@@ -86,7 +86,7 @@ verifyImgCache folder = do
                 Right _  -> putStr "." >> hFlush stdout
     putStrLn ""
 
-traceSystemInfo :: FT2State -> IO ()
+traceSystemInfo :: FT2Library -> IO ()
 traceSystemInfo ft2 = do
     cpus                       <- GHC.Conc.getNumProcessors
     (ft2maj, ft2min, ft2patch) <- getFT2Version ft2
