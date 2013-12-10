@@ -15,6 +15,7 @@ import Control.Applicative
 import Control.Monad
 import Control.Monad.Trans.Maybe
 import Control.Monad.IO.Class
+import Control.DeepSeq
 import Data.Typeable
 import Data.IORef
 import Data.Word
@@ -103,7 +104,7 @@ data Glyph = Glyph { -- Glyph metrics
                    }
 
 renderGlyph :: FT2State -> Char -> String -> IO (Maybe Glyph)
-renderGlyph ft2 c faceName = do
+renderGlyph ft2 c faceName =
     runMaybeT $ do
         faces <- liftIO . readIORef $ fsTypefaces ft2
         face <- case HM.lookup faceName faces of -- Fail if we can't find the typeface
@@ -134,7 +135,7 @@ renderGlyph ft2 c faceName = do
                      gWidth       <- fromIntegral <$> peek bitmapWidth
                      pitch        <- fromIntegral <$> peek bitmapPitch
                      gHeight      <- fromIntegral <$> peek bitmapRows
-                     -- Copy and convert bitmap image
+                     -- Copy and convert (pitch == width) bitmap image
                      bitmapVS     <- VS.unsafeFromForeignPtr0
                                          <$> (newForeignPtr_ =<< peek bitmap)
                                          <*> pure (pitch * gHeight)
@@ -142,10 +143,15 @@ renderGlyph ft2 c faceName = do
                              v <- VSM.new $ gWidth * gHeight
                              forM_ [(x, y) | y <- [0..gHeight - 1], x <- [0..gWidth - 1]]
                                  $ \(x, y) ->
-                                     VSM.write v (x + y * gWidth)
-                                         . fromIntegral $ bitmapVS VS.! (x + y * pitch)
+                                     VSM.write v (x + y * gWidth) . fromIntegral $
+                                         bitmapVS VS.! (x + (gHeight - 1 - y) * pitch) -- Flip
                              return v
-                     return $ Glyph { .. }
+                     -- TODO: The bitmap returned by renderGlyph_c is from the face's
+                     --       glyph slot and will be overwritten on the next invocation.
+                     --       Do we need to add more strictness to ensure that gBitmap
+                     --       does no longer depend on the bitmapVS wrapper around that
+                     --       storage?
+                     gBitmap `seq` return $ Glyph { .. }
 
 -- Check a FT return value and throw an exception for errors
 checkReturn :: String -> CInt -> IO ()
@@ -189,7 +195,7 @@ foreign import ccall unsafe "ft2_interface.h errorToString"
     c_errorToString :: CInt -> IO CString
 foreign import ccall unsafe "ft2_interface.h debugPrintTest"
     c_debugPrintTest :: FT2LibraryHandle -> IO CInt
-foreign import ccall unsafe "ft2_interface.h debugPrintTest"
+foreign import ccall unsafe "ft2_interface.h renderGlyph"
     c_renderGlyph :: FT2FaceHandle
                   -> CULong
                   -> Ptr CUInt

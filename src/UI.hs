@@ -17,6 +17,7 @@ module UI ( UIState
           , FillColor(..)
           , FillTransparency(..)
           , fill
+          , textBitmap
           ) where
 
 import Control.Monad
@@ -26,9 +27,11 @@ import Control.Monad.IO.Class
 import qualified Graphics.Rendering.OpenGL as GL
 import qualified "GLFW-b" Graphics.UI.GLFW as GLFW
 import Data.Tuple
+import qualified Data.Vector.Storable as VS
 
 import GLHelpers
 import StateModify
+import FT2Interface
 
 -- Drawing, layout and event handling for the user interface
 
@@ -164,6 +167,33 @@ data FillTransparency = FTNone
                       | FTBlend !Float
                       | FTSrcAlpha
                       deriving (Show)
+
+textBitmap :: MonadIO m
+     => FT2State
+     -> String
+     -> String
+     -> UIT m ()
+textBitmap ft2 faceName string = do
+    (Rectangle x1 y1 _ _) <- gets uisRect
+    liftIO $ foldM_
+        ( \xoffs c -> do
+              Just Glyph { .. } <- renderGlyph ft2 c faceName
+              GL.windowPos (GL.Vertex2 (fromIntegral $ xoffs + gBearingX)
+                                       (fromIntegral $ (round y1) + (gBearingY - gHeight))
+                                       :: GL.Vertex2 GL.GLint)
+              -- Our pixels are just 8 bit, might not conform to the default 32 bit alignment
+              GL.rowAlignment GL.Unpack GL.$= 1
+              -- Draw black text
+              GL.blend      GL.$= GL.Enabled
+              GL.blendFunc  GL.$= (GL.SrcAlpha, GL.OneMinusSrcAlpha)
+              -- GL.depthMask GL.$= GL.Disabled
+              VS.unsafeWith gBitmap (\ptr ->
+                  GL.drawPixels (GL.Size (fromIntegral gWidth) (fromIntegral gHeight))
+                                (GL.PixelData GL.Alpha GL.UnsignedByte ptr)) 
+              -- GL.depthMask GL.$= GL.Enabled
+              GL.blend      GL.$= GL.Disabled
+              return $ xoffs + gAdvanceHorz
+        ) (round x1) string
 
 fill :: MonadIO m
      => FillColor
