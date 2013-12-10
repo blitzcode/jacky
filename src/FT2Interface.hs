@@ -104,7 +104,7 @@ loadTypeface ft2 faceName fontFile pixelHeight = do
                                    ascender
                                    descender
                         traceS TLInfo =<< printf
-                            "Font: %s, %s · Hgt/Asc/Dsc: %i/%i/%ipx · %iGlys · %s"
+                            "Font: %s, %s · Hgt/Asc/Dsc: %i/%i/%ipx · %iGlyphs · %s"
                             <$> (peekCAString =<< peek familyName)
                             <*> (peekCAString =<< peek styleName)
                             <*> (fromIntegral <$> peek height    :: IO Int)

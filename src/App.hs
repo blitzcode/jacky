@@ -14,10 +14,11 @@ import Control.Monad.Reader
 import Control.Monad.State hiding (State)
 import Data.Monoid
 import Data.Int
+import qualified Data.Text as T
+import Text.Printf
 import qualified Data.Map.Strict as M
 import qualified Data.ByteString.Char8 as B8
 import qualified Data.ByteString as B
-import Text.Printf
 import GHC.Stats
 import qualified Graphics.Rendering.OpenGL as GL
 import qualified "GLFW-b" Graphics.UI.GLFW as GLFW
@@ -81,8 +82,9 @@ draw = do
         GL.clear [GL.ColorBuffer, GL.DepthBuffer]
         GL.depthFunc GL.$= Just GL.Lequal
 
-    ft2 <- asks envFT2
-    rc  <- liftIO $ rectFromWndFB window
+    ft2       <- asks envFT2
+    tweetText <- (maybe "" (\(tw, _) -> T.unpack $ twText tw) . M.maxView) <$> gets stTweetByID
+    rc        <- liftIO $ rectFromWndFB window
     void $ runUI rc 1000 $ do
         fill (FCBottomTopGradient (RGBA 0.2 0.2 0.2 1) (RGBA 0.4 0.4 1 1))
              FTNone
@@ -92,13 +94,15 @@ draw = do
                 ( do fill FCWhite (FTBlend 0.5) Nothing
                      textBitmap ft2
                                 "Verdana:h12"
-                                "Some more text down here - 1234567890 !@#$%^&*()_+"
+                                ( "Some more text down here - 1234567890 !@#$%^&*()_+" ++
+                                  " - Jacky Font Rendering Test @ Ä Ö Ü 漢字 / Many words"
+                                )
                 )
                 ( split STop 100
                       ( do fill FCWhite (FTBlend 0.5) Nothing
                            textBitmap ft2
-                                      "HelvecticaLight:h48"
-                                      "Jacky Font Rendering Test @ Ä Ö Ü 漢字 / Many words"
+                                      "LucidaGrande:h32"
+                                      tweetText
                       )
                       ( drawAvatarTiles
                         -- fill (FCLeftRightGradient (1, 0, 0, 1) (0, 1, 0, 1)) FTNone Nothing
