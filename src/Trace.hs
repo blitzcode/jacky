@@ -71,18 +71,18 @@ trace lvl msg = void $ withMVar traceSettings $ \ts -> -- TODO: Have to take an 
                                                        --       tracing is off, speed this up
    when (lvl /= TLNone && fromEnum lvl <= (fromEnum $ tsLevel ts)) $ do
        tid  <- printf "%-12s" . show <$> myThreadId
-       time <- printf "%-32s" . show <$> getZonedTime
+       time <- printf "%-26s" . show . zonedTimeToLocalTime <$> getZonedTime
        let lvlDesc color = (if color then concat else (!! 1)) $ case lvl of
-               TLError -> [ mkANSICol A.Red   , "ERROR ", reset ]
-               TLWarn  -> [ mkANSICol A.Yellow, "WARN  ", reset ]
-               TLInfo  -> [ mkANSICol A.White , "INFO  ", reset ]
+               TLError -> [ mkANSICol A.Red   , "ERROR", reset ]
+               TLWarn  -> [ mkANSICol A.Yellow, "WARN ", reset ]
+               TLInfo  -> [ mkANSICol A.White , "INFO ", reset ]
                _       -> replicate 3 ""
            reset         = A.setSGRCode []
            mkANSICol c   = A.setSGRCode $ [ A.SetColor A.Foreground A.Vivid c ]
            header color  = concat $ intersperse " | " [ lvlDesc color, tid, time ]
            handles       = case tsFile   ts of   Just h -> [h];     _ -> []; ++
                            if   tsEchoOn ts then           [stdout] else []
-           oneLine       = (not $ T.any (== '\n') msg) && T.length msg < 75
+           oneLine       = (not $ T.any (== '\n') msg) && T.length msg < 80
        forM_ handles $ \h -> do
            closed <- hIsClosed h
            hs     <- hShow h
