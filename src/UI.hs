@@ -17,7 +17,7 @@ module UI ( UIState
           , FillColor(..)
           , FillTransparency(..)
           , fill
-          , textBitmap
+          , text
           ) where
 
 import Control.Monad
@@ -27,11 +27,10 @@ import Control.Monad.IO.Class
 import qualified Graphics.Rendering.OpenGL as GL
 import qualified "GLFW-b" Graphics.UI.GLFW as GLFW
 import Data.Tuple
-import qualified Data.Vector.Storable as VS
 
 import GLHelpers
 import StateModify
-import FT2Interface
+import FontRendering
 
 -- Drawing, layout and event handling for the user interface
 
@@ -169,38 +168,6 @@ data FillTransparency = FTNone
                       | FTSrcAlpha
                       deriving (Show)
 
--- Very basic text rendering. Have FT2 render all the glyphs and draw them using glDrawPixels
-textBitmap :: MonadIO m
-     => Typeface
-     -> String
-     -> UIT m ()
-textBitmap face string = do
-    (Rectangle x1 y1 _ _) <- gets uisRect
-    liftIO $ foldM_
-        ( \(xoffs, prevc) c ->
-              renderGlyph face c >>= \case
-                  Glyph { .. } -> do
-                      -- Set lower-left origin for glyph, taking into account kerning, bearing etc.
-                      kernHorz <- getKerning face prevc c
-                      -- Debug print kerning pairs
-                      -- when (kernHorz /= 0) . putStrLn $ [c, prevc, ' '] ++ show kernHorz
-                      GL.windowPos (GL.Vertex2 (fromIntegral $ xoffs + gBearingX + kernHorz)
-                                               (fromIntegral $ (round y1) + (gBearingY - gHeight))
-                                               :: GL.Vertex2 GL.GLint)
-                      -- Our pixels are 8 bit, might not conform to the default 32 bit alignment
-                      GL.rowAlignment GL.Unpack GL.$= 1
-                      -- Draw black text
-                      GL.blend      GL.$= GL.Enabled
-                      GL.blendFunc  GL.$= (GL.SrcAlpha, GL.OneMinusSrcAlpha)
-                      -- GL.depthMask GL.$= GL.Disabled
-                      VS.unsafeWith gBitmap (\ptr ->
-                          GL.drawPixels (GL.Size (fromIntegral gWidth) (fromIntegral gHeight))
-                                        (GL.PixelData GL.Alpha GL.UnsignedByte ptr)) 
-                      -- GL.depthMask GL.$= GL.Enabled
-                      GL.blend      GL.$= GL.Disabled
-                      return $ (xoffs + gAdvanceHorz, c)
-        ) (round x1, toEnum 0) string
-
 fill :: MonadIO m
      => FillColor
      -> FillTransparency
@@ -253,6 +220,14 @@ fillDraw rc depth col trans tex = do
             color4f r g b a
             texCoord2f u v
             vertex3f x y (-depth)
+
+text :: MonadIO m
+     => Typeface
+     -> String
+     -> UIT m ()
+text face string = do
+    (Rectangle x1 y1 _ _) <- gets uisRect
+    liftIO $ drawTextBitmap (round x1) (round y1) face string
 
 {-# INLINE fill #-}
 --{-# INLINE frame #-}

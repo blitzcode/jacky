@@ -34,7 +34,7 @@ import GLHelpers
 import GLFWHelpers
 import StateModify
 import UI
-import FT2Interface
+import FontRendering
 
 -- Application logic and presentation running in AppDraw
 
@@ -51,7 +51,7 @@ data Env = Env
     , envTextureCache      :: TextureCache
     , envTweetHistSize     :: Int
     , envStatTraceInterval :: Double
-    , envFT2               :: FT2Library
+    , envFontRenderer      :: FontRenderer
     }
 
 data State = State
@@ -84,8 +84,8 @@ draw = do
 
     tweetText <- (maybe "" (\(tw, _) -> T.unpack $ twText tw) . M.maxView) <$> gets stTweetByID
     rc        <- liftIO $ rectFromWndFB window
-    ft2       <- asks envFT2
-    Just face <- liftIO $ getLoadedTypeface ft2 "Verdana" 12
+    fr        <- asks envFontRenderer
+    Just face <- liftIO $ getLoadedTypeface fr "Verdana" 12
     void $ runUI rc 1000 $ do
         fill (FCBottomTopGradient (RGBA 0.2 0.2 0.2 1) (RGBA 0.4 0.4 1 1))
              FTNone
@@ -93,14 +93,14 @@ draw = do
         layer $
             split SBottom 16
                 ( do fill FCWhite (FTBlend 0.5) Nothing
-                     textBitmap face
-                                ( "Some more text down here - 1234567890 !@#$%^&*()_+" ++
-                                  " - Jacky Font Rendering Test @ Ä Ö Ü 漢字 / Many words"
-                                )
+                     text face
+                          ( "Some more text down here - 1234567890 !@#$%^&*()_+" ++
+                            " - Jacky Font Rendering Test @ Ä Ö Ü 漢字 / Many words"
+                          )
                 )
                 ( split STop 100
                       ( do fill FCWhite (FTBlend 0.5) Nothing
-                           textBitmap face tweetText
+                           text face tweetText
                       )
                       ( drawAvatarTiles
                         -- fill (FCLeftRightGradient (1, 0, 0, 1) (0, 1, 0, 1)) FTNone Nothing
@@ -291,12 +291,12 @@ run = do
         -- GLFW.swapInterval 1
         setup2D w h
     -- Load fonts
-    ft2 <- asks envFT2
+    fr <- asks envFontRenderer
     liftIO $ do
-        void $ loadTypeface ft2 "/Library/Fonts/Futura.ttc"                24
-        void $ loadTypeface ft2 "/System/Library/Fonts/HelveticaLight.ttf" 48
-        void $ loadTypeface ft2 "/System/Library/Fonts/LucidaGrande.ttc"   32
-        void $ loadTypeface ft2 "/Library/Fonts/Microsoft/Verdana.ttf"     12
+        void $ loadTypeface fr "/Library/Fonts/Futura.ttc"                24
+        void $ loadTypeface fr "/System/Library/Fonts/HelveticaLight.ttf" 48
+        void $ loadTypeface fr "/System/Library/Fonts/LucidaGrande.ttc"   32
+        void $ loadTypeface fr "/Library/Fonts/Microsoft/Verdana.ttf"     12
     -- Main loop
     let loop = do
           time <- liftIO $ getTick

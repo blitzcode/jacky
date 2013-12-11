@@ -47,7 +47,7 @@ import ProcessStatus
 import CmdLineOptDefinitions
 import qualified BoundedSequence as BS
 import Timing
-import FT2Interface
+import FontRendering
 
 -- Parse command line options and setup State / Env for main application code
 
@@ -86,7 +86,7 @@ verifyImgCache folder = do
                 Right _  -> putStr "." >> hFlush stdout
     putStrLn ""
 
-traceSystemInfo :: FT2Library -> IO ()
+traceSystemInfo :: FontRenderer -> IO ()
 traceSystemInfo ft2 = do
     cpus                       <- GHC.Conc.getNumProcessors
     (ft2maj, ft2min, ft2patch) <- getFT2Version ft2
@@ -250,9 +250,9 @@ main = do
                   wndHgt = 644
               withWindow wndWdh wndHgt "Twitter" envGLFWEventsQueue $ \envWindow ->
                 withTextureCache cacheSize envImageCache $ \envTextureCache ->
-                  withFT2 $ \envFT2 -> do
-                    when (FlagFT2Test `elem` flags) $ debugPrintTest envFT2
-                    traceSystemInfo envFT2
+                  withFontRenderer $ \envFontRenderer -> do
+                    when (FlagFT2Test `elem` flags) $ debugPrintTest envFontRenderer
+                    traceSystemInfo envFontRenderer
                     -- Start EKG server (disabled for now)
                     -- ekg <- forkServer "localhost" 8000
                     -- Setup reader and state for main AppDraw monad
