@@ -4,6 +4,7 @@
 module FontRendering ( withFontRenderer
                      , FontRenderer
                      , drawTextBitmap
+                     , drawText
                        -- Pass through (or wrap) some FT2 exports
                      , debugPrintTest
                      , getFT2Version
@@ -15,22 +16,35 @@ module FontRendering ( withFontRenderer
 
 import qualified Graphics.Rendering.OpenGL as GL
 import Control.Monad
-import Control.Monad.IO.Class
 import Control.Exception
--- import Control.Applicative
+import Control.Applicative
 import qualified Data.Vector.Storable as VS
+import qualified Data.HashMap.Strict as HM
+import Data.Hashable
+import Data.IORef
+import Data.Bits
 
 import qualified FT2Interface as FT2
 
 -- OpenGL font rendering based on the FreeType 2 wrapper in FT2Interface
 
-data FontRenderer = FontRenderer { frFT2 :: FT2.FT2Library
+-- Glyph Cache - We lookup glyphs based on a character code plus a typeface, and we store
+--               glyph metrics and texture information
+--
+data GlyphCacheEntry = GlyphCacheEntry !FT2.GlyphMetrics !Int
+type GlyphCacheKey = Int
+
+mkGlyphCacheKey :: FT2.Typeface -> Char -> GlyphCacheKey
+mkGlyphCacheKey face c = hash face `xor` hash c
+
+data FontRenderer = FontRenderer { frFT2        :: FT2.FT2Library
+                                 , frGlyphCache :: IORef (HM.HashMap GlyphCacheKey GlyphCacheEntry)
                                  }
 
 withFontRenderer :: (FontRenderer -> IO a) -> IO a
 withFontRenderer f =
     FT2.withFT2 $ \ft2 -> -- We initialize our own FT2 library
-        bracket ( return $ FontRenderer { frFT2 = ft2 } )
+        bracket ( FontRenderer <$> pure ft2 <*> newIORef HM.empty)
                 ( \_ -> return () )
                 f
 
@@ -47,14 +61,24 @@ loadTypeface      fr = ft2ToFR fr FT2.loadTypeface
 getLoadedTypeface :: FontRenderer -> String -> Int -> IO (Maybe FT2.Typeface)
 getLoadedTypeface fr = ft2ToFR fr FT2.getLoadedTypeface
 
--- Very basic and slow text rendering. Have FT2 render all the glyphs and draw them
--- directly using glDrawPixels
-drawTextBitmap :: Int -> Int -> FT2.Typeface -> String -> IO ()
-drawTextBitmap x y face string = do
-    liftIO $ foldM_
+drawText :: FontRenderer -> Int -> Int -> FT2.Typeface -> String -> IO ()
+drawText fr x y face string = do
+    -- Turn string into a list of glyphs, insert new glyphs into the cache if required
+    glyphCache <- readIORef $ frGlyphCache fr
+    (glyphCache', glyphs) <- foldM
+        (\(cache, outGlyphs) c ->
+            let key = mkGlyphCacheKey face c
+            in  case HM.lookup key cache of
+                    Just entry -> return (glyphCache, entry : outGlyphs)
+                    Nothing    -> return (glyphCache, outGlyphs)
+        ) (glyphCache, []) string
+    writeIORef (frGlyphCache fr) glyphCache'
+
+    {-
+    foldM_
         ( \(xoffs, prevc) c ->
               FT2.renderGlyph face c >>= \case
-                  FT2.Glyph { .. } -> do
+                  FT2.GlyphMetrics { .. } -> do
                       -- Set lower-left origin for glyph, taking into account kerning, bearing etc.
                       kernHorz <- FT2.getKerning face prevc c
                       -- Debug print kerning pairs
@@ -69,6 +93,36 @@ drawTextBitmap x y face string = do
                       GL.blendFunc  GL.$= (GL.SrcAlpha, GL.OneMinusSrcAlpha)
                       -- GL.depthMask GL.$= GL.Disabled
                       VS.unsafeWith gBitmap (\ptr ->
+                          GL.drawPixels (GL.Size (fromIntegral gWidth) (fromIntegral gHeight))
+                                        (GL.PixelData GL.Alpha GL.UnsignedByte ptr))
+                      -- GL.depthMask GL.$= GL.Enabled
+                      GL.blend      GL.$= GL.Disabled
+                      return $ (xoffs + gAdvanceHorz, c)
+        ) (x, toEnum 0) string
+    -}
+
+-- Very basic and slow text rendering. Have FT2 render all the glyphs and draw them
+-- directly using glDrawPixels
+drawTextBitmap :: Int -> Int -> FT2.Typeface -> String -> IO ()
+drawTextBitmap x y face string =
+    foldM_
+        ( \(xoffs, prevc) c ->
+              FT2.renderGlyph face c >>= \case
+                  (FT2.GlyphMetrics { .. }, bitmap) -> do
+                      -- Set lower-left origin for glyph, taking into account kerning, bearing etc.
+                      kernHorz <- FT2.getKerning face prevc c
+                      -- Debug print kerning pairs
+                      -- when (kernHorz /= 0) . putStrLn $ [c, prevc, ' '] ++ show kernHorz
+                      GL.windowPos (GL.Vertex2 (fromIntegral $ xoffs + gBearingX + kernHorz)
+                                               (fromIntegral $ y + (gBearingY - gHeight))
+                                               :: GL.Vertex2 GL.GLint)
+                      -- Our pixels are 8 bit, might not conform to the default 32 bit alignment
+                      GL.rowAlignment GL.Unpack GL.$= 1
+                      -- Draw black text
+                      GL.blend      GL.$= GL.Enabled
+                      GL.blendFunc  GL.$= (GL.SrcAlpha, GL.OneMinusSrcAlpha)
+                      -- GL.depthMask GL.$= GL.Disabled
+                      VS.unsafeWith bitmap (\ptr ->
                           GL.drawPixels (GL.Size (fromIntegral gWidth) (fromIntegral gHeight))
                                         (GL.PixelData GL.Alpha GL.UnsignedByte ptr))
                       -- GL.depthMask GL.$= GL.Enabled

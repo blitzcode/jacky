@@ -7,7 +7,7 @@ module FT2Interface ( withFT2
                     , loadTypeface
                     , Typeface(..)
                     , renderGlyph
-                    , Glyph(..)
+                    , GlyphMetrics(..)
                     , getKerning
                     , getLoadedTypeface
                     , debugPrintTest
@@ -21,6 +21,7 @@ import Data.IORef
 import Data.Word
 import Data.Bits
 import Data.List
+import Data.Hashable
 import Text.Printf
 import qualified Data.Vector.Storable as VS
 import qualified Data.Vector.Storable.Mutable as VSM
@@ -52,16 +53,19 @@ type FT2FaceHandle = Ptr FT2Face
 data FT2Library'
 type FT2LibraryHandle = Ptr FT2Library'
 
-data Typeface = Typeface { tfHandle     :: FT2FaceHandle
-                         , tfFamilyName :: String
-                         , tfStyleName  :: String
-                         , tfNumGlyphs  :: Int
-                         , tfHasKerning :: Bool
-                         , tfHeight     :: Int
-                         , tfAscender   :: Int
-                         , tfDescender  :: Int
-                         , tfReqHeight  :: Int
+data Typeface = Typeface { tfHandle     :: !FT2FaceHandle
+                         , tfFamilyName :: !String
+                         , tfStyleName  :: !String
+                         , tfNumGlyphs  :: !Int
+                         , tfHasKerning :: !Bool
+                         , tfHeight     :: !Int
+                         , tfAscender   :: !Int
+                         , tfDescender  :: !Int
+                         , tfReqHeight  :: !Int
                          }
+
+instance Hashable Typeface where
+    hash x = hash (fromIntegral . ptrToIntPtr $ tfHandle x :: Int)
 
 data FT2Library = FT2Library { flLibrary   :: FT2LibraryHandle
                              , flTypefaces :: IORef [Typeface] -- So we can free them on exit
@@ -145,19 +149,17 @@ getLoadedTypeface ft2 faceName pixelHeight = do
     return $ find (\face -> tfFamilyName face == faceName &&
                             tfReqHeight  face == pixelHeight) faces
 
-data Glyph = Glyph { -- Glyph metrics
-                     -- http://www.freetype.org/freetype2/docs/tutorial/metrics.png
-                     --
-                     gAdvanceHorz :: Int             -- Horizontal offset for the next glyph
-                   , gBearingX    :: Int             -- X & Y offset for positioning the bitmap
-                   , gBearingY    :: Int             --   relative to the current pen position
-                     -- Glyph bitmap
-                   , gBitmap      :: VS.Vector Word8 -- Glyph grayscale image
-                   , gWidth       :: Int             -- Dimensions of glyph image
-                   , gHeight      :: Int             -- ...
-                   }
+-- http://www.freetype.org/freetype2/docs/tutorial/metrics.png
+data GlyphMetrics = GlyphMetrics
+    {
+      gAdvanceHorz :: !Int -- Horizontal offset for the next glyph
+    , gBearingX    :: !Int -- X & Y offset for positioning the bitmap
+    , gBearingY    :: !Int --   relative to the current pen position
+    , gWidth       :: !Int -- Dimensions of glyph image
+    , gHeight      :: !Int -- ...
+    }
 
-renderGlyph :: Typeface -> Char -> IO Glyph
+renderGlyph :: Typeface -> Char -> IO (GlyphMetrics, VS.Vector Word8)
 renderGlyph face c = do
     -- Call C wrapper
     with     0       $ \advanceHorz ->
@@ -188,7 +190,7 @@ renderGlyph face c = do
             bitmapVS     <- VS.unsafeFromForeignPtr0
                                 <$> (newForeignPtr_ =<< peek bitmap)
                                 <*> pure (pitch * gHeight)
-            let gBitmap = VS.create $ do
+            let bitmapConverted = VS.create $ do
                     v <- VSM.new $ gWidth * gHeight
                     forM_ [(x, y) | y <- [0..gHeight - 1], x <- [0..gWidth - 1]]
                         $ \(x, y) ->
@@ -197,10 +199,10 @@ renderGlyph face c = do
                     return v
             -- TODO: The bitmap returned by renderGlyph_c is from the face's
             --       glyph slot and will be overwritten on the next invocation.
-            --       Do we need to add more strictness to ensure that gBitmap
+            --       Do we need to add more strictness to ensure that bitmapConverted
             --       does no longer depend on the bitmapVS wrapper around that
             --       storage?
-            gBitmap `seq` return $ Glyph { .. }
+            bitmapConverted `seq` return (GlyphMetrics { .. }, bitmapConverted)
 
 -- Return horizontal kerning for the two passed characters in the given typeface
 --
