@@ -82,7 +82,7 @@ drawText fr x y face string = do
                       -- Set lower-left origin for glyph, taking into account kerning, bearing etc.
                       kernHorz <- FT2.getKerning face prevc c
                       -- Debug print kerning pairs
-                      -- when (kernHorz /= 0) . putStrLn $ [c, prevc, ' '] ++ show kernHorz
+                      -- when (kernHorz /= 0) . putStrLn $ [prevc, c, ' '] ++ show kernHorz
                       GL.windowPos (GL.Vertex2 (fromIntegral $ xoffs + gBearingX + kernHorz)
                                                (fromIntegral $ y + (gBearingY - gHeight))
                                                :: GL.Vertex2 GL.GLint)
@@ -112,7 +112,7 @@ drawTextBitmap x y face string =
                       -- Set lower-left origin for glyph, taking into account kerning, bearing etc.
                       kernHorz <- FT2.getKerning face prevc c
                       -- Debug print kerning pairs
-                      -- when (kernHorz /= 0) . putStrLn $ [c, prevc, ' '] ++ show kernHorz
+                      -- when (kernHorz /= 0) . putStrLn $ [prevc, c, ' '] ++ show kernHorz
                       GL.windowPos (GL.Vertex2 (fromIntegral $ xoffs + gBearingX + kernHorz)
                                                (fromIntegral $ y + (gBearingY - gHeight))
                                                :: GL.Vertex2 GL.GLint)
@@ -127,6 +127,6 @@ drawTextBitmap x y face string =
                                         (GL.PixelData GL.Alpha GL.UnsignedByte ptr))
                       -- GL.depthMask GL.$= GL.Enabled
                       GL.blend      GL.$= GL.Disabled
-                      return $ (xoffs + gAdvanceHorz, c)
+                      return $ (xoffs + gAdvanceHorz + kernHorz, c)
         ) (x, toEnum 0) string
 
