@@ -5,7 +5,7 @@ module FT2Interface ( withFT2
                     , FT2Library
                     , getFT2Version
                     , loadTypeface
-                    , Typeface
+                    , Typeface(..)
                     , renderGlyph
                     , Glyph(..)
                     , getKerning
@@ -54,6 +54,12 @@ type FT2LibraryHandle = Ptr FT2Library'
 
 data Typeface = Typeface { tfHandle     :: FT2FaceHandle
                          , tfFamilyName :: String
+                         , tfStyleName  :: String
+                         , tfNumGlyphs  :: Int
+                         , tfHasKerning :: Bool
+                         , tfHeight     :: Int
+                         , tfAscender   :: Int
+                         , tfDescender  :: Int
                          , tfReqHeight  :: Int
                          }
 
@@ -62,7 +68,7 @@ data FT2Library = FT2Library { flLibrary   :: FT2LibraryHandle
                              }
 
 withFT2 :: (FT2Library -> IO a) -> IO a
-withFT2 f = do
+withFT2 f =
     bracket
         ( -- FT_Init_FreeType takes a pointer to a FT_Library to initialize, which itself is
           -- just pointer to the internal library data structure. We just need to allocate a
@@ -80,7 +86,7 @@ withFT2 f = do
         )
         f
 
--- Load a typeface at a given size and return its opaque record
+-- Load a typeface at a given size and return its record
 loadTypeface :: FT2Library -> String -> Int -> IO Typeface
 loadTypeface ft2 fontFile pixelHeight = do
     faces <- readIORef $ flTypefaces ft2
@@ -108,17 +114,21 @@ loadTypeface ft2 fontFile pixelHeight = do
                                ascender
                                descender
                     tfFamilyName <- peekCAString =<< peek familyName
-                    traceS TLInfo =<< printf
+                    tfStyleName  <- peekCAString =<< peek styleName
+                    tfHeight     <- fromIntegral <$> peek height
+                    tfAscender   <- fromIntegral <$> peek ascender
+                    tfDescender  <- fromIntegral <$> peek descender
+                    tfNumGlyphs  <- fromIntegral <$> peek numGlyphs
+                    tfHasKerning <- (/= 0)       <$> peek hasKerning
+                    traceS TLInfo $ printf
                         "Font: %s, %s · Hgt/Asc/Dsc: %i/%i/%ipx · %iGlyphs · %s"
-                        <$> pure tfFamilyName
-                        <*> (peekCAString =<< peek styleName)
-                        <*> (fromIntegral <$> peek height    :: IO Int)
-                        <*> (fromIntegral <$> peek ascender  :: IO Int)
-                        <*> (fromIntegral <$> peek descender :: IO Int)
-                        <*> (fromIntegral <$> peek numGlyphs :: IO Int)
-                        <*> ((\x -> if   x /= 0
-                                    then "Kern"
-                                    else "NoKern") <$> peek hasKerning)
+                        tfFamilyName
+                        tfStyleName
+                        tfHeight
+                        tfAscender
+                        tfDescender
+                        tfNumGlyphs
+                        (if tfHasKerning then "Kern" else "NoKern")
                     -- Store in library record
                     let newFace = Typeface { tfHandle    = face
                                            , tfReqHeight = pixelHeight

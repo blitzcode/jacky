@@ -47,8 +47,8 @@ loadTypeface      fr = ft2ToFR fr FT2.loadTypeface
 getLoadedTypeface :: FontRenderer -> String -> Int -> IO (Maybe FT2.Typeface)
 getLoadedTypeface fr = ft2ToFR fr FT2.getLoadedTypeface
 
--- Very basic and slow text rendering. -- Have FT2 render all the glyphs and draw them
--- using glDrawPixels
+-- Very basic and slow text rendering. Have FT2 render all the glyphs and draw them
+-- directly using glDrawPixels
 drawTextBitmap :: Int -> Int -> FT2.Typeface -> String -> IO ()
 drawTextBitmap x y face string = do
     liftIO $ foldM_
@@ -70,7 +70,7 @@ drawTextBitmap x y face string = do
                       -- GL.depthMask GL.$= GL.Disabled
                       VS.unsafeWith gBitmap (\ptr ->
                           GL.drawPixels (GL.Size (fromIntegral gWidth) (fromIntegral gHeight))
-                                        (GL.PixelData GL.Alpha GL.UnsignedByte ptr)) 
+                                        (GL.PixelData GL.Alpha GL.UnsignedByte ptr))
                       -- GL.depthMask GL.$= GL.Enabled
                       GL.blend      GL.$= GL.Disabled
                       return $ (xoffs + gAdvanceHorz, c)
