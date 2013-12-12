@@ -4,19 +4,19 @@
 module GLHelpers ( setup2D
                  , getCurTex2DSize
                  , getGLStrings
-                 , color3f
-                 , color4f
-                 , vertex2f
-                 , vertex3f
-                 , texCoord2f
+                 , uploadTexture2D
                  ) where
 
 import qualified Graphics.Rendering.OpenGL as GL
+import qualified Graphics.Rendering.OpenGL.Raw as GLR
 -- import qualified Graphics.Rendering.OpenGL.GLU as GLU
 import qualified "GLFW-b" Graphics.UI.GLFW as GLFW
 import Control.Applicative
+import Control.Monad
 import Text.Printf
 import Data.Maybe
+import qualified Data.Vector.Storable as VS
+import Foreign.Storable
 
 -- Various utility functions related to OpenGL
 
@@ -46,22 +46,47 @@ getGLStrings =
     <*> (length <$> GL.get GL.glExtensions)
     <*> (fromJust <$> GLFW.getVersionString)
 
--- Immediate mode helpers
-
-color3f :: Float -> Float -> Float -> IO ()
-color3f r g b = GL.color $ GL.Color3 (realToFrac r :: GL.GLfloat) (realToFrac g) (realToFrac b)
-
-color4f :: Float -> Float -> Float -> Float -> IO ()
-color4f r g b a = GL.color $
-    GL.Color4 (realToFrac r :: GL.GLfloat) (realToFrac g) (realToFrac b) (realToFrac a)
-
-vertex2f :: Float -> Float -> IO ()
-vertex2f x y = GL.vertex $ GL.Vertex2 (realToFrac x :: GL.GLfloat) (realToFrac y)
-
-vertex3f :: Float -> Float -> Float -> IO ()
-vertex3f x y z = GL.vertex $
-    GL.Vertex3 (realToFrac x :: GL.GLfloat) (realToFrac y) (realToFrac z)
-
-texCoord2f :: Float -> Float -> IO ()
-texCoord2f u v = GL.texCoord $ GL.TexCoord2 (realToFrac u :: GL.GLfloat) (realToFrac v)
+uploadTexture2D :: Storable pixel
+                => GL.PixelFormat
+                -> GL.PixelInternalFormat
+                -> Int
+                -> Int
+                -> VS.Vector pixel
+                -> Bool
+                -> IO GL.TextureObject
+uploadTexture2D fmt ifmt w h img genMipMap = do
+    [tex] <- GL.genObjectNames 1 :: IO [GL.TextureObject]
+    GL.textureBinding GL.Texture2D GL.$= Just tex
+    unless (w * h  == VS.length img) $ error "ImageRes size / storage mismatch"
+    VS.unsafeWith img $ \ptr -> do
+        -- TODO: This assumes NPOT / non-square texture support in
+        --       combination with auto generated MIP-maps
+        --
+        -- TODO: Make upload asynchronous using PBOs
+        GL.texImage2D
+            Nothing
+            GL.NoProxy
+            0
+            ifmt
+            ( GL.TextureSize2D (fromIntegral w)
+                               (fromIntegral h)
+            )
+            0
+            (GL.PixelData fmt GL.UnsignedByte ptr)
+    -- Call raw API MIP-map generation function, could also use
+    --
+    -- GL.generateMipmap GL.Texture2D GL.$= GL.Enabled
+    --
+    -- or
+    --
+    -- GLU.build2DMipmaps
+    --     GL.Texture2D
+    --     GL.RGBA'
+    --     (fromIntegral w)
+    --     (fromIntegral h)
+    --     (GL.PixelData GL.RGBA GL.UnsignedByte ptr)
+    --
+    when (genMipMap) $
+        GLR.glGenerateMipmap GLR.gl_TEXTURE_2D
+    return tex
 

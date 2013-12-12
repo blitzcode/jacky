@@ -68,31 +68,7 @@ fetchImage tc tick uri = do
                     --       wrap this into a bracketOnError there would still
                     --       be plenty of spots where an error would leak data
                     --       or leave a data structure in a bad state
-                    [tex] <- GL.genObjectNames 1 :: IO [GL.TextureObject]
-                    GL.textureBinding GL.Texture2D GL.$= Just tex
-                    unless (w * h  == VS.length img) $ error "ImageRes size / storage mismatch"
-                    VS.unsafeWith img $ \ptr -> do
-                        -- TODO: This assumes NPOT / non-square texture support in
-                        --       combination with auto generated MIP-maps
-                        --
-                        -- TODO: Make upload asynchronous using PBOs
-                        GL.texImage2D
-                            Nothing
-                            GL.NoProxy
-                            0
-                            GL.RGBA8
-                            (GL.TextureSize2D (fromIntegral w) (fromIntegral h))
-                            0
-                            (GL.PixelData GL.RGBA GL.UnsignedByte ptr)
-                        -- GLU.build2DMipmaps
-                        --     GL.Texture2D
-                        --     GL.RGBA'
-                        --     (fromIntegral w)
-                        --     (fromIntegral h)
-                        --     (GL.PixelData GL.RGBA GL.UnsignedByte ptr)
-                    -- Call raw API MIP-map generation function, could also use
-                    -- 'GL.generateMipmap GL.Texture2D GL.$= GL.Enabled' instead
-                    GLR.glGenerateMipmap GLR.gl_TEXTURE_2D
+                    tex <- uploadTexture2D GL.RGBA GL.RGBA8 w h img True
                     -- Insert into cache, delete any overflow
                     let (newEntries, delTex) = LBM.insert uri tex cacheEntries
                     case delTex of Just (_, obj) -> GL.deleteObjectNames [obj]; _ -> return ()

@@ -26,6 +26,7 @@ import Data.Bits
 import Data.Maybe
 
 import qualified FT2Interface as FT2
+import GLHelpers
 
 -- OpenGL font rendering based on the FreeType 2 wrapper in FT2Interface
 
@@ -48,7 +49,7 @@ withFontRenderer frDefForceAutohint frDefDisableKern f =
 -- Glyph Cache - We lookup glyphs based on a character code plus a typeface, and we store
 --               glyph metrics and texture information
 
-data GlyphCacheEntry = GlyphCacheEntry !FT2.GlyphMetrics !Int
+data GlyphCacheEntry = GlyphCacheEntry !FT2.GlyphMetrics !GL.TextureObject
 
 type GlyphCacheKey = Int
 
