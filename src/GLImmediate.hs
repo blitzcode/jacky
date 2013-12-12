@@ -39,6 +39,7 @@ data RGBA = RGBA {-# UNPACK #-} !Float
                  deriving (Show)
 
 data FillColor = FCWhite
+               | FCBlack
                | FCSolid !RGBA
                | FCBottomTopGradient !RGBA !RGBA
                | FCLeftRightGradient !RGBA !RGBA
@@ -61,6 +62,7 @@ drawQuad :: Float
 drawQuad x1 y1 x2 y2 depth col trans tex = do
     let pos' = [ (x1, y1), (x2, y1), (x2, y2), (x1, y2) ]
         cols = case col of FCWhite                 -> replicate 4 (RGBA 1 1 1 1)
+                           FCBlack                 -> replicate 4 (RGBA 0 0 0 1)
                            FCSolid c               -> replicate 4 c
                            FCBottomTopGradient b t -> [b, b, t, t]
                            FCLeftRightGradient l r -> [l, r, l, r]
