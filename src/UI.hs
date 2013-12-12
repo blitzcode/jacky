@@ -21,7 +21,6 @@ module UI ( UIState
           , FillTransparency(..)
           ) where
 
-import Control.Monad
 import Control.Applicative
 import Control.Monad.Trans.State.Lazy -- TODO: Use Strict/Lazy/mtl/transformers?
 import Control.Monad.IO.Class
@@ -29,7 +28,6 @@ import qualified Graphics.Rendering.OpenGL as GL
 import qualified "GLFW-b" Graphics.UI.GLFW as GLFW
 import Data.Tuple
 
-import GLHelpers
 import GLImmediate
 import StateModify
 import FontRendering

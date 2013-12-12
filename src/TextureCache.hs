@@ -8,9 +8,7 @@ module TextureCache ( withTextureCache
                     ) where
 
 import qualified Graphics.Rendering.OpenGL as GL
-import qualified Graphics.Rendering.OpenGL.Raw as GLR
 import qualified Data.ByteString as B
-import qualified Data.Vector.Storable as VS
 import Control.Exception
 import Control.Monad
 import Text.Printf
@@ -81,7 +79,7 @@ fetchImage tc tick uri = do
 
 gatherCacheStats :: TextureCache -> IO String
 gatherCacheStats tc = do
-    cache <- readIORef $ tcCacheEntries tc 
+    cache <- readIORef $ tcCacheEntries tc
     let dir = LBM.toList cache
     (mem, maxWdh, maxHgt) <-
         foldM (\(mem', maxWdh', maxHgt') (_, tex) ->

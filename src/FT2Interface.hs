@@ -65,9 +65,10 @@ data Typeface = Typeface { tfHandle        :: !FT2FaceHandle
                          , tfDisableKern   :: !Bool
                          }
 
--- Hash typefaces by their FT2 Face pointer
+-- Hash typefaces by their FT2 Face pointer. Note that this is a fairly poor hash as the
+-- allocations can be very close together
 instance Hashable Typeface where
-    hash x = hash (fromIntegral . ptrToIntPtr $ tfHandle x :: Int)
+    hash = fromIntegral . ptrToIntPtr . tfHandle
 
 data FT2Library = FT2Library { flLibrary   :: FT2LibraryHandle
                              , flTypefaces :: IORef [Typeface] -- So we can free them on exit

@@ -29,7 +29,7 @@ import Control.Concurrent.STM
 import Control.Concurrent.Async
 import Control.Monad.Reader
 import Control.Monad.State hiding (State)
-import Network (withSocketsDo) 
+import Network (withSocketsDo)
 import qualified GHC.Conc (getNumProcessors)
 import qualified Codec.Picture as JP
 import qualified Web.Authenticate.OAuth as OA
@@ -132,7 +132,7 @@ withProcessStatusesAsync oaClient
     --
     -- TODO: This will potentially overwrite older network logs of
     --       requests with identical parameters to identical API endpoints
-    let logFn            = logNetworkFolder </> (escapeURIString isUnescapedInURIComponent uri') 
+    let logFn            = logNetworkFolder </> (escapeURIString isUnescapedInURIComponent uri')
         (uri, logFnMode) = case logNetworkMode of ModeNoLog      -> (uri' , Nothing   )
                                                   ModeLogNetwork -> (uri' , Just logFn)
                                                   ModeReplayLog  -> (logFn, Nothing   )
@@ -178,7 +178,7 @@ main = do
         Right r    -> return r
     -- Tracing (TODO: Change echo flag to specify separate trace level for stdout)
     let traceFn  = foldr (\f r -> case f of FlagTraceFile fn -> fn; _ -> r) defTraceFn flags
-        mkTrcOpt = \case "n" -> TLNone; "e" -> TLError; "w" -> TLWarn; "i" -> TLInfo; _ -> TLNone 
+        mkTrcOpt = \case "n" -> TLNone; "e" -> TLError; "w" -> TLWarn; "i" -> TLInfo; _ -> TLNone
         traceLvl = foldr (\f r -> case f of (FlagTraceLevel lvl) -> mkTrcOpt lvl; _ -> r)
                          TLNone flags
     withTrace (Just traceFn)

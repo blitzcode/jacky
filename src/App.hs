@@ -23,11 +23,6 @@ import GHC.Stats
 import qualified Graphics.Rendering.OpenGL as GL
 import qualified "GLFW-b" Graphics.UI.GLFW as GLFW
 
-import qualified Graphics.Rendering.OpenGL.Raw as GLR
-import qualified Data.Vector.Storable as VS
-import qualified Data.Vector.Storable.Mutable as VSM
-import Data.Word
-
 import Trace
 import Timing
 import TwitterJSON
@@ -87,20 +82,18 @@ draw = do
         GL.clear [GL.ColorBuffer, GL.DepthBuffer]
         GL.depthFunc GL.$= Just GL.Lequal
 
-    -- tweetText <- (maybe "" (\(tw, _) -> T.unpack $ twText tw) . M.maxView) <$> gets stTweetByID
+    tweetText <- (maybe "" (\(tw, _) -> T.unpack $ twText tw) . M.maxView) <$> gets stTweetByID
     rc        <- liftIO $ rectFromWndFB window
     void $ runUI rc 1000 $ do
-        {-
         fill (FCBottomTopGradient (RGBA 0.2 0.2 0.2 1) (RGBA 0.4 0.4 1 1))
              FTNone
              Nothing
-        -}
         layer $
             split SBottom 16
-                ( return () -- fill FCWhite (FTBlend 0.5) Nothing
+                ( fill FCWhite (FTBlend 0.5) Nothing
                 )
                 ( split STop 100
-                      ( return () -- fill FCWhite (FTBlend 0.5) Nothing
+                      ( fill FCWhite (FTBlend 0.5) Nothing
                       )
                       ( do drawAvatarTiles
                            fontRenderingTest
@@ -117,6 +110,7 @@ fontRenderingTest = do
     Just helvetica <- liftIO $ getLoadedTypeface fr "Helvetica" 48
     Just arial     <- liftIO $ getLoadedTypeface fr "Arial Unicode MS" 16
     
+    {-
     -- TODO: ...
     --fill FCWhite FTNone Nothing
     liftIO $ GL.texture         GL.Texture2D      GL.$= GL.Enabled
@@ -134,6 +128,7 @@ fontRenderingTest = do
                             0
                             (GL.PixelData GL.RGBA GL.UnsignedByte ptr)
                     GLR.glGenerateMipmap GLR.gl_TEXTURE_2D
+    -}
 
     split STop 40 (text fr helvetica "1234567890 !@#$%^&*()_+ aAbBcCdDeEfFgGhHiIjJkKlL")
      $ split STop 40 (text fr verdana "Haskell is an advanced purely-functional programming language. An open-source product of more than twenty years of cutting-edge research, it allows rapid development of robust, concise")
@@ -162,7 +157,6 @@ drawAvatarTiles = do
     tc     <- lift $ asks envTextureCache
     forM_ (zip tiles (M.toDescList tweets)) $ \((cx, cy, cw, ch), (_, tw)) -> do
         ce <- liftIO $ TextureCache.fetchImage tc tick (usrProfileImageURL . twUser $ tw)
-        return ()
         case ce of
             Just tex -> do
                 {-

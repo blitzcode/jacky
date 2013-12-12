@@ -7,7 +7,9 @@
 #include FT_GLYPH_H
 
 const char * errorToString(FT_Error error);
+
 FT_Error debugPrintTest();
+
 FT_Error renderGlyph(
     FT_Face face,
     FT_ULong char_code,
@@ -19,6 +21,7 @@ FT_Error renderGlyph(
     unsigned int *bitmap_pitch_out,
     unsigned int *bitmap_rows_out,
     unsigned char **bitmap);
+
 void faceInfo(
     FT_Face face,
     FT_String **family_name_out,

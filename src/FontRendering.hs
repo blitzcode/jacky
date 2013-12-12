@@ -100,7 +100,7 @@ drawText fr x y face string = do
                     Nothing    -> -- New glyph, render it and upload texture data
                                   FT2.renderGlyph face c >>= \case
                                     (metrics@(FT2.GlyphMetrics { .. }), bitmap) -> do
-                                      -- Texture
+                                      -- Texture (TODO: Pack in texture atlas)
                                       tex <- uploadTexture2D
                                           GL.Alpha GL.Alpha' gWidth gHeight bitmap True
                                       -- Update cache
@@ -109,7 +109,7 @@ drawText fr x y face string = do
                                        in return (cache', entry : outGlyphs)
         ) (glyphCache, []) string
     writeIORef (frGlyphCache fr) glyphCache'
-    -- Render glyphs
+    -- Render glyphs (TODO: Don't use immediate mode rendering)
     foldM_
         ( \(xoffs, prevc) (GlyphCacheEntry c (FT2.GlyphMetrics { .. }) tex) -> do
               -- Compute lower-left origin for glyph, taking into account kerning, bearing etc.

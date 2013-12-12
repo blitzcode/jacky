@@ -150,7 +150,7 @@ toImageRes jp =
             ((fromIntegral g) `shiftL` 8 ) .|.
             ((fromIntegral b) `shiftL` 16) .|.
             ((fromIntegral a) `shiftL` 24)
-            :: Word32 
+            :: Word32
         convert = VS.create $ do
             v <- VSM.new $ w * h
             forM_ [(x, y) | y <- [0..h - 1], x <- [0..w - 1]] $
@@ -201,7 +201,7 @@ uriIsHTTP :: B.ByteString -> Bool
 uriIsHTTP uri = B.isPrefixOf "http://" uri || B.isPrefixOf "https://" uri
 
 -- Fetch an image into the disk cache (if not already there) and return it as a lazy ByteString
-fetchDiskCache :: ImageCache -> Manager -> B.ByteString -> FilePath -> IO BL.ByteString 
+fetchDiskCache :: ImageCache -> Manager -> B.ByteString -> FilePath -> IO BL.ByteString
 fetchDiskCache ic manager uri cacheFn = do
     bs <- tryIOError $ BL.readFile cacheFn -- Already in the disk cache?
     case bs of
@@ -286,7 +286,7 @@ fetchThread ic manager unmask =
       ]
     where reportEx ex             = traceS TLError $ "Image Cache Exception: " ++ show ex
           retryDelay retryAttempt = ([2, 10, 30, 60, 120] ++ repeat 600) !! retryAttempt :: Double
- 
+
 -- Return the image at the given URI from the cache, or schedule fetching if not present
 fetchImage :: ImageCache -> Double -> B.ByteString -> IO (Maybe CacheEntry)
 fetchImage ic tick uri = do
