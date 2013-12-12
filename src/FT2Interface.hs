@@ -52,15 +52,17 @@ type FT2FaceHandle = Ptr FT2Face
 data FT2Library'
 type FT2LibraryHandle = Ptr FT2Library'
 
-data Typeface = Typeface { tfHandle     :: !FT2FaceHandle
-                         , tfFamilyName :: !String
-                         , tfStyleName  :: !String
-                         , tfNumGlyphs  :: !Int
-                         , tfHasKerning :: !Bool
-                         , tfHeight     :: !Int
-                         , tfAscender   :: !Int
-                         , tfDescender  :: !Int
-                         , tfReqHeight  :: !Int
+data Typeface = Typeface { tfHandle        :: !FT2FaceHandle
+                         , tfFamilyName    :: !String
+                         , tfStyleName     :: !String
+                         , tfNumGlyphs     :: !Int
+                         , tfHasKerning    :: !Bool
+                         , tfHeight        :: !Int
+                         , tfAscender      :: !Int
+                         , tfDescender     :: !Int
+                         , tfReqHeight     :: !Int
+                         , tfForceAutohint :: !Bool
+                         , tfDisableKern   :: !Bool
                          }
 
 -- Hash typefaces by their FT2 Face pointer
@@ -91,8 +93,8 @@ withFT2 f =
         f
 
 -- Load a typeface at a given size and return its record
-loadTypeface :: FT2Library -> String -> Int -> IO Typeface
-loadTypeface ft2 fontFile pixelHeight = do
+loadTypeface :: FT2Library -> String -> Int -> Bool -> Bool -> IO Typeface
+loadTypeface ft2 fontFile pixelHeight tfForceAutohint tfDisableKern = do
     faces <- readIORef $ flTypefaces ft2
     withCString fontFile $ \fontFileCStr ->
         alloca $ \facePtr -> do
@@ -172,6 +174,7 @@ renderGlyph face c = do
             checkReturn "renderGlyph" =<<
                 c_renderGlyph (tfHandle face)
                               (fromIntegral $ fromEnum c)
+                              (if tfForceAutohint face then 1 else 0)
                               advanceHorz
                               bearingX
                               bearingY
@@ -210,14 +213,16 @@ renderGlyph face c = do
 --       most fonts (kern vs GPOS table)
 --
 getKerning :: Typeface -> Char -> Char -> IO Float
-getKerning face left right = do
-    [leftIdx, rightIdx] <-
-        mapM (c_FT_Get_Char_Index (tfHandle face) . fromIntegral . fromEnum) [left, right]
-    withArray [0, 0] $ \kerningVec -> do
-        checkReturn "getKerning" =<< c_FT_Get_Kerning
-            (tfHandle face) leftIdx rightIdx 1 {- FT_KERNING_UNFITTED -} kerningVec
-        kernHorz <- fromIntegral <$> peek kerningVec :: IO Float
-        return $ kernHorz / 64 -- Offset is in 26.6 fixed-point
+getKerning face left right =
+    if   (tfDisableKern face) -- We can disable kerning on a per-face basis
+    then return 0
+    else do [leftIdx, rightIdx] <-
+                mapM (c_FT_Get_Char_Index (tfHandle face) . fromIntegral . fromEnum) [left, right]
+            withArray [0, 0] $ \kerningVec -> do
+                checkReturn "getKerning" =<< c_FT_Get_Kerning
+                    (tfHandle face) leftIdx rightIdx 1 {- FT_KERNING_UNFITTED -} kerningVec
+                kernHorz <- fromIntegral <$> peek kerningVec :: IO Float
+                return $ kernHorz / 64 -- Offset is in 26.6 fixed-point
 
 -- Check a FT return value and throw an exception for errors
 checkReturn :: String -> CInt -> IO ()
@@ -268,6 +273,7 @@ foreign import ccall unsafe "ft2_interface.h debugPrintTest"
 foreign import ccall unsafe "ft2_interface.h renderGlyph"
     c_renderGlyph :: FT2FaceHandle
                   -> CULong
+                  -> CInt
                   -> Ptr CFloat
                   -> Ptr CInt
                   -> Ptr CInt

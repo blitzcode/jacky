@@ -11,6 +11,7 @@ FT_Error debugPrintTest();
 FT_Error renderGlyph(
     FT_Face face,
     FT_ULong char_code,
+    int force_autohint,
     float *advance_horz_out,
     int *bearing_x_out,
     int *bearing_y_out,

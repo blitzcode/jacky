@@ -30,6 +30,8 @@ data Flag = FlagOAuthFile String
           | FlagFirehose
           | FlagTraceDisableColor
           | FlagFT2Test
+          | FlagForceAutohint
+          | FlagDisableKern
             deriving (Eq, Show)
 
 defLogFolder, defImageCacheFolder, defTraceFn :: String
@@ -156,7 +158,15 @@ parseCmdLineOpt = do
                   , Option []
                            ["ft2-test"]
                            (NoArg FlagFT2Test)
-                           "debug: output some text rendered by FreeType 2 to the terminal"
+                           "debug: output some FreeType 2 text to the terminal"
+                  , Option []
+                           ["force-autohint"]
+                           (NoArg FlagForceAutohint)
+                           "force automatic hinting for FreeType 2 fonts"
+                  , Option []
+                           ["disable-kern"]
+                           (NoArg FlagDisableKern)
+                           "disable kerning for FreeType 2 fonts"
                   , Option ['h']
                            ["help"]
                            (NoArg FlagHelp)

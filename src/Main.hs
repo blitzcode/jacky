@@ -250,7 +250,9 @@ main = do
                   wndHgt = 644
               withWindow wndWdh wndHgt "Twitter" envGLFWEventsQueue $ \envWindow ->
                 withTextureCache cacheSize envImageCache $ \envTextureCache ->
-                  withFontRenderer $ \envFontRenderer -> do
+                  withFontRenderer (FlagForceAutohint `elem` flags)
+                                   (FlagDisableKern   `elem` flags)
+                                   $ \envFontRenderer -> do
                     when (FlagFT2Test `elem` flags) $ debugPrintTest envFontRenderer
                     traceSystemInfo envFontRenderer
                     -- Start EKG server (disabled for now)

@@ -66,6 +66,7 @@ void debugPrintBitmap(FT_Bitmap bitmap)
 FT_Error renderGlyph(
     FT_Face face,
     FT_ULong char_code,
+    int force_autohint,
     float *advance_horz_out,
     int *bearing_x_out,
     int *bearing_y_out,
@@ -75,10 +76,10 @@ FT_Error renderGlyph(
     unsigned char **bitmap)
 {
     // This combines FT_Get_Char_Index, FT_Load_Glyph and FT_Glyph_To_Bitmap
-    //
-    // TODO: Experiment some more with FT_LOAD_FORCE_AUTOHINT
-    //
-    CHECK_ERROR(FT_Load_Char(face, char_code, FT_LOAD_RENDER));
+    FT_Int32 load_flags = FT_LOAD_RENDER;
+    if (force_autohint != 0)
+        load_flags |= FT_LOAD_FORCE_AUTOHINT;
+    CHECK_ERROR(FT_Load_Char(face, char_code, load_flags));
 
     (* advance_horz_out) = (float) face->glyph->advance.x / 64.0f;
     (* bearing_x_out   ) = face->glyph->bitmap_left;

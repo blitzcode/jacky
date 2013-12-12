@@ -17,25 +17,31 @@ module FontRendering ( withFontRenderer
 import qualified Graphics.Rendering.OpenGL as GL
 import Control.Monad
 import Control.Exception
-import Control.Applicative
+-- import Control.Applicative
 import qualified Data.Vector.Storable as VS
 import qualified Data.HashMap.Strict as HM
 import Data.Hashable
 import Data.IORef
 import Data.Bits
+import Data.Maybe
 
 import qualified FT2Interface as FT2
 
 -- OpenGL font rendering based on the FreeType 2 wrapper in FT2Interface
 
-data FontRenderer = FontRenderer { frFT2        :: FT2.FT2Library
-                                 , frGlyphCache :: IORef (HM.HashMap GlyphCacheKey GlyphCacheEntry)
-                                 }
+data FontRenderer = FontRenderer
+    { frFT2              :: !FT2.FT2Library
+    , frGlyphCache       :: !(IORef (HM.HashMap GlyphCacheKey GlyphCacheEntry))
+    , frDefForceAutohint :: !Bool
+    , frDefDisableKern   :: !Bool
+    }
 
-withFontRenderer :: (FontRenderer -> IO a) -> IO a
-withFontRenderer f =
-    FT2.withFT2 $ \ft2 -> -- We initialize our own FT2 library
-        bracket ( FontRenderer <$> pure ft2 <*> newIORef HM.empty)
+withFontRenderer :: Bool -> Bool -> (FontRenderer -> IO a) -> IO a
+withFontRenderer frDefForceAutohint frDefDisableKern f =
+    FT2.withFT2 $ \frFT2 -> -- We initialize our own FT2 library
+        bracket ( do frGlyphCache <- newIORef HM.empty
+                     return $ FontRenderer { .. }
+                )
                 ( \_ -> return () )
                 f
 
@@ -57,10 +63,17 @@ debugPrintTest    :: FontRenderer -> IO ()
 debugPrintTest    fr = ft2ToFR fr FT2.debugPrintTest
 getFT2Version     :: FontRenderer -> IO (Int, Int, Int)
 getFT2Version     fr = ft2ToFR fr FT2.getFT2Version
-loadTypeface      :: FontRenderer -> String -> Int -> IO FT2.Typeface
-loadTypeface      fr = ft2ToFR fr FT2.loadTypeface
 getLoadedTypeface :: FontRenderer -> String -> Int -> IO (Maybe FT2.Typeface)
 getLoadedTypeface fr = ft2ToFR fr FT2.getLoadedTypeface
+loadTypeface      :: FontRenderer -> String -> Int -> Maybe Bool -> Maybe Bool -> IO FT2.Typeface
+loadTypeface      fr fontFile pixelHeight mbForceAutohint mbDisableKern =
+    (ft2ToFR fr FT2.loadTypeface)
+        fontFile
+        pixelHeight
+        -- We have Maybe values for the autohint / kern options, falling back to our
+        -- global defaults when they are not specified
+        (fromMaybe (frDefForceAutohint fr) mbForceAutohint)
+        (fromMaybe (frDefDisableKern   fr) mbDisableKern  )
 
 drawText :: FontRenderer -> Int -> Int -> FT2.Typeface -> String -> IO ()
 drawText fr x y face string = do
