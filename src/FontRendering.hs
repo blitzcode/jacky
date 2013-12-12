@@ -27,6 +27,7 @@ import Data.Maybe
 
 import qualified FT2Interface as FT2
 import GLHelpers
+import GLImmediate
 
 -- OpenGL font rendering based on the FreeType 2 wrapper in FT2Interface
 
@@ -53,12 +54,19 @@ withFontRenderer frDefForceAutohint frDefDisableKern f =
 -- Glyph Cache - We lookup glyphs based on a character code plus a typeface, and we store
 --               glyph metrics and texture information
 
-data GlyphCacheEntry = GlyphCacheEntry !FT2.GlyphMetrics !GL.TextureObject
+data GlyphCacheEntry = GlyphCacheEntry !Char !FT2.GlyphMetrics !GL.TextureObject
 
 type GlyphCacheKey = Int
 
 mkGlyphCacheKey :: FT2.Typeface -> Char -> GlyphCacheKey
-mkGlyphCacheKey face c = hash face `xor` hash c
+mkGlyphCacheKey face c = let ha = hash face
+                             hb = hash c
+                         in  -- TODO: This is hopefully good enough. The Hashable instance for
+                             --       Char is just 'fromEnum', and the one for Typeface just takes
+                             --       the internal FT2 face pointer. With ASCII characters and
+                             --       faces allocated in succession we might have all relevant
+                             --       information in a few lower bits of the hash
+                             (ha * hb) `xor` ha `xor` hb
 
 -- For re-exporting functions from FT2 taking our FontRenderer instead of the internal FT2Library
 ft2ToFR :: FontRenderer -> (FT2.FT2Library -> b) -> b
@@ -96,14 +104,31 @@ drawText fr x y face string = do
                                       tex <- uploadTexture2D
                                           GL.Alpha GL.Alpha' gWidth gHeight bitmap True
                                       -- Update cache
-                                      let entry  = GlyphCacheEntry metrics tex
+                                      let entry  = GlyphCacheEntry c metrics tex
                                           cache' = HM.insert key entry cache
                                        in return (cache', entry : outGlyphs)
         ) (glyphCache, []) string
     writeIORef (frGlyphCache fr) glyphCache'
     -- Render glyphs
-    forM_ glyphs $ \(GlyphCacheEntry (FT2.GlyphMetrics { .. }) tex) -> do
-        return ()
+    foldM_
+        ( \(xoffs, prevc) (GlyphCacheEntry c (FT2.GlyphMetrics { .. }) tex) -> do
+              -- Compute lower-left origin for glyph, taking into account kerning, bearing etc.
+              kernHorz <- FT2.getKerning face prevc c
+              let x1 = round $ xoffs + (fromIntegral gBearingX) + kernHorz :: Int
+                  y1 = y + (gBearingY - gHeight)
+                  x2 = x1 + gWidth
+                  y2 = y1 + gHeight
+              -- Draw
+              drawQuad (fromIntegral x1)
+                       (fromIntegral y1)
+                       (fromIntegral x2)
+                       (fromIntegral y2)
+                       1
+                       FCBlack
+                       FTSrcAlpha
+                       (Just tex)
+              return $ (xoffs + gAdvanceHorz + kernHorz, c)
+        ) (fromIntegral x, toEnum 0) $ reverse glyphs
 
 -- Very basic and slow text rendering. Have FT2 render all the glyphs and draw them
 -- directly using glDrawPixels
