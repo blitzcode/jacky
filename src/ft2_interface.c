@@ -75,6 +75,9 @@ FT_Error renderGlyph(
     unsigned char **bitmap)
 {
     // This combines FT_Get_Char_Index, FT_Load_Glyph and FT_Glyph_To_Bitmap
+    //
+    // TODO: Experiment some more with FT_LOAD_FORCE_AUTOHINT
+    //
     CHECK_ERROR(FT_Load_Char(face, char_code, FT_LOAD_RENDER));
 
     (* advance_horz_out) = face->glyph->advance.x >> 6;
