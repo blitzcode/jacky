@@ -55,9 +55,22 @@ uploadTexture2D :: Storable pixel
                 -> Bool
                 -> IO GL.TextureObject
 uploadTexture2D fmt ifmt w h img genMipMap = do
+    -- Check vector size
+    let vsize = VS.length img * sizeOf (img VS.! 0)
+        pixelsize = case ifmt of
+                        GL.Alpha'     -> 1; GL.Alpha8     -> 1;
+                        GL.Luminance' -> 1; GL.Luminance8 -> 1;
+                        GL.Intensity  -> 1; GL.Intensity8 -> 1;
+                        GL.RGB'       -> 3; GL.RGB8       -> 3;
+                        _ -> 4 -- TODO: Just assume four components for the rest
+     in unless (w * h * pixelsize == vsize) $
+            error "Image vector and OpenGL texture specification size mismatch"
+    -- Generate and bind texture object
     [tex] <- GL.genObjectNames 1 :: IO [GL.TextureObject]
     GL.textureBinding GL.Texture2D GL.$= Just tex
-    unless (w * h  == VS.length img) $ error "ImageRes size / storage mismatch"
+    -- Might not conform to the default 32 bit alignment
+    GL.rowAlignment GL.Unpack GL.$= 1
+    -- Upload
     VS.unsafeWith img $ \ptr -> do
         -- TODO: This assumes NPOT / non-square texture support in
         --       combination with auto generated MIP-maps
