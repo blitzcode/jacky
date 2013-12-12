@@ -43,7 +43,11 @@ withFontRenderer frDefForceAutohint frDefDisableKern f =
         bracket ( do frGlyphCache <- newIORef HM.empty
                      return $ FontRenderer { .. }
                 )
-                ( \_ -> return () )
+                ( -- Delete all OpenGL textures in the glyph cache
+                  \fr -> readIORef (frGlyphCache fr)
+                             >>= GL.deleteObjectNames
+                                     . map (\(GlyphCacheEntry _ _ tex) -> tex) . HM.elems
+                )
                 f
 
 -- Glyph Cache - We lookup glyphs based on a character code plus a typeface, and we store
