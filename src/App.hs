@@ -83,25 +83,28 @@ draw :: AppDraw ()
 draw = do
     window <- asks envWindow
     liftIO $ do
-        GL.clearColor GL.$= (GL.Color4 0 0 0 0.0 :: GL.Color4 GL.GLclampf)
+        GL.clearColor GL.$= (GL.Color4 1 1 1 1 :: GL.Color4 GL.GLclampf)
         GL.clear [GL.ColorBuffer, GL.DepthBuffer]
         GL.depthFunc GL.$= Just GL.Lequal
 
-    tweetText <- (maybe "" (\(tw, _) -> T.unpack $ twText tw) . M.maxView) <$> gets stTweetByID
+    -- tweetText <- (maybe "" (\(tw, _) -> T.unpack $ twText tw) . M.maxView) <$> gets stTweetByID
     rc        <- liftIO $ rectFromWndFB window
     void $ runUI rc 1000 $ do
+        {-
         fill (FCBottomTopGradient (RGBA 0.2 0.2 0.2 1) (RGBA 0.4 0.4 1 1))
              FTNone
              Nothing
+        -}
         layer $
             split SBottom 16
-                ( fill FCWhite (FTBlend 0.5) Nothing
+                ( return () -- fill FCWhite (FTBlend 0.5) Nothing
                 )
                 ( split STop 100
-                      ( fill FCWhite (FTBlend 0.5) Nothing
+                      ( return () -- fill FCWhite (FTBlend 0.5) Nothing
                       )
                       ( do drawAvatarTiles
                            fontRenderingTest
+                           return ()
                       )
                 )
 
@@ -159,6 +162,7 @@ drawAvatarTiles = do
     tc     <- lift $ asks envTextureCache
     forM_ (zip tiles (M.toDescList tweets)) $ \((cx, cy, cw, ch), (_, tw)) -> do
         ce <- liftIO $ TextureCache.fetchImage tc tick (usrProfileImageURL . twUser $ tw)
+        return ()
         case ce of
             Just tex -> do
                 {-

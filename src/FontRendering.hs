@@ -84,17 +84,33 @@ drawText fr x y face string = do
         (\(cache, outGlyphs) c ->
             let key = mkGlyphCacheKey face c
             in  case HM.lookup key cache of
-                    Just entry -> return (glyphCache, entry : outGlyphs)
-                    Nothing    -> FT2.renderGlyph face c >>= \case
-                                      (gm@FT2.GlyphMetrics { .. }, bitmap) -> do
-                                          return (glyphCache, outGlyphs)
+                    Just entry -> return (cache, entry : outGlyphs)
+                    Nothing    -> -- New glyph, render it and upload texture data
+                                  FT2.renderGlyph face c >>= \case
+                                    (metrics@(FT2.GlyphMetrics { .. }), bitmap) -> do
+                                      -- Texture
+                                      tex <- uploadTexture2D
+                                          GL.Alpha GL.Alpha' gWidth gHeight bitmap True
+                                      -- Update cache
+                                      let entry  = GlyphCacheEntry metrics tex
+                                          cache' = HM.insert key entry cache
+                                       in return (cache', entry : outGlyphs)
         ) (glyphCache, []) string
     writeIORef (frGlyphCache fr) glyphCache'
+    -- Render glyphs
+    forM_ glyphs $ \(GlyphCacheEntry (FT2.GlyphMetrics { .. }) tex) -> do
+        return ()
 
 -- Very basic and slow text rendering. Have FT2 render all the glyphs and draw them
 -- directly using glDrawPixels
 drawTextBitmap :: Int -> Int -> FT2.Typeface -> String -> IO ()
-drawTextBitmap x y face string =
+drawTextBitmap x y face string = do
+    -- Our pixels are 8 bit, might not conform to the default 32 bit alignment
+    GL.rowAlignment GL.Unpack GL.$= 1
+    -- Draw black text
+    GL.blend GL.$= GL.Enabled
+    GL.blendFunc GL.$= (GL.SrcAlpha, GL.OneMinusSrcAlpha)
+    -- GL.depthMask GL.$= GL.Disabled
     foldM_
         ( \(xoffs, prevc) c ->
               FT2.renderGlyph face c >>= \case
@@ -106,17 +122,11 @@ drawTextBitmap x y face string =
                       GL.windowPos (GL.Vertex2 (round $ xoffs + (fromIntegral gBearingX) + kernHorz)
                                                (fromIntegral $ y + (gBearingY - gHeight))
                                                :: GL.Vertex2 GL.GLint)
-                      -- Our pixels are 8 bit, might not conform to the default 32 bit alignment
-                      GL.rowAlignment GL.Unpack GL.$= 1
-                      -- Draw black text
-                      GL.blend      GL.$= GL.Enabled
-                      GL.blendFunc  GL.$= (GL.SrcAlpha, GL.OneMinusSrcAlpha)
-                      -- GL.depthMask GL.$= GL.Disabled
                       VS.unsafeWith bitmap (\ptr ->
                           GL.drawPixels (GL.Size (fromIntegral gWidth) (fromIntegral gHeight))
                                         (GL.PixelData GL.Alpha GL.UnsignedByte ptr))
-                      -- GL.depthMask GL.$= GL.Enabled
-                      GL.blend      GL.$= GL.Disabled
                       return $ (xoffs + gAdvanceHorz + kernHorz, c)
         ) (fromIntegral x, toEnum 0) string
+    -- GL.depthMask GL.$= GL.Enabled
+    GL.blend GL.$= GL.Disabled
 

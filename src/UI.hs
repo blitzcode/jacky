@@ -170,7 +170,7 @@ text :: MonadIO m
      -> UIT m ()
 text fr face string = do
     (Rectangle x1 y1 _ _) <- gets uisRect
-    liftIO $ drawTextBitmap (round x1) (round y1) face string
+    liftIO $ drawText{-Bitmap-} fr (round x1) (round y1) face string
 
 {-# INLINE fill #-}
 --{-# INLINE text #-}
