@@ -66,7 +66,7 @@ void debugPrintBitmap(FT_Bitmap bitmap)
 FT_Error renderGlyph(
     FT_Face face,
     FT_ULong char_code,
-    unsigned int *advance_horz_out,
+    float *advance_horz_out,
     int *bearing_x_out,
     int *bearing_y_out,
     unsigned int *bitmap_width_out,
@@ -80,7 +80,7 @@ FT_Error renderGlyph(
     //
     CHECK_ERROR(FT_Load_Char(face, char_code, FT_LOAD_RENDER));
 
-    (* advance_horz_out) = face->glyph->advance.x >> 6;
+    (* advance_horz_out) = (float) face->glyph->advance.x / 64.0f;
     (* bearing_x_out   ) = face->glyph->bitmap_left;
     (* bearing_y_out   ) = face->glyph->bitmap_top;
     (* bitmap_width_out) = face->glyph->bitmap.width;

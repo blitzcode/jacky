@@ -28,15 +28,6 @@ import qualified FT2Interface as FT2
 
 -- OpenGL font rendering based on the FreeType 2 wrapper in FT2Interface
 
--- Glyph Cache - We lookup glyphs based on a character code plus a typeface, and we store
---               glyph metrics and texture information
---
-data GlyphCacheEntry = GlyphCacheEntry !FT2.GlyphMetrics !Int
-type GlyphCacheKey = Int
-
-mkGlyphCacheKey :: FT2.Typeface -> Char -> GlyphCacheKey
-mkGlyphCacheKey face c = hash face `xor` hash c
-
 data FontRenderer = FontRenderer { frFT2        :: FT2.FT2Library
                                  , frGlyphCache :: IORef (HM.HashMap GlyphCacheKey GlyphCacheEntry)
                                  }
@@ -47,6 +38,16 @@ withFontRenderer f =
         bracket ( FontRenderer <$> pure ft2 <*> newIORef HM.empty)
                 ( \_ -> return () )
                 f
+
+-- Glyph Cache - We lookup glyphs based on a character code plus a typeface, and we store
+--               glyph metrics and texture information
+
+data GlyphCacheEntry = GlyphCacheEntry !FT2.GlyphMetrics !Int
+
+type GlyphCacheKey = Int
+
+mkGlyphCacheKey :: FT2.Typeface -> Char -> GlyphCacheKey
+mkGlyphCacheKey face c = hash face `xor` hash c
 
 -- For re-exporting functions from FT2 taking our FontRenderer instead of the internal FT2Library
 ft2ToFR :: FontRenderer -> (FT2.FT2Library -> b) -> b
@@ -70,36 +71,11 @@ drawText fr x y face string = do
             let key = mkGlyphCacheKey face c
             in  case HM.lookup key cache of
                     Just entry -> return (glyphCache, entry : outGlyphs)
-                    Nothing    -> return (glyphCache, outGlyphs)
+                    Nothing    -> FT2.renderGlyph face c >>= \case
+                                      (gm@FT2.GlyphMetrics { .. }, bitmap) -> do
+                                          return (glyphCache, outGlyphs)
         ) (glyphCache, []) string
     writeIORef (frGlyphCache fr) glyphCache'
-
-    {-
-    foldM_
-        ( \(xoffs, prevc) c ->
-              FT2.renderGlyph face c >>= \case
-                  FT2.GlyphMetrics { .. } -> do
-                      -- Set lower-left origin for glyph, taking into account kerning, bearing etc.
-                      kernHorz <- FT2.getKerning face prevc c
-                      -- Debug print kerning pairs
-                      -- when (kernHorz /= 0) . putStrLn $ [prevc, c, ' '] ++ show kernHorz
-                      GL.windowPos (GL.Vertex2 (fromIntegral $ xoffs + gBearingX + kernHorz)
-                                               (fromIntegral $ y + (gBearingY - gHeight))
-                                               :: GL.Vertex2 GL.GLint)
-                      -- Our pixels are 8 bit, might not conform to the default 32 bit alignment
-                      GL.rowAlignment GL.Unpack GL.$= 1
-                      -- Draw black text
-                      GL.blend      GL.$= GL.Enabled
-                      GL.blendFunc  GL.$= (GL.SrcAlpha, GL.OneMinusSrcAlpha)
-                      -- GL.depthMask GL.$= GL.Disabled
-                      VS.unsafeWith gBitmap (\ptr ->
-                          GL.drawPixels (GL.Size (fromIntegral gWidth) (fromIntegral gHeight))
-                                        (GL.PixelData GL.Alpha GL.UnsignedByte ptr))
-                      -- GL.depthMask GL.$= GL.Enabled
-                      GL.blend      GL.$= GL.Disabled
-                      return $ (xoffs + gAdvanceHorz, c)
-        ) (x, toEnum 0) string
-    -}
 
 -- Very basic and slow text rendering. Have FT2 render all the glyphs and draw them
 -- directly using glDrawPixels
@@ -113,7 +89,7 @@ drawTextBitmap x y face string =
                       kernHorz <- FT2.getKerning face prevc c
                       -- Debug print kerning pairs
                       -- when (kernHorz /= 0) . putStrLn $ [prevc, c, ' '] ++ show kernHorz
-                      GL.windowPos (GL.Vertex2 (fromIntegral $ xoffs + gBearingX + kernHorz)
+                      GL.windowPos (GL.Vertex2 (round $ xoffs + (fromIntegral gBearingX) + kernHorz)
                                                (fromIntegral $ y + (gBearingY - gHeight))
                                                :: GL.Vertex2 GL.GLint)
                       -- Our pixels are 8 bit, might not conform to the default 32 bit alignment
@@ -128,5 +104,5 @@ drawTextBitmap x y face string =
                       -- GL.depthMask GL.$= GL.Enabled
                       GL.blend      GL.$= GL.Disabled
                       return $ (xoffs + gAdvanceHorz + kernHorz, c)
-        ) (x, toEnum 0) string
+        ) (fromIntegral x, toEnum 0) string
 

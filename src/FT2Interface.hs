@@ -19,7 +19,6 @@ import Control.Monad
 import Data.Typeable
 import Data.IORef
 import Data.Word
-import Data.Bits
 import Data.List
 import Data.Hashable
 import Text.Printf
@@ -64,6 +63,7 @@ data Typeface = Typeface { tfHandle     :: !FT2FaceHandle
                          , tfReqHeight  :: !Int
                          }
 
+-- Hash typefaces by their FT2 Face pointer
 instance Hashable Typeface where
     hash x = hash (fromIntegral . ptrToIntPtr $ tfHandle x :: Int)
 
@@ -152,11 +152,11 @@ getLoadedTypeface ft2 faceName pixelHeight = do
 -- http://www.freetype.org/freetype2/docs/tutorial/metrics.png
 data GlyphMetrics = GlyphMetrics
     {
-      gAdvanceHorz :: !Int -- Horizontal offset for the next glyph
-    , gBearingX    :: !Int -- X & Y offset for positioning the bitmap
-    , gBearingY    :: !Int --   relative to the current pen position
-    , gWidth       :: !Int -- Dimensions of glyph image
-    , gHeight      :: !Int -- ...
+      gAdvanceHorz :: !Float -- Horizontal offset for the next glyph (sub-pixel precise)
+    , gBearingX    :: !Int   -- X & Y offset for positioning the bitmap
+    , gBearingY    :: !Int   --   relative to the current pen position
+    , gWidth       :: !Int   -- Dimensions of glyph image
+    , gHeight      :: !Int   -- ...
     }
 
 renderGlyph :: Typeface -> Char -> IO (GlyphMetrics, VS.Vector Word8)
@@ -180,7 +180,7 @@ renderGlyph face c = do
                               bitmapRows
                               bitmap
             -- Extract data passed back through pointers
-            gAdvanceHorz <- fromIntegral <$> peek advanceHorz
+            gAdvanceHorz <- realToFrac   <$> peek advanceHorz
             gBearingX    <- fromIntegral <$> peek bearingX
             gBearingY    <- fromIntegral <$> peek bearingY
             gWidth       <- fromIntegral <$> peek bitmapWidth
@@ -209,15 +209,15 @@ renderGlyph face c = do
 -- TODO: It seems that FT2 can't actually use the type of kerning information present in
 --       most fonts (kern vs GPOS table)
 --
-getKerning :: Typeface -> Char -> Char -> IO Int
+getKerning :: Typeface -> Char -> Char -> IO Float
 getKerning face left right = do
     [leftIdx, rightIdx] <-
         mapM (c_FT_Get_Char_Index (tfHandle face) . fromIntegral . fromEnum) [left, right]
     withArray [0, 0] $ \kerningVec -> do
-        checkReturn "getKerning" =<<
-            c_FT_Get_Kerning (tfHandle face) leftIdx rightIdx 0 kerningVec
-        kernHorz <- fromIntegral <$> peek kerningVec
-        return $ kernHorz `shiftR` 6 -- Offset is in 26.6 fixed-point
+        checkReturn "getKerning" =<< c_FT_Get_Kerning
+            (tfHandle face) leftIdx rightIdx 1 {- FT_KERNING_UNFITTED -} kerningVec
+        kernHorz <- fromIntegral <$> peek kerningVec :: IO Float
+        return $ kernHorz / 64 -- Offset is in 26.6 fixed-point
 
 -- Check a FT return value and throw an exception for errors
 checkReturn :: String -> CInt -> IO ()
@@ -268,7 +268,7 @@ foreign import ccall unsafe "ft2_interface.h debugPrintTest"
 foreign import ccall unsafe "ft2_interface.h renderGlyph"
     c_renderGlyph :: FT2FaceHandle
                   -> CULong
-                  -> Ptr CUInt
+                  -> Ptr CFloat
                   -> Ptr CInt
                   -> Ptr CInt
                   -> Ptr CUInt
