@@ -69,7 +69,7 @@ executable jacky
                     -- need to make sure we have at least this version due to this bug
                     -- https://github.com/snoyberg/http-client/issues/9
                     , http-client          >=0.2.0.2
-                    , JuicyPixels          >=3.1.1.1
+                    , JuicyPixels          >=3.1.2
                     , authenticate-oauth   >=1.4.0.8
                     , attoparsec-conduit   >=1.0
                     , aeson                >=0.6
