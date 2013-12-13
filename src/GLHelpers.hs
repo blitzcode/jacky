@@ -1,5 +1,5 @@
 
-{-# LANGUAGE PackageImports, LambdaCase #-}
+{-# LANGUAGE PackageImports #-}
 
 module GLHelpers ( setup2D
                  , getCurTex2DSize
@@ -32,7 +32,7 @@ setup2D w h = do
 
 -- TODO: Don't query OpenGL state
 getCurTex2DSize :: IO (Int, Int)
-getCurTex2DSize = (\case (GL.TextureSize2D w h) -> (fromIntegral w, fromIntegral h))
+getCurTex2DSize = (\(GL.TextureSize2D w h) -> (fromIntegral w, fromIntegral h))
                          <$> (GL.get $ GL.textureSize2D (Left GL.Texture2D) 0)
 
 getGLStrings :: IO String

@@ -1,5 +1,5 @@
 
-{-# LANGUAGE PackageImports, RecordWildCards, LambdaCase #-}
+{-# LANGUAGE PackageImports, RecordWildCards #-}
 
 module UI ( UIState
           , UIT

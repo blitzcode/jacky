@@ -1,5 +1,5 @@
 
-{-# LANGUAGE LambdaCase, RecordWildCards #-}
+{-# LANGUAGE RecordWildCards #-}
 
 module FontRendering ( withFontRenderer
                      , FontRenderer
@@ -98,8 +98,8 @@ drawText fr x y face string = do
             in  case HM.lookup key cache of
                     Just entry -> return (cache, entry : outGlyphs)
                     Nothing    -> -- New glyph, render it and upload texture data
-                                  FT2.renderGlyph face c >>= \case
-                                    (metrics@(FT2.GlyphMetrics { .. }), bitmap) -> do
+                                  FT2.renderGlyph face c >>=
+                                    \(metrics@(FT2.GlyphMetrics { .. }), bitmap) -> do
                                       -- Texture (TODO: Pack in texture atlas)
                                       tex <- uploadTexture2D
                                           GL.Alpha GL.Alpha' gWidth gHeight bitmap True
@@ -142,8 +142,8 @@ drawTextBitmap x y face string = do
     -- GL.depthMask GL.$= GL.Disabled
     foldM_
         ( \(xoffs, prevc) c ->
-              FT2.renderGlyph face c >>= \case
-                  (FT2.GlyphMetrics { .. }, bitmap) -> do
+              FT2.renderGlyph face c >>=
+                  \(FT2.GlyphMetrics { .. }, bitmap) -> do
                       -- Set lower-left origin for glyph, taking into account kerning, bearing etc.
                       kernHorz <- FT2.getKerning face prevc c
                       -- Debug print kerning pairs
