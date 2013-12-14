@@ -234,7 +234,7 @@ main = do
                                                                    logNetworkMode
                                                                    logNetworkFolder
                                                                    envSMQueue
-           in withPSAsync $
+           in --withPSAsync $
             let cacheSize = foldr (\f r -> case f of
                     FlagImgMemCacheSize n -> fromMaybe r $ parseMaybe n
                     _                     -> r)
