@@ -28,7 +28,7 @@ import qualified Graphics.Rendering.OpenGL as GL
 import qualified "GLFW-b" Graphics.UI.GLFW as GLFW
 import Data.Tuple
 
-import GLImmediate
+import GLQuadRendering
 import StateModify
 import FontRendering
 
@@ -159,7 +159,7 @@ fill :: MonadIO m
 fill col trans tex = do
     (Rectangle x1 y1 x2 y2) <- gets uisRect
     depth                   <- gets uisDepth
-    liftIO $ drawQuad x1 y1 x2 y2 depth col trans tex
+    liftIO $ drawQuadImmediate x1 y1 x2 y2 depth col trans tex
 
 text :: MonadIO m
      => FontRenderer
@@ -168,7 +168,7 @@ text :: MonadIO m
      -> UIT m ()
 text fr face string = do
     (Rectangle x1 y1 _ _) <- gets uisRect
-    liftIO $ drawText{-Bitmap-} fr (round x1) (round y1) face string
+    liftIO $ drawText fr (round x1) (round y1) face string
 
 {-# INLINE fill #-}
 --{-# INLINE text #-}

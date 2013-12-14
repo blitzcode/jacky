@@ -35,6 +35,7 @@ import GLFWHelpers
 import StateModify
 import UI
 import FontRendering
+import GLQuadRendering
 
 -- Application logic and presentation running in AppDraw
 
@@ -52,6 +53,7 @@ data Env = Env
     , envTweetHistSize     :: Int
     , envStatTraceInterval :: Double
     , envFontRenderer      :: FontRenderer
+    , envGLQuadRenderer    :: GLQuadRenderer
     }
 
 data State = State

@@ -48,6 +48,7 @@ import CmdLineOptDefinitions
 import qualified BoundedSequence as BS
 import Timing
 import FontRendering
+import GLQuadRendering
 
 -- Parse command line options and setup State / Env for main application code
 
@@ -250,41 +251,42 @@ main = do
                   wndHgt = 644
               withWindow wndWdh wndHgt "Twitter" envGLFWEventsQueue $ \envWindow ->
                 withTextureCache cacheSize envImageCache $ \envTextureCache ->
-                  withFontRenderer (FlagForceAutohint `elem` flags)
-                                   (FlagDisableKern   `elem` flags)
-                                   $ \envFontRenderer -> do
-                    when (FlagFT2Test `elem` flags) $ debugPrintTest envFontRenderer
-                    traceSystemInfo envFontRenderer
-                    -- Start EKG server (disabled for now)
-                    -- ekg <- forkServer "localhost" 8000
-                    -- Setup reader and state for main AppDraw monad
-                    stCurTick <- getTick
-                    let envInit = Env
-                            { envTweetHistSize     = foldr (\f r -> case f of
-                                                              FlagTweetHistory n ->
-                                                                  fromMaybe r $ parseMaybe n
-                                                              _ -> r)
-                                                           defTweetHistory flags
-                            , envStatTraceInterval = foldr (\f r -> case f of
-                                                              FlagStatTraceInterval n ->
-                                                                  fromMaybe r $ parseMaybe n
-                                                              _ -> r)
-                                                           defStatTraceInterval flags
-                            , ..
-                            }
-                        stateInit = State
-                            { stTweetByID          = M.empty
-                            , stUILayoutRects      = []
-                            , stFrameTimes         = -- FPS History for stat trace interval
-                                                     BS.empty . round $
-                                                         60 * envStatTraceInterval envInit
-                            , stLastStatTrace      = stCurTick
-                            , stStatTweetsReceived = 0
-                            , stStatDelsReceived   = 0
-                            , stStatBytesRecvAPI   = 0
-                            , ..
-                            }
-                    -- Enter main loop
-                    void . flip runReaderT envInit . flip runStateT stateInit $ run
+                  withGLQuadRenderer $ \envGLQuadRenderer ->
+                    withFontRenderer (FlagForceAutohint `elem` flags)
+                                     (FlagDisableKern   `elem` flags)
+                                     $ \envFontRenderer -> do
+                      when (FlagFT2Test `elem` flags) $ debugPrintTest envFontRenderer
+                      traceSystemInfo envFontRenderer
+                      -- Start EKG server (disabled for now)
+                      -- ekg <- forkServer "localhost" 8000
+                      -- Setup reader and state for main AppDraw monad
+                      stCurTick <- getTick
+                      let envInit = Env
+                              { envTweetHistSize     = foldr (\f r -> case f of
+                                                                FlagTweetHistory n ->
+                                                                    fromMaybe r $ parseMaybe n
+                                                                _ -> r)
+                                                             defTweetHistory flags
+                              , envStatTraceInterval = foldr (\f r -> case f of
+                                                                FlagStatTraceInterval n ->
+                                                                    fromMaybe r $ parseMaybe n
+                                                                _ -> r)
+                                                             defStatTraceInterval flags
+                              , ..
+                              }
+                          stateInit = State
+                              { stTweetByID          = M.empty
+                              , stUILayoutRects      = []
+                              , stFrameTimes         = -- FPS History for stat trace interval
+                                                       BS.empty . round $
+                                                           60 * envStatTraceInterval envInit
+                              , stLastStatTrace      = stCurTick
+                              , stStatTweetsReceived = 0
+                              , stStatDelsReceived   = 0
+                              , stStatBytesRecvAPI   = 0
+                              , ..
+                              }
+                      -- Enter main loop
+                      void . flip runReaderT envInit . flip runStateT stateInit $ run
       traceS TLInfo "Clean Exit"
 
