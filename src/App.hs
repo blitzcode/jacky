@@ -85,9 +85,9 @@ draw = do
     tweetText <- (maybe "" (\(tw, _) -> T.unpack $ twText tw) . M.maxView) <$> gets stTweetByID
     rc        <- liftIO $ rectFromWndFB window
     void $ runUI rc 1000 $ do
-        fill (FCBottomTopGradient (RGBA 0.2 0.2 0.2 1) (RGBA 0.4 0.4 1 1))
+        {-fill (FCBottomTopGradient (RGBA 0.2 0.2 0.2 1) (RGBA 0.4 0.4 1 1))
              FTNone
-             Nothing
+             Nothing-}
         layer $
             split SBottom 16
                 ( fill FCWhite (FTBlend 0.5) Nothing

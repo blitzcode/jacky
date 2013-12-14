@@ -69,7 +69,7 @@ withTrace traceFn echoOn appendOn colorOn level f =
 trace :: TraceLevel -> T.Text -> IO ()
 trace lvl msg = void $ withMVar traceSettings $ \ts -> -- TODO: Have to take an MVar even if
                                                        --       tracing is off, speed this up
-   when (lvl /= TLNone && fromEnum lvl <= (fromEnum $ tsLevel ts)) $ do
+   when (lvl /= TLNone && fromEnum lvl <= fromEnum (tsLevel ts)) $ do
        tid  <- printf "%-12s" . show <$> myThreadId
        time <- printf "%-26s" . show . zonedTimeToLocalTime <$> getZonedTime
        let lvlDesc color = (if color then concat else (!! 1)) $ case lvl of
@@ -78,28 +78,28 @@ trace lvl msg = void $ withMVar traceSettings $ \ts -> -- TODO: Have to take an 
                TLInfo  -> [ mkANSICol A.White , "INFO ", reset ]
                _       -> replicate 3 ""
            reset         = A.setSGRCode []
-           mkANSICol c   = A.setSGRCode $ [ A.SetColor A.Foreground A.Vivid c ]
-           header color  = concat $ intersperse " | " [ lvlDesc color, tid, time ]
+           mkANSICol c   = A.setSGRCode [ A.SetColor A.Foreground A.Vivid c ]
+           header color  = intercalate " | " [ lvlDesc color, tid, time ]
            handles       = case tsFile   ts of   Just h -> [h];     _ -> []; ++
-                           if   tsEchoOn ts then           [stdout] else []
-           oneLine       = (not $ T.any (== '\n') msg) && T.length msg < 80
+                           [stdout | tsEchoOn ts]
+           oneLine       = not (T.any (== '\n') msg) && T.length msg < 80
        forM_ handles $ \h -> do
            closed <- hIsClosed h
            hs     <- hShow h
            -- Use ANSI colors when outputting to the terminal
-           color  <- ((&&) $ tsColorOn ts) <$> hIsTerminalDevice h
+           color  <- (&&) (tsColorOn ts) <$> hIsTerminalDevice h
            if   closed
            then TI.putStrLn $ "ERROR: Trace message lost, called trace after shutdown: " <> msg
                               <> "\n" <> T.pack hs <> "\n" <> T.pack (show h)
            else -- Display short, unbroken messages in a single line without padding newline
                 if   oneLine
-                then do TI.hPutStrLn h $ T.pack (header color) <> " - " <> msg
+                then TI.hPutStrLn h $ T.pack (header color) <> " - " <> msg
                 else do hPutStrLn h $ header color
                         TI.hPutStrLn h msg
                         hPutStrLn h ""
 
 traceT :: TraceLevel -> T.Text -> IO ()
-traceT lvl msg = trace lvl msg
+traceT = trace
 
 traceS :: TraceLevel -> String -> IO ()
 traceS lvl msg = trace lvl (T.pack msg)

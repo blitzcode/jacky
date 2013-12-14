@@ -71,7 +71,7 @@ drawQuad x1 y1 x2 y2 depth col trans tex = do
                   FTBlend weight -> do
                       GL.blend      GL.$= GL.Enabled
                       GL.blendFunc  GL.$= (GL.ConstantAlpha, GL.OneMinusConstantAlpha)
-                      GL.blendColor GL.$= (GL.Color4 0 0 0 (realToFrac weight :: GL.GLfloat))
+                      GL.blendColor GL.$= GL.Color4 0 0 0 (realToFrac weight :: GL.GLfloat)
                   FTSrcAlpha     -> do
                       GL.blend      GL.$= GL.Enabled
                       GL.blendFunc  GL.$= (GL.SrcAlpha, GL.OneMinusSrcAlpha)
@@ -90,7 +90,7 @@ drawQuad x1 y1 x2 y2 depth col trans tex = do
     GL.matrixMode GL.$= GL.Modelview 0
     GL.loadIdentity
     GL.renderPrimitive GL.Quads . forM_ (zip3 pos' cols texs) $
-        \((x, y), (RGBA r g b a), (u, v)) -> do
+        \((x, y), RGBA r g b a, (u, v)) -> do
             color4f r g b a
             texCoord2f u v
             vertex3f x y (-depth)

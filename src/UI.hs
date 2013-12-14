@@ -146,7 +146,7 @@ dimensions = do
     return (x2 - x1, y2 - y1)
 
 runUI :: Monad m => Rectangle -> Float -> UIT m a -> m (a, UIState)
-runUI rc depth f = do
+runUI rc depth f =
     runStateT f UIState { uisRect  = rc
                         , uisDepth = depth
                         }

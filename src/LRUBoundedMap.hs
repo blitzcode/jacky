@@ -77,8 +77,8 @@ minMaxFromTrie :: Trie k v -> (Tick, Tick)
 minMaxFromTrie Empty                          = (maxBound, minBound)
 minMaxFromTrie (Node olda newa oldb newb _ _) = (min olda oldb, max newa newb)
 minMaxFromTrie (Leaf _ (L _ _ tick))          = (tick, tick)
-minMaxFromTrie (Collision _ ch)               = ( (minimum . map (\(L _ _ tick) -> tick) $ ch)
-                                                , (maximum . map (\(L _ _ tick) -> tick) $ ch)
+minMaxFromTrie (Collision _ ch)               = ( minimum . map (\(L _ _ tick) -> tick) $ ch
+                                                , maximum . map (\(L _ _ tick) -> tick) $ ch
                                                 )
 
 instance (NFData k, NFData v) => NFData (Trie k v) where
@@ -286,8 +286,8 @@ lookup k' m = if   isNothing mvalue -- Only increment tick if we found something
               | colh == h = -- Search child list for matching key, rebuild with updated tick
                             foldl' (\(r, Collision _ ch') l@(L lk lv _) ->
                                        if   lk == k
-                                       then (Just lv, Collision colh $ (L lk lv tick) : ch')
-                                       else (r      , Collision colh $ l              : ch')
+                                       then (Just lv, Collision colh $ L lk lv tick : ch')
+                                       else (r      , Collision colh $ l            : ch')
                                    )
                                    (Nothing, Collision colh [])
                                    ch
@@ -388,10 +388,10 @@ valid m =
          execWriter $ do
              when (mLimit m < 1) $
                  tell "Invalid limit (< 1)\n"
-             when ((fst $ size m) /= sizeTraverse m) $
+             when (fst (size m) /= sizeTraverse m) $
                  tell "Mismatch beween cached and actual size\n"
-             when ((fst $ size m) > mLimit m)
-                 $ tell "Size over the limit\n"
+             when (fst (size m) > mLimit m) $
+                 tell "Size over the limit\n"
              allTicks <-
                let traverse s minParent maxParent ticks t =
                      case t of
@@ -417,7 +417,7 @@ valid m =
                                                   case t' of Empty -> u; _ -> x : u
                                               )
                                         []
-                                        $ (a, minA, maxA) : (b, minB, maxB) : []
+                                        $ [(a, minA, maxA), (b, minB, maxB)]
                              when (length used == 0) $
                                  tell "Node with only empty children\n"
                              when (length used == 1) $
@@ -445,7 +445,7 @@ valid m =
                                tell $ "Lookup of key found during traversal yields " ++
                                       "different value\n"
                        let (m', v') = delete k m
-                       when ((fst $ size m') /= (fst $ size m) - 1) $
+                       when (fst (size m') /= (fst $ size m) - 1) $
                            tell "Deleting key did not reduce size\n"
                        when (fromMaybe v v' /= v) $
                            tell "Delete returned wrong value\n"
@@ -453,23 +453,23 @@ valid m =
                in  traverse 0 minBound maxBound [] $ mTrie m
              when (length allTicks /= mSize m) $
                  tell "Collection of all tick values used resulted in different size that mSize\n"
-             unless (Data.List.null . filter (\x -> length x /= 1) . group . sort $ allTicks) $
+             unless (not . any (\x -> length x /= 1) . group . sort $ allTicks) $
                  tell "Duplicate tick value found\n"
-             let keysL      = map (fst) $ toList m
+             let keysL      = map fst $ toList m
                  allDeleted = foldl' (\r k -> fst $ delete k r) m keysL
-             when (length keysL /= (fst $ size m)) $
+             when (length keysL /= fst (size m)) $
                  tell "Length of toList does not match size\n"
              unless (null allDeleted) $
                  tell "Deleting all elements does not result in an empty map\n"
-             unless ((fst $ size allDeleted) == 0) $
+             unless (fst (size allDeleted) == 0) $
                  tell "Deleting all elements does not result in a zero size map\n"
              let compacted = compactTicks m
-             when ((snd $ popOldest m) /= (snd $ popOldest compacted) ||
-                   (snd $ popNewest m) /= (snd $ popNewest compacted)) $
+             when (snd (popOldest m) /= snd (popOldest compacted) ||
+                   snd (popNewest m) /= snd (popNewest compacted)) $
                   tell "Tick compaction changes LRU\n"
              when (toList m /= toList compacted) $
                   tell "Tick compaction changes map\n"
-             when ((fromIntegral $ mTick compacted) /= (fst $ size compacted)) $
+             when (fromIntegral (mTick compacted) /= fst (size compacted)) $
                   tell "Tick compaction did not reduce tick range to minimum\n"
     in  case w of [] -> Nothing
                   xs -> Just xs

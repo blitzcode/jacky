@@ -53,8 +53,8 @@ defStatTraceInterval :: Double
 
 parseCmdLineOpt :: (MonadError String m, MonadIO m) => m [Flag]
 parseCmdLineOpt = do
-    name <- liftIO $ getProgName
-    args <- liftIO $ getArgs
+    name <- liftIO getProgName
+    args <- liftIO getArgs
     let header = "Usage: " ++ name ++ " [OPTION...]"
         usage  = usageInfo header options
     flags <- case getOpt Permute options args of
@@ -142,15 +142,15 @@ parseCmdLineOpt = do
                   , Option ['e']
                            ["trace-echo"]
                            (NoArg FlagTraceEchoOn)
-                           ("echo execution trace to stdout as well")
+                           "echo execution trace to stdout as well"
                   , Option []
                            ["trace-append"]
                            (NoArg FlagTraceAppend)
-                           ("append execution trace file instead of overwriting")
+                           "append execution trace file instead of overwriting"
                   , Option []
                            ["trace-no-color"]
                            (NoArg FlagTraceDisableColor)
-                           ("no ANSI colors for trace output (default: on)")
+                           "no ANSI colors for trace output (default: on)"
                   , Option []
                            ["verify-img-cache"]
                            (NoArg FlagVerifyImgCache)

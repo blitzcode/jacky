@@ -114,7 +114,7 @@ drawText fr x y face string = do
         ( \(xoffs, prevc) (GlyphCacheEntry c (FT2.GlyphMetrics { .. }) tex) -> do
               -- Compute lower-left origin for glyph, taking into account kerning, bearing etc.
               kernHorz <- FT2.getKerning face prevc c
-              let x1 = round $ xoffs + (fromIntegral gBearingX) + kernHorz :: Int
+              let x1 = round $ xoffs + fromIntegral gBearingX + kernHorz :: Int
                   y1 = y + (gBearingY - gHeight)
                   x2 = x1 + gWidth
                   y2 = y1 + gHeight
@@ -127,7 +127,7 @@ drawText fr x y face string = do
                        FCBlack
                        FTSrcAlpha
                        (Just tex)
-              return $ (xoffs + gAdvanceHorz + kernHorz, c)
+              return (xoffs + gAdvanceHorz + kernHorz, c)
         ) (fromIntegral x, toEnum 0) $ reverse glyphs
 
 -- Very basic and slow text rendering. Have FT2 render all the glyphs and draw them
@@ -148,13 +148,13 @@ drawTextBitmap x y face string = do
                       kernHorz <- FT2.getKerning face prevc c
                       -- Debug print kerning pairs
                       -- when (kernHorz /= 0) . putStrLn $ [prevc, c, ' '] ++ show kernHorz
-                      GL.windowPos (GL.Vertex2 (round $ xoffs + (fromIntegral gBearingX) + kernHorz)
+                      GL.windowPos (GL.Vertex2 (round $ xoffs + fromIntegral gBearingX + kernHorz)
                                                (fromIntegral $ y + (gBearingY - gHeight))
                                                :: GL.Vertex2 GL.GLint)
-                      VS.unsafeWith bitmap (\ptr ->
-                          GL.drawPixels (GL.Size (fromIntegral gWidth) (fromIntegral gHeight))
-                                        (GL.PixelData GL.Alpha GL.UnsignedByte ptr))
-                      return $ (xoffs + gAdvanceHorz + kernHorz, c)
+                      VS.unsafeWith bitmap
+                          $ GL.drawPixels (GL.Size (fromIntegral gWidth) (fromIntegral gHeight))
+                              . GL.PixelData GL.Alpha GL.UnsignedByte
+                      return (xoffs + gAdvanceHorz + kernHorz, c)
         ) (fromIntegral x, toEnum 0) string
     -- GL.depthMask GL.$= GL.Enabled
     GL.blend GL.$= GL.Disabled

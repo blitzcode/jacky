@@ -19,8 +19,8 @@ startTime = unsafePerformIO getCurrentTime
 
 -- In seconds
 getTick :: IO Double
-getTick = do
-    realToFrac <$> (flip diffUTCTime startTime) <$> getCurrentTime
+getTick =
+    realToFrac <$> flip diffUTCTime startTime <$> getCurrentTime
 
     -- TODO: Compare with GLFW timer
     --
@@ -33,8 +33,8 @@ getTick = do
 
 timeIt :: MonadIO m => m a -> m (Double, a)
 timeIt f = do
-    start <- liftIO $ getCurrentTime
+    start <- liftIO getCurrentTime
     r     <- f
-    end   <- liftIO $ getCurrentTime
+    end   <- liftIO getCurrentTime
     return (realToFrac $ diffUTCTime end start, r)
 

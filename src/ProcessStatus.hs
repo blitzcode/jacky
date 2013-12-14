@@ -46,7 +46,7 @@ smQueueSink smQueue = awaitForever $ liftIO . atomically . writeTBQueue smQueue
 --       over the socket
 countBytesState :: (MonadIO m, MonadState Int m) => Conduit B.ByteString m B.ByteString
 countBytesState = awaitForever $ \mi -> do
-                      modify' (\x -> B.length mi `seq` x + (fromIntegral $ B.length mi))
+                      modify' (\x -> B.length mi `seq` x + fromIntegral (B.length mi))
                       yield mi
 
 parseStatus :: (MonadIO m, MonadState Int m, MonadResource m)
@@ -65,8 +65,8 @@ parseStatus = do
     -- The stream connections send individual objects we can decode into SMs,
     -- but the home timeline sends an array of such objects
     let msg = case j of
-                  Array (v) -> V.toList v
-                  x         -> [x]
+                  Array v -> V.toList v
+                  x       -> [x]
     forM_ msg $ \m -> do
         -- We expect something that can be parsed into a StreamMessage
         let sm = fromJSON m :: Result StreamMessage
@@ -108,53 +108,52 @@ processStatuses :: String
 processStatuses uri oaClient oaCredential manager logFn appendLog smQueue retryAPI = do
   let uriIsHTTP = isPrefixOf "http://" uri || isPrefixOf "https://" uri -- File or HTTP?
   success <- catches
-    ( do
-     -- We use State to keep track of how many bytes we received
-     runResourceT . flip evalStateT (0 :: Int) $
-         let sink' = countBytesState =$ parseStatus =$ smQueueSink smQueue
-             sink  = case logFn of Just fn -> conduitFileWithOptions
-                                                  fn
-                                                  (if appendLog then AppendMode else WriteMode)
-                                                  True
-                                              =$ sink'
-                                   Nothing -> sink'
-         in  if   uriIsHTTP
-             then do -- Authenticate, connect and start receiving stream
-                     req' <- liftIO $ parseUrl uri
-                     let req = req' { requestHeaders =
-                                            ("Accept-Encoding", "deflate, gzip")
-                                            -- Need a User-Agent field as well to get a
-                                            -- gzip'ed stream from Twitter
-                                          : ("User-Agent", "jacky/http-conduit")
-                                          : requestHeaders req'
-                                    }
-                     reqSigned <- OA.signOAuth oaClient oaCredential req
-                     liftIO . traceS TLInfo $ "Twitter API request:\n" ++ show reqSigned
-                     res <- http reqSigned manager
-                     liftIO . traceS TLInfo $ "Twitter API response from '" ++ uri ++ "'\n"
-                                              ++ case logFn of Just fn -> "Saving full log in '"
-                                                                          ++ fn ++ "'\n"
-                                                               Nothing -> ""
-                                              ++ "Status: " ++ show (responseStatus res)
-                                              ++ "\n"
-                                              ++ "Header: " ++ show (responseHeaders res)
-                     -- Are we approaching the rate limit?
-                     case find ((== "x-rate-limit-remaining") . fst) (responseHeaders res) >>=
-                          parseMaybe . B8.unpack . snd :: Maybe Int of
-                              Just n  -> when (n < 5) . liftIO . traceS TLWarn $
-                                             printf "Rate limit remaining for API '%s' at %i" uri n
-                              Nothing -> return ()
-                     -- Finish parsing conduit
-                     responseBody res $$+- sink
-                     return True
-             else do liftIO . traceS TLInfo $ "Streaming Twitter API response from file: " ++ uri
-                     sourceFile uri $$ sink
-                     return True
+    ( -- We use State to keep track of how many bytes we received
+      runResourceT . flip evalStateT (0 :: Int) $
+          let sink' = countBytesState =$ parseStatus =$ smQueueSink smQueue
+              sink  = case logFn of Just fn -> conduitFileWithOptions
+                                                   fn
+                                                   (if appendLog then AppendMode else WriteMode)
+                                                   True
+                                               =$ sink'
+                                    Nothing -> sink'
+          in  if   uriIsHTTP
+              then do -- Authenticate, connect and start receiving stream
+                      req' <- liftIO $ parseUrl uri
+                      let req = req' { requestHeaders =
+                                             ("Accept-Encoding", "deflate, gzip")
+                                             -- Need a User-Agent field as well to get a
+                                             -- gzip'ed stream from Twitter
+                                           : ("User-Agent", "jacky/http-conduit")
+                                           : requestHeaders req'
+                                     }
+                      reqSigned <- OA.signOAuth oaClient oaCredential req
+                      liftIO . traceS TLInfo $ "Twitter API request:\n" ++ show reqSigned
+                      res <- http reqSigned manager
+                      liftIO . traceS TLInfo $ "Twitter API response from '" ++ uri ++ "'\n"
+                                               ++ case logFn of Just fn -> "Saving full log in '"
+                                                                           ++ fn ++ "'\n"
+                                                                Nothing -> ""
+                                               ++ "Status: " ++ show (responseStatus res)
+                                               ++ "\n"
+                                               ++ "Header: " ++ show (responseHeaders res)
+                      -- Are we approaching the rate limit?
+                      case find ((== "x-rate-limit-remaining") . fst) (responseHeaders res) >>=
+                           parseMaybe . B8.unpack . snd :: Maybe Int of
+                               Just n  -> when (n < 5) . liftIO . traceS TLWarn $ printf
+                                              "Rate limit remaining for API '%s' at %i" uri n
+                               Nothing -> return ()
+                      -- Finish parsing conduit
+                      responseBody res $$+- sink
+                      return True
+              else do liftIO . traceS TLInfo $ "Streaming Twitter API response from file: " ++ uri
+                      sourceFile uri $$ sink
+                      return True
     )
     [ Handler $ \(ex :: AsyncException) ->
                    case ex of
                        ThreadKilled -> do
-                           traceS TLInfo $ "Received ThreadKilled while processing statuses from '"
+                           traceS TLInfo $ "Recv. ThreadKilled while processing statuses from '"
                                             ++ uri ++ "', exiting\n" ++ show ex
                            void $ throwIO ex -- Clean exit, but re-throw so we're not trapped
                                              -- inside RetryForever
@@ -167,7 +166,7 @@ processStatuses uri oaClient oaCredential manager logFn appendLog smQueue retryA
                    traceS TLError $ "HTTP / connection error while processing statuses from '"
                                     ++ uri ++ "'\n" ++ show ex
                    return False
-    , Handler $ \(ex :: CA.ParseError) -> do
+    , Handler $ \(ex :: CA.ParseError) ->
                    if   "demandInput" `elem` CA.errorContexts ex
                    then do traceS TLInfo  $ "End-of-Data for '" ++ uri ++ "'\n" ++ show ex
                            return True -- This error is a clean exit
@@ -188,13 +187,12 @@ processStatuses uri oaClient oaCredential manager logFn appendLog smQueue retryA
                                 retryMsg ++ " (forever)\nURI: " ++ uri
                             threadDelay retryDelay
                             retryThis RetryForever
-      RetryNTimes n  -> if   (not success) && n > 0
-                        then do traceS TLWarn $ retryMsg ++ "\n"
-                                                ++ "Remaining retries: " ++ show n ++ "\n"
-                                                ++ "URI: " ++ uri
-                                threadDelay retryDelay
-                                retryThis (RetryNTimes $ n - 1)
-                        else return ()
+      RetryNTimes n  -> when (not success && n > 0) $ do
+                            traceS TLWarn $ retryMsg ++ "\n"
+                                            ++ "Remaining retries: " ++ show n ++ "\n"
+                                            ++ "URI: " ++ uri
+                            threadDelay retryDelay
+                            retryThis (RetryNTimes $ n - 1)
       RetryNever     -> return ()
   where retryThis  = processStatuses
                          uri

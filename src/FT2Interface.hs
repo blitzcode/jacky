@@ -75,14 +75,14 @@ data FT2Library = FT2Library { flLibrary   :: FT2LibraryHandle
                              }
 
 withFT2 :: (FT2Library -> IO a) -> IO a
-withFT2 f =
+withFT2 =
     bracket
         ( -- FT_Init_FreeType takes a pointer to a FT_Library to initialize, which itself is
           -- just pointer to the internal library data structure. We just need to allocate a
           -- pointer and have the init function fill it in
           alloca $ \ptr -> do
               checkReturn "init" =<< c_FT_Init_FreeType ptr
-              FT2Library <$> (peek ptr) <*> newIORef []
+              FT2Library <$> peek ptr <*> newIORef []
         )
         ( \ft2 -> do traceS TLInfo "Shutting down FreeType"
                      faces <- readIORef $ flTypefaces ft2
@@ -91,7 +91,6 @@ withFT2 f =
                              c_FT_Done_Face (tfHandle face)
                      checkReturn "shutdown" =<< c_FT_Done_FreeType (flLibrary ft2)
         )
-        f
 
 -- Load a typeface at a given size and return its record
 loadTypeface :: FT2Library -> String -> Int -> Bool -> Bool -> IO Typeface
@@ -163,7 +162,7 @@ data GlyphMetrics = GlyphMetrics
     }
 
 renderGlyph :: Typeface -> Char -> IO (GlyphMetrics, VS.Vector Word8)
-renderGlyph face c = do
+renderGlyph face c =
     -- Call C wrapper
     with     0       $ \advanceHorz ->
         with 0       $ \bearingX    ->
@@ -215,7 +214,7 @@ renderGlyph face c = do
 --
 getKerning :: Typeface -> Char -> Char -> IO Float
 getKerning face left right =
-    if   (tfDisableKern face) -- We can disable kerning on a per-face basis
+    if   tfDisableKern face -- We can disable kerning on a per-face basis
     then return 0
     else do [leftIdx, rightIdx] <-
                 mapM (c_FT_Get_Char_Index (tfHandle face) . fromIntegral . fromEnum) [left, right]
@@ -232,7 +231,7 @@ checkReturn ctx err | err == 0  = return ()
                                      throwIO $ FT2Exception ctx (fromIntegral err) errMsg
 
 getFT2Version :: FT2Library -> IO (Int, Int, Int) -- Major, Minor, Patch
-getFT2Version ft2 = do
+getFT2Version ft2 =
     withArray [0, 0, 0] $ \ptr -> do
         c_FT_Library_Version
             (flLibrary ft2)

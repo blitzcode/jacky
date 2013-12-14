@@ -71,7 +71,7 @@ uploadTexture2D fmt ifmt w h img genMipMap = do
     -- Might not conform to the default 32 bit alignment
     GL.rowAlignment GL.Unpack GL.$= 1
     -- Upload
-    VS.unsafeWith img $ \ptr -> do
+    VS.unsafeWith img $ \ptr ->
         -- TODO: This assumes NPOT / non-square texture support in
         --       combination with auto generated MIP-maps
         --
@@ -99,7 +99,7 @@ uploadTexture2D fmt ifmt w h img genMipMap = do
     --     (fromIntegral h)
     --     (GL.PixelData GL.RGBA GL.UnsignedByte ptr)
     --
-    when (genMipMap) $
+    when genMipMap $
         GLR.glGenerateMipmap GLR.gl_TEXTURE_2D
     return tex
 

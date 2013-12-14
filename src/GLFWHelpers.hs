@@ -13,7 +13,7 @@ import qualified "GLFW-b" Graphics.UI.GLFW as GLFW -- Be explicit, we need the n
 -- Various utility functions related to GLFW
 
 withWindow :: Int -> Int -> String -> TQueue GLFWEvent -> (GLFW.Window -> IO ()) -> IO ()
-withWindow w h title tq f =
+withWindow w h title tq =
     bracket
         ( do
              GLFW.setErrorCallback . Just $ errorCallback tq
@@ -32,7 +32,6 @@ withWindow w h title tq f =
         ( \window -> do GLFW.destroyWindow window
                         GLFW.terminate
         )
-        f
 
 highDPIScaleFactor :: GLFW.Window -> IO Double
 highDPIScaleFactor win = do
