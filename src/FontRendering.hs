@@ -27,7 +27,7 @@ import Data.Maybe
 
 import qualified FT2Interface as FT2
 import GLHelpers
-import GLQuadRendering
+import QuadRendering
 
 -- OpenGL font rendering based on the FreeType 2 wrapper in FT2Interface
 
@@ -119,14 +119,14 @@ drawText fr x y face string = do
                   x2 = x1 + gWidth
                   y2 = y1 + gHeight
               -- Draw
-              drawQuadImmediate (fromIntegral x1)
-                                (fromIntegral y1)
-                                (fromIntegral x2)
-                                (fromIntegral y2)
-                                1
-                                FCBlack
-                                FTSrcAlpha
-                                (Just tex)
+              drawQuadAdHocVBOShader (fromIntegral x1)
+                                     (fromIntegral y1)
+                                     (fromIntegral x2)
+                                     (fromIntegral y2)
+                                     1
+                                     FCBlack
+                                     FTSrcAlpha
+                                     (Just tex)
               return (xoffs + gAdvanceHorz + kernHorz, c)
         ) (fromIntegral x, toEnum 0) $ reverse glyphs
 

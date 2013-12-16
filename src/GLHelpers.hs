@@ -45,6 +45,7 @@ getGLStrings =
     <*> GL.get GL.shadingLanguageVersion
     <*> (length <$> GL.get GL.glExtensions)
     <*> (fromJust <$> GLFW.getVersionString)
+    -- <*> (show <$> GL.get GL.glExtensions)
 
 uploadTexture2D :: Storable pixel
                 => GL.PixelFormat

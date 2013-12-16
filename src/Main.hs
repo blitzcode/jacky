@@ -48,7 +48,7 @@ import CmdLineOptDefinitions
 import qualified BoundedSequence as BS
 import Timing
 import FontRendering
-import GLQuadRendering
+import QuadRendering
 
 -- Parse command line options and setup State / Env for main application code
 
@@ -235,7 +235,7 @@ main = do
                                                                    logNetworkMode
                                                                    logNetworkFolder
                                                                    envSMQueue
-           in --withPSAsync $
+           in withPSAsync $
             let cacheSize = foldr (\f r -> case f of
                     FlagImgMemCacheSize n -> fromMaybe r $ parseMaybe n
                     _                     -> r)
@@ -251,7 +251,7 @@ main = do
                   wndHgt = 644
               withWindow wndWdh wndHgt "Twitter" envGLFWEventsQueue $ \envWindow ->
                 withTextureCache cacheSize envImageCache $ \envTextureCache ->
-                  withGLQuadRenderer $ \envGLQuadRenderer ->
+                  withQuadRenderer $ \envQuadRenderer ->
                     withFontRenderer (FlagForceAutohint `elem` flags)
                                      (FlagDisableKern   `elem` flags)
                                      $ \envFontRenderer -> do

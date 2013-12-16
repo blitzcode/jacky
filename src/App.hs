@@ -35,7 +35,7 @@ import GLFWHelpers
 import StateModify
 import UI
 import FontRendering
-import GLQuadRendering
+import QuadRendering
 
 -- Application logic and presentation running in AppDraw
 
@@ -53,7 +53,7 @@ data Env = Env
     , envTweetHistSize     :: Int
     , envStatTraceInterval :: Double
     , envFontRenderer      :: FontRenderer
-    , envGLQuadRenderer    :: GLQuadRenderer
+    , envQuadRenderer      :: QuadRenderer
     }
 
 data State = State
@@ -97,7 +97,7 @@ draw = do
                 ( split STop 100
                       ( fill FCWhite (FTBlend 0.5) Nothing
                       )
-                      ( do --drawAvatarTiles
+                      ( do drawAvatarTiles
                            fontRenderingTest
                            return ()
                       )

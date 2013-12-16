@@ -28,7 +28,7 @@ import qualified Graphics.Rendering.OpenGL as GL
 import qualified "GLFW-b" Graphics.UI.GLFW as GLFW
 import Data.Tuple
 
-import GLQuadRendering
+import QuadRendering
 import StateModify
 import FontRendering
 
@@ -159,7 +159,7 @@ fill :: MonadIO m
 fill col trans tex = do
     (Rectangle x1 y1 x2 y2) <- gets uisRect
     depth                   <- gets uisDepth
-    liftIO $ drawQuadImmediate x1 y1 x2 y2 depth col trans tex
+    liftIO $ drawQuadAdHocVBO x1 y1 x2 y2 depth col trans tex
 
 text :: MonadIO m
      => FontRenderer

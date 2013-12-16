@@ -26,7 +26,6 @@ withWindow w h title tq =
              GLFW.setWindowPos window x 0
              registerCallbacks window tq
              GLFW.makeContextCurrent $ Just window
-             -- traceS TLInfo =<< (show <$> GL.get GL.glExtensions)
              return window
         )
         ( \window -> do GLFW.destroyWindow window
