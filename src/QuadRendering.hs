@@ -1,5 +1,5 @@
 
-{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE RecordWildCards, OverloadedStrings, LambdaCase #-}
 
 module QuadRendering ( withQuadRenderer
                      , QuadRenderer
@@ -12,10 +12,17 @@ module QuadRendering ( withQuadRenderer
                      ) where
 
 import qualified Graphics.Rendering.OpenGL as GL
+import qualified Graphics.Rendering.OpenGL.Raw as GLR
+import qualified Data.Vector.Storable as VS
 import qualified Data.Vector.Storable.Mutable as VSM
 import Data.List
+import Data.Either
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
+import qualified Data.ByteString as B
 import Control.Exception
 import Control.Monad
+import Control.Monad.Error
 -- import Control.Applicative
 -- import Data.IORef
 import Foreign.Ptr
@@ -57,10 +64,15 @@ data FillTransparency = FTNone
                       | FTSrcAlpha
                       deriving (Show)
 
+-- Inefficient / obsolete (just used for testing / development) immediate mode and ad-hoc
+-- drawing functions not actually using the QuadRenderer follow
 --
--- Inefficient / obsolete (just used for testing) immediate mode and ad-hoc drawing functions
--- not actually using the QuadRenderer follow
+-- Some references for getting basic rendering / shading like this up and running with
+-- OpenGL in Haskell:
 --
+-- https://github.com/ocharles/blog/blob/master/code/2013-12-02-linear-example.hs
+-- http://www.arcadianvisions.com/blog/?p=224
+-- https://github.com/haskell-opengl/GLUT/blob/master/examples/Misc/SmoothOpenGL3.hs
 
 drawQuadImmediate, drawQuadAdHocVBO, drawQuadAdHocVBOShader
     :: Float
@@ -159,10 +171,7 @@ drawQuadAdHocVBOShader x1 y1 x2 y2 depth col trans tex = do
     setTransparency trans
     let (pos', cols, texs) = paramToPosColUV x1 y1 x2 y2 col
     -- Create and bind Vertex Array Object (VAO)
-    --
-    -- (Note that we don't actually use it for anything as everything is ad-hoc, never to
-    -- be reused)
-    [vao] <- GL.genObjectNames 1
+    vao <- GL.genObjectName
     GL.bindVertexArrayObject GL.$= Just vao
     -- VBO allocation
     let szf         = sizeOf (0 :: Float)
@@ -220,7 +229,7 @@ drawQuadAdHocVBOShader x1 y1 x2 y2 depth col trans tex = do
     -- Allocate element array (index) buffer object (EBO)
     let numidx = 2 * 3
         szi    = sizeOf(0 :: GL.GLuint)
-    [ebo] <- GL.genObjectNames 1
+    ebo <- GL.genObjectName
     GL.bindBuffer GL.ElementArrayBuffer GL.$= Just ebo
     GL.bufferData GL.ElementArrayBuffer GL.$= ( fromIntegral $ numidx * szi
                                               , nullPtr
@@ -235,51 +244,81 @@ drawQuadAdHocVBOShader x1 y1 x2 y2 depth col trans tex = do
              in  forM_ (zip [0..] [0, 1, 2, 0, 2, 3]) $ \(i, e) -> VSM.write vec i e
        )
        ( \mf -> error $ "drawQuadAdHocVBOShader - EBO mapping failure: " ++ show mf )
-    -- Shaders
-    shdVtx  <- GL.createShader GL.VertexShader
-    shdFrag <- GL.createShader GL.FragmentShader
+    -- Create, compile and link shaders
+    let vsSrc = TE.encodeUtf8 $ T.unlines
+            [ "#version 120"
+            , "attribute mat4 matMVP;"
+            , "varying vec3 in_Pos;"
+            , "void main(void)"
+            , "{"
+            , "    gl_Position = matMVP * vec4(in_Pos, 1.0);"
+            , "}"
+            ]
+        fsSrc = TE.encodeUtf8 $ T.unlines
+            [ "#version 120"
+            , "void main(void)"
+            , "{"
+            , "   gl_FragColor = vec4(1.0, 1.0, 1.0, 1.0);"
+            , "}"
+            ]
+    shdProg <- mkShaderProgam vsSrc fsSrc >>= \case
+        Left  err -> error $ "drawQuadAdHocVBOShader - Shader error:\n " ++ err
+        Right p   -> return p
+    -- Set shader parameters and activate
+    GL.attribLocation shdProg "in_Pos" GL.$= vtxAttrib
+    let projection = VS.fromList [ 1, 0, 0, 0
+                                 , 0, 1, 0, 0
+                                 , 0, 0, 1, 0
+                                 , 0, 0, 0, 1
+                                 ] :: VS.Vector GL.GLfloat
+    GL.UniformLocation loc <- GL.get $ GL.uniformLocation shdProg "matMVP"
+    VS.unsafeWith projection $ \ptr -> GLR.glUniformMatrix4fv loc 1 0 ptr
 
-    {-
-  GL.shaderSourceBS vertexShader $= Text.encodeUtf8
-    (Text.pack $ unlines
-      [ "#version 130"
-      , "uniform mat4 projection;"
-      , "uniform mat4 model;"
-      , "in vec3 in_Position;"
-      , "void main(void) {"
-      , " gl_Position = projection * model * vec4(in_Position, 1.0);"
-      , "}"
-      ])
-
-  GL.shaderSourceBS fragmentShader $= Text.encodeUtf8
-    (Text.pack $ unlines
-      [ "#version 130"
-      , "out vec4 fragColor;"
-      , "void main(void) {"
-      , " fragColor = vec4(1.0,1.0,1.0,1.0);"
-      , "}"
-      ])
-
-  GL.compileShader vertexShader
-  GL.compileShader fragmentShader
-
-  shaderProg <- GL.createProgram
-  GL.attachShader shaderProg vertexShader
-  GL.attachShader shaderProg fragmentShader
-  GL.attribLocation shaderProg "in_Position" $= vertexAttribute
-  GL.linkProgram shaderProg
-  GL.currentProgram $= Just shaderProg
-    -}
-
+    GL.linkProgram shdProg
+    GL.currentProgram GL.$= Just shdProg
     -- Draw quad as two triangles
     GL.drawElements GL.Triangles (fromIntegral numidx) GL.UnsignedInt nullPtr
-    -- Disable vertex attribute arrays
-    mapM_ (\x -> GL.vertexAttribArray x GL.$= GL.Disabled) [vtxAttrib, colAttrib, uvAttrib]
+    -- Disable vertex attribute arrays and shaders
+    GL.bindVertexArrayObject GL.$= Nothing
+    GL.currentProgram        GL.$= Nothing
     -- Delete shaders / EBO / VBO / VAO
-    GL.deleteObjectNames [shdVtx, shdFrag]
-    GL.deleteObjectNames [ebo]
-    GL.deleteObjectNames [vbo]
-    GL.deleteObjectNames [vao]
+    GL.deleteObjectName  shdProg
+    GL.deleteObjectName  ebo
+    GL.deleteObjectName  vbo
+    GL.deleteObjectName  vao
+
+mkShaderProgam :: B.ByteString -> B.ByteString -> IO (Either String GL.Program)
+mkShaderProgam vsSrc fsSrc =
+    -- Always delete the shaders (don't need them after linking), only delete the program
+    -- on error
+    bracket        (GL.createShader GL.VertexShader  ) (GL.deleteObjectName) $ \shdVtx  ->
+    bracket        (GL.createShader GL.FragmentShader) (GL.deleteObjectName) $ \shdFrag ->
+    bracketOnError (GL.createProgram                 ) (GL.deleteObjectName) $ \shdProg -> do
+        r <- runErrorT $ do
+                 compile shdVtx  vsSrc
+                 compile shdFrag fsSrc
+                 liftIO $ GL.attachShader shdProg shdVtx >> GL.attachShader shdProg shdFrag
+                 link shdProg
+                 liftIO $ GL.detachShader shdProg shdVtx >> GL.detachShader shdProg shdFrag
+                 return shdProg
+        -- The bracket only deletes in case of an exception, still need to delete manually
+        -- in case of a monadic error
+        when (null $ rights [r]) $ GL.deleteObjectName shdProg
+        return r
+    -- Compile and link helpers
+    where compile shd src = do
+              liftIO $ do GL.shaderSourceBS shd GL.$= src
+                          GL.compileShader  shd
+              success <- liftIO $ GL.get $ GL.compileStatus shd
+              unless success $ do
+                  errLog <- liftIO $ GL.get $ GL.shaderInfoLog shd
+                  throwError errLog
+          link prog = do
+              liftIO $ GL.linkProgram prog
+              success <- liftIO $ GL.get $ GL.linkStatus prog
+              unless success $ do
+                  errLog <- liftIO $ GL.get $ GL.programInfoLog prog
+                  throwError errLog
 
 -- Convert rectangle position and draw parameters into a set of render-ready vertex attributes
 paramToPosColUV :: Float
@@ -326,7 +365,7 @@ setTextureFFP tex = do
 -- Create, bind and allocate Vertex Buffer Object (VBO)
 mkBindDynamicVBO :: Int -> IO GL.BufferObject
 mkBindDynamicVBO size = do
-    [vbo] <- GL.genObjectNames 1
+    vbo <- GL.genObjectName
     GL.bindBuffer GL.ArrayBuffer GL.$= Just vbo
     GL.bufferData GL.ArrayBuffer GL.$= ( fromIntegral size
                                        , nullPtr
