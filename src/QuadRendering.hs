@@ -236,10 +236,10 @@ drawQuadAdHocVBOShader x1 y1 x2 y2 depth col trans tex = do
        )
        ( \mf -> error $ "drawQuadAdHocVBOShader - EBO mapping failure: " ++ show mf )
     -- Shaders
-    {-
-  vertexShader <- GL.createShader GL.VertexShader
-  fragmentShader <- GL.createShader GL.FragmentShader
+    shdVtx  <- GL.createShader GL.VertexShader
+    shdFrag <- GL.createShader GL.FragmentShader
 
+    {-
   GL.shaderSourceBS vertexShader $= Text.encodeUtf8
     (Text.pack $ unlines
       [ "#version 130"
@@ -275,11 +275,13 @@ drawQuadAdHocVBOShader x1 y1 x2 y2 depth col trans tex = do
     GL.drawElements GL.Triangles (fromIntegral numidx) GL.UnsignedInt nullPtr
     -- Disable vertex attribute arrays
     mapM_ (\x -> GL.vertexAttribArray x GL.$= GL.Disabled) [vtxAttrib, colAttrib, uvAttrib]
-    -- Delete VAO / VBO / EBO
+    -- Delete shaders / EBO / VBO / VAO
+    GL.deleteObjectNames [shdVtx, shdFrag]
     GL.deleteObjectNames [ebo]
     GL.deleteObjectNames [vbo]
     GL.deleteObjectNames [vao]
 
+-- Convert rectangle position and draw parameters into a set of render-ready vertex attributes
 paramToPosColUV :: Float
                 -> Float
                 -> Float

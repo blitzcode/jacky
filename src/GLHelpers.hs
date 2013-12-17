@@ -33,7 +33,7 @@ setup2D w h = do
 -- TODO: Don't query OpenGL state
 getCurTex2DSize :: IO (Int, Int)
 getCurTex2DSize = (\(GL.TextureSize2D w h) -> (fromIntegral w, fromIntegral h))
-                         <$> (GL.get $ GL.textureSize2D (Left GL.Texture2D) 0)
+                         <$> (GL.get $ GL.textureSize2D GL.Texture2D 0)
 
 getGLStrings :: IO String
 getGLStrings =
@@ -80,7 +80,7 @@ uploadTexture2D fmt ifmt w h img genMipMap = do
         --
         -- TODO: Could use immutable textures through glTexStorage + glTexSubImage
         GL.texImage2D
-            Nothing
+            GL.Texture2D
             GL.NoProxy
             0
             ifmt
