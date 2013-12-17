@@ -5,6 +5,7 @@ module GLHelpers ( setup2D
                  , getCurTex2DSize
                  , getGLStrings
                  , uploadTexture2D
+                 , throwOnGLError
                  ) where
 
 import qualified Graphics.Rendering.OpenGL as GL
@@ -29,6 +30,12 @@ setup2D w h = do
     GL.ortho 0 (fromIntegral w) 0 (fromIntegral h) 0 1000
     -- Magic number working for NV & ATI
     -- GL.translate (GL.Vector3 0.375 0.375 0.0 :: GL.Vector3 GL.GLfloat)
+
+throwOnGLError :: Maybe String -> IO ()
+throwOnGLError context = do
+    err <- GL.get GL.errors
+    unless (null err) $
+        error $ "OpenGL Error" ++ maybe ": " (\c -> " (" ++ c ++ "): ") context ++ show err
 
 -- TODO: Don't query OpenGL state
 getCurTex2DSize :: IO (Int, Int)
