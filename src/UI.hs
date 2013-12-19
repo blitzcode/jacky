@@ -159,7 +159,7 @@ fill :: MonadIO m
 fill col trans tex = do
     (Rectangle x1 y1 x2 y2) <- gets uisRect
     depth                   <- gets uisDepth
-    liftIO $ drawQuadImmediate x1 y1 x2 y2 depth col trans tex
+    liftIO $ drawQuadAdHocVBO x1 y1 x2 y2 depth col trans tex
 
 text :: MonadIO m
      => FontRenderer

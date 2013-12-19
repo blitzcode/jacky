@@ -119,7 +119,7 @@ drawText fr x y face string = do
                   x2 = x1 + gWidth
                   y2 = y1 + gHeight
               -- Draw
-              drawQuadImmediate (fromIntegral x1)
+              drawQuadAdHocVBOShader (fromIntegral x1)
                                      (fromIntegral y1)
                                      (fromIntegral x2)
                                      (fromIntegral y2)

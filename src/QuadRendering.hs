@@ -30,6 +30,7 @@ import Foreign.ForeignPtr
 import Foreign.Storable
 
 import GLImmediate
+import GLHelpers
 
 -- Module for efficient rendering of 2D quad primitives, used for UI elements and texture
 -- mapped font rendering
@@ -244,48 +245,68 @@ drawQuadAdHocVBOShader x1 y1 x2 y2 depth col trans tex = do
              in  forM_ (zip [0..] [0, 1, 2, 0, 2, 3]) $ \(i, e) -> VSM.write vec i e
        )
        ( \mf -> error $ "drawQuadAdHocVBOShader - EBO mapping failure: " ++ show mf )
+    throwOnGLError $ Just "0"
     -- Create, compile and link shaders
     let vsSrc = TE.encodeUtf8 $ T.unlines
             [ "#version 120"
-            , "attribute mat4 matMVP;"
-            , "varying vec3 in_Pos;"
-            , "void main(void)"
+            , "uniform mat4 matMVP;"
+            , "attribute vec3 in_Pos;"
+            , "void main()"
             , "{"
             , "    gl_Position = matMVP * vec4(in_Pos, 1.0);"
             , "}"
             ]
         fsSrc = TE.encodeUtf8 $ T.unlines
             [ "#version 120"
-            , "void main(void)"
+            , "void main()"
             , "{"
-            , "   gl_FragColor = vec4(1.0, 1.0, 1.0, 1.0);"
+            , "   gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0);"
             , "}"
             ]
     shdProg <- mkShaderProgam vsSrc fsSrc >>= \case
         Left  err -> error $ "drawQuadAdHocVBOShader - Shader error:\n " ++ err
         Right p   -> return p
-    -- Set shader parameters and activate
+    throwOnGLError $ Just "1"
+    -- Set shader attributes and activate
     GL.attribLocation shdProg "in_Pos" GL.$= vtxAttrib
-    let projection = VS.fromList [ 1, 0, 0, 0
-                                 , 0, 1, 0, 0
-                                 , 0, 0, 1, 0
+    GL.currentProgram GL.$= Just shdProg
+    -- Projection matrix
+    throwOnGLError $ Just "2"
+    let l = 0
+        r = 100
+        b = 0
+        t = 100
+        n = 0
+        f = 1000
+        projection = VS.fromList [ 2 / (r - l), 0, 0, 0,
+                                   0, 2 / (t - b), 0, 0,
+                                   0, 0, -2 / (f - n), 0,
+                                   -(r + l) / (r - l), -(t + b) / (t - b), -(f + n) / (f - n), 1
+                                 ] :: VS.Vector GL.GLfloat
+    {-
+    let projection = VS.fromList [ 1 / 1280, 0, 0, 0
+                                 , 0, 1 / 720, 0, 0
+                                 , 0, 0, 1 / 1000, 0
                                  , 0, 0, 0, 1
                                  ] :: VS.Vector GL.GLfloat
+    -}
     GL.UniformLocation loc <- GL.get $ GL.uniformLocation shdProg "matMVP"
-    VS.unsafeWith projection $ \ptr -> GLR.glUniformMatrix4fv loc 1 0 ptr
-
-    GL.linkProgram shdProg
-    GL.currentProgram GL.$= Just shdProg
+    throwOnGLError $ Just "3"
+    VS.unsafeWith projection $ \ptr -> do GLR.glGetFloatv GLR.gl_PROJECTION_MATRIX ptr
+                                          GLR.glUniformMatrix4fv loc 1 0 ptr
+    throwOnGLError $ Just "4"
     -- Draw quad as two triangles
     GL.drawElements GL.Triangles (fromIntegral numidx) GL.UnsignedInt nullPtr
+    throwOnGLError $ Just "5"
     -- Disable vertex attribute arrays and shaders
     GL.bindVertexArrayObject GL.$= Nothing
     GL.currentProgram        GL.$= Nothing
     -- Delete shaders / EBO / VBO / VAO
-    GL.deleteObjectName  shdProg
-    GL.deleteObjectName  ebo
-    GL.deleteObjectName  vbo
-    GL.deleteObjectName  vao
+    GL.deleteObjectName shdProg
+    GL.deleteObjectName ebo
+    GL.deleteObjectName vbo
+    GL.deleteObjectName vao
+    throwOnGLError $ Just "6"
 
 mkShaderProgam :: B.ByteString -> B.ByteString -> IO (Either String GL.Program)
 mkShaderProgam vsSrc fsSrc =
