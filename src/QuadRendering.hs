@@ -251,16 +251,26 @@ drawQuadAdHocVBOShader x1 y1 x2 y2 depth col trans tex = do
             [ "#version 120"
             , "uniform mat4 matMVP;"
             , "attribute vec3 in_Pos;"
+            , "attribute vec4 in_Col;"
+            , "attribute vec2 in_UV;"
+            , "varying vec4 out_Col;"
+            , "varying vec2 out_UV;"
             , "void main()"
             , "{"
             , "    gl_Position = matMVP * vec4(in_Pos, 1.0);"
+            , "    out_Col     = in_Col;"
+            , "    out_UV      = in_UV;"
             , "}"
             ]
         fsSrc = TE.encodeUtf8 $ T.unlines
             [ "#version 120"
+            , "varying vec4 out_Col;"
+            , "varying vec2 out_UV;"
+            , "uniform sampler2D tex;"
             , "void main()"
             , "{"
-            , "   gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0);"
+            --, "   gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0);"
+            , "   gl_FragColor = out_Col * texture2D(tex, out_UV);"
             , "}"
             ]
     shdProg <- mkShaderProgam vsSrc fsSrc >>= \case
@@ -269,6 +279,8 @@ drawQuadAdHocVBOShader x1 y1 x2 y2 depth col trans tex = do
     throwOnGLError $ Just "1"
     -- Set shader attributes and activate
     GL.attribLocation shdProg "in_Pos" GL.$= vtxAttrib
+    GL.attribLocation shdProg "in_Col" GL.$= colAttrib
+    GL.attribLocation shdProg "in_UV"  GL.$= uvAttrib
     GL.currentProgram GL.$= Just shdProg
     -- Projection matrix
     throwOnGLError $ Just "2"
@@ -295,6 +307,12 @@ drawQuadAdHocVBOShader x1 y1 x2 y2 depth col trans tex = do
     VS.unsafeWith projection $ \ptr -> do GLR.glGetFloatv GLR.gl_PROJECTION_MATRIX ptr
                                           GLR.glUniformMatrix4fv loc 1 0 ptr
     throwOnGLError $ Just "4"
+    
+    -- Textures
+    setTextureFFP tex
+
+
+    throwOnGLError $ Just "4b"
     -- Draw quad as two triangles
     GL.drawElements GL.Triangles (fromIntegral numidx) GL.UnsignedInt nullPtr
     throwOnGLError $ Just "5"
