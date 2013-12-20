@@ -8,6 +8,7 @@ module GLHelpers ( setup2D
                  , throwOnGLError
                  , setTextureFiltering
                  , TextureFiltering(..)
+                 , setTextureClampST
                  ) where
 
 import qualified Graphics.Rendering.OpenGL as GL
@@ -68,6 +69,11 @@ setTextureFiltering TFMinOnly =
     GL.textureFilter GL.Texture2D GL.$= ((GL.Linear', Just GL.Linear'), GL.Nearest)
 setTextureFiltering TFMagOnly =
     GL.textureFilter GL.Texture2D GL.$= ((GL.Nearest, Nothing), GL.Linear')
+
+setTextureClampST :: IO ()
+setTextureClampST =
+    forM_ [GL.S, GL.T] $
+        \x -> GL.textureWrapMode GL.Texture2D x GL.$= (GL.Repeated, GL.ClampToEdge)
 
 uploadTexture2D :: Storable pixel
                 => GL.PixelFormat
