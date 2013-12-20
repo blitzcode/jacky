@@ -6,6 +6,8 @@ module GLHelpers ( setup2D
                  , getGLStrings
                  , uploadTexture2D
                  , throwOnGLError
+                 , setTextureFiltering
+                 , TextureFiltering(..)
                  ) where
 
 import qualified Graphics.Rendering.OpenGL as GL
@@ -53,6 +55,19 @@ getGLStrings =
     <*> (length <$> GL.get GL.glExtensions)
     <*> (fromJust <$> GLFW.getVersionString)
     -- <*> (show <$> GL.get GL.glExtensions)
+
+
+data TextureFiltering = TFNone | TFMinMag | TFMinOnly | TFMagOnly
+
+setTextureFiltering :: TextureFiltering -> IO ()
+setTextureFiltering TFNone    =
+    GL.textureFilter GL.Texture2D GL.$= ((GL.Nearest, Nothing), GL.Nearest)
+setTextureFiltering TFMinMag  =
+    GL.textureFilter GL.Texture2D GL.$= ((GL.Linear', Just GL.Linear'), GL.Linear')
+setTextureFiltering TFMinOnly =
+    GL.textureFilter GL.Texture2D GL.$= ((GL.Linear', Just GL.Linear'), GL.Nearest)
+setTextureFiltering TFMagOnly =
+    GL.textureFilter GL.Texture2D GL.$= ((GL.Nearest, Nothing), GL.Linear')
 
 uploadTexture2D :: Storable pixel
                 => GL.PixelFormat
