@@ -57,18 +57,17 @@ getGLStrings =
     <*> (fromJust <$> GLFW.getVersionString)
     -- <*> (show <$> GL.get GL.glExtensions)
 
-
 data TextureFiltering = TFNone | TFMinMag | TFMinOnly | TFMagOnly
 
 setTextureFiltering :: TextureFiltering -> IO ()
 setTextureFiltering TFNone    =
-    GL.textureFilter GL.Texture2D GL.$= ((GL.Nearest, Nothing), GL.Nearest)
+    GL.textureFilter GL.Texture2D GL.$= ((GL.Nearest, Nothing        ), GL.Nearest)
 setTextureFiltering TFMinMag  =
     GL.textureFilter GL.Texture2D GL.$= ((GL.Linear', Just GL.Linear'), GL.Linear')
 setTextureFiltering TFMinOnly =
     GL.textureFilter GL.Texture2D GL.$= ((GL.Linear', Just GL.Linear'), GL.Nearest)
 setTextureFiltering TFMagOnly =
-    GL.textureFilter GL.Texture2D GL.$= ((GL.Nearest, Nothing), GL.Linear')
+    GL.textureFilter GL.Texture2D GL.$= ((GL.Nearest, Nothing        ), GL.Linear')
 
 setTextureClampST :: IO ()
 setTextureClampST =
@@ -82,8 +81,10 @@ uploadTexture2D :: Storable pixel
                 -> Int
                 -> VS.Vector pixel
                 -> Bool
+                -> Maybe TextureFiltering
+                -> Bool
                 -> IO GL.TextureObject
-uploadTexture2D fmt ifmt w h img genMipMap = do
+uploadTexture2D fmt ifmt w h img genMipMap tf clamp = do
     -- Check vector size
     let vsize = VS.length img * sizeOf (img VS.! 0)
         pixelsize = case ifmt of
@@ -129,8 +130,10 @@ uploadTexture2D fmt ifmt w h img genMipMap = do
     --     (fromIntegral w)
     --     (fromIntegral h)
     --     (GL.PixelData GL.RGBA GL.UnsignedByte ptr)
-    --
-    when genMipMap $
-        GLR.glGenerateMipmap GLR.gl_TEXTURE_2D
+
+    -- Set texture parameters
+    when (isJust tf) . setTextureFiltering $ fromJust tf
+    when genMipMap   $ GLR.glGenerateMipmap GLR.gl_TEXTURE_2D
+    when clamp       $ setTextureClampST
     return tex
 

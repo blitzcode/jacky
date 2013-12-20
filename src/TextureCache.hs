@@ -66,7 +66,7 @@ fetchImage tc tick uri = do
                     --       wrap this into a bracketOnError there would still
                     --       be plenty of spots where an error would leak data
                     --       or leave a data structure in a bad state
-                    tex <- uploadTexture2D GL.RGBA GL.RGBA8 w h img True
+                    tex <- uploadTexture2D GL.RGBA GL.RGBA8 w h img True (Just TFMinMag) True
                     -- Insert into cache, delete any overflow
                     let (newEntries, delTex) = LBM.insert uri tex cacheEntries
                     case delTex of Just (_, obj) -> GL.deleteObjectNames [obj]; _ -> return ()

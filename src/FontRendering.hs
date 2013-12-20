@@ -102,7 +102,14 @@ drawText fr x y face string = do
                                     \(metrics@(FT2.GlyphMetrics { .. }), bitmap) -> do
                                       -- Texture (TODO: Pack in texture atlas)
                                       tex <- uploadTexture2D
-                                          GL.Alpha GL.Alpha' gWidth gHeight bitmap True
+                                          GL.Alpha
+                                          GL.Alpha'
+                                          gWidth
+                                          gHeight
+                                          bitmap
+                                          True
+                                          (Just TFMinMag)
+                                          True
                                       -- Update cache
                                       let entry  = GlyphCacheEntry c metrics tex
                                           cache' = HM.insert key entry cache
@@ -137,7 +144,7 @@ drawTextBitmap x y face string = do
     -- Our pixels are 8 bit, might not conform to the default 32 bit alignment
     GL.rowAlignment GL.Unpack GL.$= 1
     -- Draw black text
-    GL.blend GL.$= GL.Enabled
+    GL.blend     GL.$= GL.Enabled
     GL.blendFunc GL.$= (GL.SrcAlpha, GL.OneMinusSrcAlpha)
     -- GL.depthMask GL.$= GL.Disabled
     foldM_

@@ -13,9 +13,9 @@ module QuadRendering ( withQuadRenderer
 
 import qualified Graphics.Rendering.OpenGL as GL
 import qualified Graphics.Rendering.OpenGL.Raw as GLR
-import qualified Data.Vector.Storable as VS
 import qualified Data.Vector.Storable.Mutable as VSM
 import Data.List
+import Data.Maybe
 import Data.Either
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -28,9 +28,9 @@ import Control.Monad.Error
 import Foreign.Ptr
 import Foreign.ForeignPtr
 import Foreign.Storable
+import Foreign.Marshal.Array
 
 import GLImmediate
-import GLHelpers
 
 -- Module for efficient rendering of 2D quad primitives, used for UI elements and texture
 -- mapped font rendering
@@ -245,45 +245,50 @@ drawQuadAdHocVBOShader x1 y1 x2 y2 depth col trans tex = do
              in  forM_ (zip [0..] [0, 1, 2, 0, 2, 3]) $ \(i, e) -> VSM.write vec i e
        )
        ( \mf -> error $ "drawQuadAdHocVBOShader - EBO mapping failure: " ++ show mf )
-    throwOnGLError $ Just "0"
     -- Create, compile and link shaders
     let vsSrc = TE.encodeUtf8 $ T.unlines
             [ "#version 120"
-            , "uniform mat4 matMVP;"
-            , "attribute vec3 in_Pos;"
-            , "attribute vec4 in_Col;"
-            , "attribute vec2 in_UV;"
-            , "varying vec4 out_Col;"
-            , "varying vec2 out_UV;"
+            , "uniform mat4 in_mvp;"
+            , "attribute vec3 in_pos;"
+            , "attribute vec4 in_col;"
+            , "attribute vec2 in_uv;"
+            , "varying vec4 fs_col;"
+            , "varying vec2 fs_uv;"
             , "void main()"
             , "{"
-            , "    gl_Position = matMVP * vec4(in_Pos, 1.0);"
-            , "    out_Col     = in_Col;"
-            , "    out_UV      = in_UV;"
+            , "    gl_Position = in_mvp * vec4(in_pos, 1.0);"
+            , "    fs_col      = in_col;"
+            , "    fs_uv       = in_uv;"
             , "}"
             ]
         fsSrc = TE.encodeUtf8 $ T.unlines
             [ "#version 120"
-            , "varying vec4 out_Col;"
-            , "varying vec2 out_UV;"
+            , "varying vec4 fs_col;"
+            , "varying vec2 fs_uv;"
             , "uniform sampler2D tex;"
             , "void main()"
             , "{"
-            --, "   gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0);"
-            , "   gl_FragColor = out_Col * texture2D(tex, out_UV);"
+            , "   gl_FragColor = fs_col * texture2D(tex, fs_uv);"
             , "}"
             ]
-    shdProg <- mkShaderProgam vsSrc fsSrc >>= \case
+        fsColOnlySrc = TE.encodeUtf8 $ T.unlines
+            [ "#version 120"
+            , "varying vec4 fs_col;"
+            , "void main()"
+            , "{"
+            , "   gl_FragColor = fs_col;"
+            , "}"
+            ]
+    shdProg <- mkShaderProgam vsSrc (if isJust tex then fsSrc else fsColOnlySrc) >>= \case
         Left  err -> error $ "drawQuadAdHocVBOShader - Shader error:\n " ++ err
         Right p   -> return p
-    throwOnGLError $ Just "1"
     -- Set shader attributes and activate
-    GL.attribLocation shdProg "in_Pos" GL.$= vtxAttrib
-    GL.attribLocation shdProg "in_Col" GL.$= colAttrib
-    GL.attribLocation shdProg "in_UV"  GL.$= uvAttrib
+    GL.attribLocation shdProg "in_pos" GL.$= vtxAttrib
+    GL.attribLocation shdProg "in_col" GL.$= colAttrib
+    GL.attribLocation shdProg "in_uv"  GL.$= uvAttrib
     GL.currentProgram GL.$= Just shdProg
     -- Projection matrix
-    throwOnGLError $ Just "2"
+    {-
     let l = 0
         r = 100
         b = 0
@@ -295,27 +300,21 @@ drawQuadAdHocVBOShader x1 y1 x2 y2 depth col trans tex = do
                                    0, 0, -2 / (f - n), 0,
                                    -(r + l) / (r - l), -(t + b) / (t - b), -(f + n) / (f - n), 1
                                  ] :: VS.Vector GL.GLfloat
-    {-
     let projection = VS.fromList [ 1 / 1280, 0, 0, 0
                                  , 0, 1 / 720, 0, 0
                                  , 0, 0, 1 / 1000, 0
                                  , 0, 0, 0, 1
                                  ] :: VS.Vector GL.GLfloat
     -}
-    GL.UniformLocation loc <- GL.get $ GL.uniformLocation shdProg "matMVP"
-    throwOnGLError $ Just "3"
-    VS.unsafeWith projection $ \ptr -> do GLR.glGetFloatv GLR.gl_PROJECTION_MATRIX ptr
-                                          GLR.glUniformMatrix4fv loc 1 0 ptr
-    throwOnGLError $ Just "4"
-    
+    -- TODO: We're setting the shader matrix from FFP projection matrix
+    GL.UniformLocation loc <- GL.get $ GL.uniformLocation shdProg "in_mvp"
+    withArray ([1..16] :: [GL.GLfloat]) $ \ptr -> do GLR.glGetFloatv GLR.gl_PROJECTION_MATRIX ptr
+                                                     GLR.glUniformMatrix4fv loc 1 0 ptr
     -- Textures
-    setTextureFFP tex
-
-
-    throwOnGLError $ Just "4b"
+    when (isJust tex) $
+        setTextureShader (fromJust tex) 0 shdProg "tex"
     -- Draw quad as two triangles
     GL.drawElements GL.Triangles (fromIntegral numidx) GL.UnsignedInt nullPtr
-    throwOnGLError $ Just "5"
     -- Disable vertex attribute arrays and shaders
     GL.bindVertexArrayObject GL.$= Nothing
     GL.currentProgram        GL.$= Nothing
@@ -324,7 +323,6 @@ drawQuadAdHocVBOShader x1 y1 x2 y2 depth col trans tex = do
     GL.deleteObjectName ebo
     GL.deleteObjectName vbo
     GL.deleteObjectName vao
-    throwOnGLError $ Just "6"
 
 mkShaderProgam :: B.ByteString -> B.ByteString -> IO (Either String GL.Program)
 mkShaderProgam vsSrc fsSrc =
@@ -387,19 +385,22 @@ setTransparency trans =
                       GL.blend      GL.$= GL.Enabled
                       GL.blendFunc  GL.$= (GL.SrcAlpha, GL.OneMinusSrcAlpha)
 
+setTextureShader :: GL.TextureObject -> Int -> GL.Program -> String -> IO ()
+setTextureShader tex tu prog uname = do
+    (GL.get $ GL.uniformLocation prog uname) >>= \loc ->
+        GL.uniform loc             GL.$= GL.Index1 (fromIntegral tu :: GL.GLint)
+    GL.activeTexture               GL.$= GL.TextureUnit (fromIntegral tu)
+    GL.textureBinding GL.Texture2D GL.$= Just tex
+
 setTextureFFP :: Maybe GL.TextureObject -> IO ()
 setTextureFFP tex = do
     -- FFP texture setup
     case tex of
         Just _ -> do
-            GL.texture         GL.Texture2D      GL.$= GL.Enabled
-            GL.textureBinding  GL.Texture2D      GL.$= tex
-            GL.textureWrapMode GL.Texture2D GL.S GL.$= (GL.Repeated, GL.ClampToEdge)
-            GL.textureWrapMode GL.Texture2D GL.T GL.$= (GL.Repeated, GL.ClampToEdge)
-            -- TODO: Disable magnification filter if we're mapping pixels and texels
-            --       1:1. Some GPUs introduce blurriness otherwise
-            GL.textureFilter GL.Texture2D GL.$= ((GL.Linear', Just GL.Linear'), GL.Linear')
-        Nothing -> GL.texture GL.Texture2D GL.$= GL.Disabled
+            GL.texture        GL.Texture2D GL.$= GL.Enabled
+            GL.textureBinding GL.Texture2D GL.$= tex
+        Nothing ->
+            GL.texture        GL.Texture2D GL.$= GL.Disabled
 
 -- Create, bind and allocate Vertex Buffer Object (VBO)
 mkBindDynamicVBO :: Int -> IO GL.BufferObject

@@ -133,7 +133,6 @@ fontRenderingTest = do
     -}
 
     split STop 40 (text fr helvetica "1234567890 !@#$%^&*()_+ aAbBcCdDeEfFgGhHiIjJkKlL")
-    {-
      $ split STop 40 (text fr verdana "Haskell is an advanced purely-functional programming language. An open-source product of more than twenty years of cutting-edge research, it allows rapid development of robust, concise")
      $ split STop 40 (text fr futura "Ä Ö Ü 漢字, Le projet d’encyclopédie libre que vous pouvez améliorer - którą każdy może redagować.")
      $ split STop 40 (text fr lucida "Καλώς ήλθατε στη Βικιπαίδεια - Заглавная страница - la enciclopedia de")
@@ -144,7 +143,6 @@ fontRenderingTest = do
      $ split STop 40 (text fr lucida "Image Cache - Netw. Recv. Total: 0.000MB · Mem 0.000MB | Req: 0/256")
      $ split STop 40 (text fr futura "OpenGL - Vendor: NVIDIA Corporation · Renderer: NVIDIA GeForce 9400M OpenGL Engine")
      $ split STop 40 (text fr verdana "2116223572217043619665288&15592418065293&162624180&926376&3026085652896529229233260323527332599276636529220986365232431424030240382135537117")
-     -}
      $ return ()
 
 drawAvatarTiles :: UIT AppDraw ()
@@ -159,7 +157,7 @@ drawAvatarTiles = do
     tiles  <- lift $ gets stUILayoutRects
     tick   <- lift $ gets stCurTick
     tc     <- lift $ asks envTextureCache
-    forM_ (take 10 $ zip tiles (M.toDescList tweets)) $ \((cx, cy, cw, ch), (_, tw)) -> do
+    forM_ (zip tiles (M.toDescList tweets)) $ \((cx, cy, cw, ch), (_, tw)) -> do
         ce <- liftIO $ TextureCache.fetchImage tc tick (usrProfileImageURL . twUser $ tw)
         case ce of
             Just tex -> do
