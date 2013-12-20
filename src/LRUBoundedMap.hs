@@ -27,7 +27,6 @@ import Data.Bits
 import Data.Maybe
 import Data.Word
 import Data.List hiding (lookup, delete, null, insert)
-import qualified Data.List (null)
 import Control.Applicative hiding (empty)
 import Control.Monad
 import Control.Monad.Writer
@@ -473,5 +472,4 @@ valid m =
                   tell "Tick compaction did not reduce tick range to minimum\n"
     in  case w of [] -> Nothing
                   xs -> Just xs
-
 
