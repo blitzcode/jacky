@@ -1,8 +1,10 @@
 
-{-# LANGUAGE RecordWildCards, OverloadedStrings, LambdaCase #-}
+{-# LANGUAGE RecordWildCards, OverloadedStrings, LambdaCase, FlexibleContexts #-}
 
 module QuadRendering ( withQuadRenderer
                      , QuadRenderer
+                     , beginQuadRendering
+                     , drawQuad
                      , RGBA(..)
                      , FillColor(..)
                      , FillTransparency(..)
@@ -12,40 +14,137 @@ module QuadRendering ( withQuadRenderer
                      ) where
 
 import qualified Graphics.Rendering.OpenGL as GL
-import qualified Graphics.Rendering.OpenGL.Raw as GLR
 import qualified Data.Vector.Storable.Mutable as VSM
 import Data.List
 import Data.Maybe
-import Data.Either
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as TE
-import qualified Data.ByteString as B
-import Control.Exception
+import Control.Applicative
 import Control.Monad
-import Control.Monad.Error
--- import Control.Applicative
--- import Data.IORef
+import Control.Exception
+import Control.Monad.IO.Class
+import Control.Monad.Trans.Control
+import Data.IORef
 import Foreign.Ptr
 import Foreign.ForeignPtr
 import Foreign.Storable
-import Foreign.Marshal.Array
 
+import Trace
 import GLImmediate
+import Shaders
 
 -- Module for efficient rendering of 2D quad primitives, used for UI elements and texture
 -- mapped font rendering
 
-data QuadRenderer = QuadRenderer { qrVtxBuf :: !GL.BufferObject
-                                 , qrColBuf :: !GL.BufferObject
-                                 , qrUVBuf  :: !GL.BufferObject
+data QuadRenderer = QuadRenderer { -- Vertex / Element Array Buffer Objects, mapping, layout
+                                   qrVAO            :: !GL.VertexArrayObject
+                                 , qrVBO            :: !GL.BufferObject
+                                 , qrEBO            :: !GL.BufferObject
+                                 , qrVBOMap         :: !(IORef (Maybe (VSM.IOVector GL.GLfloat)))
+                                 , qrEBOMap         :: !(IORef (Maybe (VSM.IOVector GL.GLuint )))
+                                 , qrTotalStride    :: !Int
+                                 , qrMaxQuad        :: !Int
+                                 , qrMaxVtx         :: !Int
+                                 , qrMaxTri         :: !Int
+                                 -- TODO: qrCurQuadWriteSlot :: IORef Int
+                                   -- Shaders
+                                 , qrShdProgTex     :: !(Maybe GL.Program)
+                                 , qrShdProgColOnly :: !(Maybe GL.Program)
                                  }
 
 withQuadRenderer :: (QuadRenderer -> IO a) -> IO a
 withQuadRenderer =
-    bracket ( do [qrVtxBuf, qrColBuf, qrUVBuf] <- GL.genObjectNames 3
-                 return $ QuadRenderer { .. }
+    bracket
+        ( do -- VAO
+             qrVAO <- GL.genObjectName
+             GL.bindVertexArrayObject GL.$= Just qrVAO
+             -- VBO
+             let szf           = sizeOf (0 :: Float)
+                 vtxStride     = 3
+                 colStride     = 4
+                 uvStride      = 2
+                 qrTotalStride = vtxStride + colStride + uvStride
+                 qrMaxQuad     = 16384
+                 qrMaxTri      = qrMaxQuad * 2
+                 qrMaxVtx      = qrMaxTri * 4
+                 numfloat      = qrTotalStride * qrMaxVtx
+                 vtxOffset     = 0
+                 colOffset     = vtxOffset + vtxStride
+                 uvOffset      = colOffset + colStride
+             qrVBO <- mkBindDynamicBO GL.ArrayBuffer $ numfloat * szf
+             -- Specify and enable vertex attribute arrays
+             vtxAttrib <- setAttribArray 0 vtxStride qrTotalStride vtxOffset
+             colAttrib <- setAttribArray 1 colStride qrTotalStride colOffset
+             uvAttrib  <- setAttribArray 2 uvStride  qrTotalStride uvOffset
+             -- EBO
+             let numidx = qrMaxTri * 3
+                 szi    = sizeOf(0 :: GL.GLuint)
+             qrEBO <- mkBindDynamicBO GL.ElementArrayBuffer $ numidx * szi
+             -- Create, compile and link shaders
+             qrShdProgTex <- mkShaderProgam vsSrcBasic fsSrcBasic >>= \case
+                 Left  err -> do traceS TLError $ "withQuadRenderer - Shader error:\n " ++ err
+                                 return Nothing
+                 Right p   -> return $ Just p
+             qrShdProgColOnly <- mkShaderProgam vsSrcBasic fsColOnlySrcBasic >>= \case
+                 Left  err -> do traceS TLError $ "withQuadRenderer - Shader error:\n " ++ err
+                                 return Nothing
+                 Right p   -> return $ Just p
+             -- Set shader attributes
+             forM_ [qrShdProgTex, qrShdProgColOnly] . maybe (return ()) $ \prog -> do
+                 GL.attribLocation prog "in_pos" GL.$= vtxAttrib
+                 GL.attribLocation prog "in_col" GL.$= colAttrib
+                 GL.attribLocation prog "in_uv"  GL.$= uvAttrib
+             -- IORefs for mapped buffer data
+             qrVBOMap <- newIORef Nothing
+             qrEBOMap <- newIORef Nothing
+             -- Done & fill in record
+             disableVAOAndShaders
+             return $ QuadRenderer { .. }
+        )
+        ( \QuadRenderer { .. } -> do GL.deleteObjectName qrVAO
+                                     GL.deleteObjectNames [qrVBO, qrEBO]
+                                     mapM_ (maybe (return ()) GL.deleteObjectName)
+                                           [qrShdProgTex, qrShdProgColOnly]
+        )
+
+-- Prepare data structures and render when inner exits
+--
+-- TODO: Change error calls into trace calls
+--
+-- TODO: We might be able to get rid of some of the IORefs by just passing a new
+--       QuadRenderer to the inner
+--
+beginQuadRendering :: (MonadBaseControl IO m, MonadIO m) => QuadRenderer -> m a -> m a
+beginQuadRendering (QuadRenderer { .. }) f = do
+    -- Already mapped?
+    mapped <- liftIO $ isJust <$> readIORef qrVBOMap
+    when mapped $ error "Nested call to beginQuadRendering"
+    -- Map
+    control $ \run ->
+        bracket_
+            ( GL.withMappedBuffer -- VBO
+                GL.ArrayBuffer
+                GL.WriteOnly
+                ( \ptrVBO -> newForeignPtr_ ptrVBO >>= \fpVBO -> do
+                    let numfloat = qrMaxVtx * qrTotalStride
+                        vecVBO   = VSM.unsafeFromForeignPtr0 fpVBO numfloat
+                     in writeIORef qrVBOMap $ Just vecVBO
+                    GL.withMappedBuffer -- EBO
+                      GL.ElementArrayBuffer
+                      GL.WriteOnly
+                      ( \ptrEBO -> newForeignPtr_ ptrEBO >>= \fpEBO ->
+                          let numidx = 3 * qrMaxTri
+                              vecEBO = VSM.unsafeFromForeignPtr0 fpEBO numidx
+                           in writeIORef qrEBOMap $ Just vecEBO
+                      )
+                      ( \mf -> error $ "beginQuadRendering - EBO mapping failure: " ++ show mf )
+                )
+                ( \mf -> error $ "beginQuadRendering - VBO mapping failure: " ++ show mf )
             )
-            ( \QuadRenderer { .. } -> GL.deleteObjectNames [qrVtxBuf, qrColBuf, qrUVBuf] )
+            -- Buffers have been unmapped, make sure we don't leave a vector based
+            -- on invalid storage inside the IORefs
+            ( writeIORef qrVBOMap Nothing >> writeIORef qrEBOMap Nothing )
+            ( run f ) -- Run in outer base monad
+    -- Buffers have been mapped, filled and unmapped, we can now render
+    -- TODO
 
 data RGBA = RGBA {-# UNPACK #-} !Float
                  {-# UNPACK #-} !Float
@@ -64,6 +163,28 @@ data FillTransparency = FTNone
                       | FTBlend !Float
                       | FTSrcAlpha
                       deriving (Show)
+
+drawQuad :: IO ()
+drawQuad = do
+    -- TODO
+    return ()
+
+disableVAOAndShaders :: IO ()
+disableVAOAndShaders = do
+    -- Disable vertex attribute arrays and shaders
+    GL.bindVertexArrayObject GL.$= Nothing
+    GL.currentProgram        GL.$= Nothing
+
+-- Create, bind and allocate Vertex / Element Array Buffer Object (VBO /  EBO)
+mkBindDynamicBO :: GL.BufferTarget -> Int -> IO GL.BufferObject
+mkBindDynamicBO target size = do
+    vbo <- GL.genObjectName
+    GL.bindBuffer target GL.$= Just vbo
+    GL.bufferData target GL.$= ( fromIntegral size
+                               , nullPtr
+                               , GL.StreamDraw -- Dynamic
+                               )
+    return vbo
 
 -- Inefficient / obsolete (just used for testing / development) immediate mode and ad-hoc
 -- drawing functions not actually using the QuadRenderer follow
@@ -116,7 +237,7 @@ drawQuadAdHocVBO x1 y1 x2 y2 depth col trans tex = do
         vtxOffset = 0
         colOffset = vtxOffset + vtxSize
         uvOffset  = colOffset + colSize
-    vbo <- mkBindDynamicVBO $ totalSize * szf
+    vbo <- mkBindDynamicBO GL.ArrayBuffer $ totalSize * szf
     -- Fill mapped VBO with vertex data. We don't interleave the vertex attributes, but
     -- rather have the different arrays consecutively in the buffer
     GL.withMappedBuffer
@@ -185,7 +306,7 @@ drawQuadAdHocVBOShader x1 y1 x2 y2 depth col trans tex = do
         vtxOffset   = 0
         colOffset   = vtxOffset + vtxStride
         uvOffset    = colOffset + colStride
-    vbo <- mkBindDynamicVBO $ totalSize * szf
+    vbo <- mkBindDynamicBO GL.ArrayBuffer $ totalSize * szf
     -- Fill mapped VBO with vertex data, interleaved attribute arrays
     GL.withMappedBuffer
        GL.ArrayBuffer
@@ -199,43 +320,13 @@ drawQuadAdHocVBOShader x1 y1 x2 y2 depth col trans tex = do
        )
        ( \mf -> error $ "drawQuadAdHocVBOShader - VBO mapping failure: " ++ show mf )
     -- Specify and enable vertex attribute arrays
-    let vtxAttrib = GL.AttribLocation 0
-        colAttrib = GL.AttribLocation 1
-        uvAttrib  = GL.AttribLocation 2
-    GL.vertexAttribPointer vtxAttrib GL.$=
-        ( GL.ToFloat
-        , GL.VertexArrayDescriptor
-              (fromIntegral vtxStride)
-              GL.Float
-              (fromIntegral $ totalStride * szf)
-              (nullPtr `plusPtr` (vtxOffset * szf))
-        )
-    GL.vertexAttribPointer colAttrib GL.$=
-        ( GL.ToFloat
-        , GL.VertexArrayDescriptor
-              (fromIntegral colStride)
-              GL.Float
-              (fromIntegral $ totalStride * szf)
-              (nullPtr `plusPtr` (colOffset * szf))
-        )
-    GL.vertexAttribPointer uvAttrib GL.$=
-        ( GL.ToFloat
-        , GL.VertexArrayDescriptor
-              (fromIntegral uvStride)
-              GL.Float
-              (fromIntegral $ totalStride * szf)
-              (nullPtr `plusPtr` (uvOffset * szf))
-        )
-    mapM_ (\x -> GL.vertexAttribArray x GL.$= GL.Enabled) [vtxAttrib, colAttrib, uvAttrib]
+    vtxAttrib <- setAttribArray 0 vtxStride totalStride vtxOffset
+    colAttrib <- setAttribArray 1 colStride totalStride colOffset
+    uvAttrib  <- setAttribArray 2 uvStride  totalStride uvOffset
     -- Allocate element array (index) buffer object (EBO)
     let numidx = 2 * 3
         szi    = sizeOf(0 :: GL.GLuint)
-    ebo <- GL.genObjectName
-    GL.bindBuffer GL.ElementArrayBuffer GL.$= Just ebo
-    GL.bufferData GL.ElementArrayBuffer GL.$= ( fromIntegral $ numidx * szi
-                                              , nullPtr
-                                              , GL.StreamDraw -- Dynamic
-                                              )
+    ebo <- mkBindDynamicBO GL.ElementArrayBuffer $ numidx * szi
     -- Fill mapped EBO with index data
     GL.withMappedBuffer
        GL.ElementArrayBuffer
@@ -246,40 +337,9 @@ drawQuadAdHocVBOShader x1 y1 x2 y2 depth col trans tex = do
        )
        ( \mf -> error $ "drawQuadAdHocVBOShader - EBO mapping failure: " ++ show mf )
     -- Create, compile and link shaders
-    let vsSrc = TE.encodeUtf8 $ T.unlines
-            [ "#version 120"
-            , "uniform mat4 in_mvp;"
-            , "attribute vec3 in_pos;"
-            , "attribute vec4 in_col;"
-            , "attribute vec2 in_uv;"
-            , "varying vec4 fs_col;"
-            , "varying vec2 fs_uv;"
-            , "void main()"
-            , "{"
-            , "    gl_Position = in_mvp * vec4(in_pos, 1.0);"
-            , "    fs_col      = in_col;"
-            , "    fs_uv       = in_uv;"
-            , "}"
-            ]
-        fsSrc = TE.encodeUtf8 $ T.unlines
-            [ "#version 120"
-            , "varying vec4 fs_col;"
-            , "varying vec2 fs_uv;"
-            , "uniform sampler2D tex;"
-            , "void main()"
-            , "{"
-            , "   gl_FragColor = fs_col * texture2D(tex, fs_uv);"
-            , "}"
-            ]
-        fsColOnlySrc = TE.encodeUtf8 $ T.unlines
-            [ "#version 120"
-            , "varying vec4 fs_col;"
-            , "void main()"
-            , "{"
-            , "   gl_FragColor = fs_col;"
-            , "}"
-            ]
-    shdProg <- mkShaderProgam vsSrc (if isJust tex then fsSrc else fsColOnlySrc) >>= \case
+    shdProg <- mkShaderProgam vsSrcBasic (if   isJust tex
+                                          then fsSrcBasic
+                                          else fsColOnlySrcBasic) >>= \case
         Left  err -> error $ "drawQuadAdHocVBOShader - Shader error:\n " ++ err
         Right p   -> return p
     -- Set shader attributes and activate
@@ -307,55 +367,18 @@ drawQuadAdHocVBOShader x1 y1 x2 y2 depth col trans tex = do
                                  ] :: VS.Vector GL.GLfloat
     -}
     -- TODO: We're setting the shader matrix from FFP projection matrix
-    GL.UniformLocation loc <- GL.get $ GL.uniformLocation shdProg "in_mvp"
-    withArray ([1..16] :: [GL.GLfloat]) $ \ptr -> do GLR.glGetFloatv GLR.gl_PROJECTION_MATRIX ptr
-                                                     GLR.glUniformMatrix4fv loc 1 0 ptr
+    setProjMatrixFromFFP shdProg "in_mvp"
     -- Textures
     when (isJust tex) $
         setTextureShader (fromJust tex) 0 shdProg "tex"
     -- Draw quad as two triangles
     GL.drawElements GL.Triangles (fromIntegral numidx) GL.UnsignedInt nullPtr
-    -- Disable vertex attribute arrays and shaders
-    GL.bindVertexArrayObject GL.$= Nothing
-    GL.currentProgram        GL.$= Nothing
     -- Delete shaders / EBO / VBO / VAO
+    disableVAOAndShaders
     GL.deleteObjectName shdProg
     GL.deleteObjectName ebo
     GL.deleteObjectName vbo
     GL.deleteObjectName vao
-
-mkShaderProgam :: B.ByteString -> B.ByteString -> IO (Either String GL.Program)
-mkShaderProgam vsSrc fsSrc =
-    -- Always delete the shaders (don't need them after linking), only delete the program
-    -- on error
-    bracket        (GL.createShader GL.VertexShader  ) (GL.deleteObjectName) $ \shdVtx  ->
-    bracket        (GL.createShader GL.FragmentShader) (GL.deleteObjectName) $ \shdFrag ->
-    bracketOnError (GL.createProgram                 ) (GL.deleteObjectName) $ \shdProg -> do
-        r <- runErrorT $ do
-                 compile shdVtx  vsSrc
-                 compile shdFrag fsSrc
-                 liftIO $ GL.attachShader shdProg shdVtx >> GL.attachShader shdProg shdFrag
-                 link shdProg
-                 liftIO $ GL.detachShader shdProg shdVtx >> GL.detachShader shdProg shdFrag
-                 return shdProg
-        -- The bracket only deletes in case of an exception, still need to delete manually
-        -- in case of a monadic error
-        when (null $ rights [r]) $ GL.deleteObjectName shdProg
-        return r
-    -- Compile and link helpers
-    where compile shd src = do
-              liftIO $ do GL.shaderSourceBS shd GL.$= src
-                          GL.compileShader  shd
-              success <- liftIO $ GL.get $ GL.compileStatus shd
-              unless success $ do
-                  errLog <- liftIO $ GL.get $ GL.shaderInfoLog shd
-                  throwError errLog
-          link prog = do
-              liftIO $ GL.linkProgram prog
-              success <- liftIO $ GL.get $ GL.linkStatus prog
-              unless success $ do
-                  errLog <- liftIO $ GL.get $ GL.programInfoLog prog
-                  throwError errLog
 
 -- Convert rectangle position and draw parameters into a set of render-ready vertex attributes
 paramToPosColUV :: Float
@@ -385,13 +408,6 @@ setTransparency trans =
                       GL.blend      GL.$= GL.Enabled
                       GL.blendFunc  GL.$= (GL.SrcAlpha, GL.OneMinusSrcAlpha)
 
-setTextureShader :: GL.TextureObject -> Int -> GL.Program -> String -> IO ()
-setTextureShader tex tu prog uname = do
-    (GL.get $ GL.uniformLocation prog uname) >>= \loc ->
-        GL.uniform loc             GL.$= GL.Index1 (fromIntegral tu :: GL.GLint)
-    GL.activeTexture               GL.$= GL.TextureUnit (fromIntegral tu)
-    GL.textureBinding GL.Texture2D GL.$= Just tex
-
 setTextureFFP :: Maybe GL.TextureObject -> IO ()
 setTextureFFP tex = do
     -- FFP texture setup
@@ -401,15 +417,4 @@ setTextureFFP tex = do
             GL.textureBinding GL.Texture2D GL.$= tex
         Nothing ->
             GL.texture        GL.Texture2D GL.$= GL.Disabled
-
--- Create, bind and allocate Vertex Buffer Object (VBO)
-mkBindDynamicVBO :: Int -> IO GL.BufferObject
-mkBindDynamicVBO size = do
-    vbo <- GL.genObjectName
-    GL.bindBuffer GL.ArrayBuffer GL.$= Just vbo
-    GL.bufferData GL.ArrayBuffer GL.$= ( fromIntegral size
-                                       , nullPtr
-                                       , GL.StreamDraw -- Dynamic
-                                       )
-    return vbo
 
