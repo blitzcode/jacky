@@ -216,8 +216,8 @@ getKerning :: Typeface -> Char -> Char -> IO Float
 getKerning face left right =
     if   tfDisableKern face -- We can disable kerning on a per-face basis
     then return 0
-    else do [leftIdx, rightIdx] <-
-                mapM (c_FT_Get_Char_Index (tfHandle face) . fromIntegral . fromEnum) [left, right]
+    else do [leftIdx, rightIdx] <- mapM
+                (c_FT_Get_Char_Index (tfHandle face) . fromIntegral . fromEnum) [left, right]
             withArray [0, 0] $ \kerningVec -> do
                 checkReturn "getKerning" =<< c_FT_Get_Kerning
                     (tfHandle face) leftIdx rightIdx 1 {- FT_KERNING_UNFITTED -} kerningVec
