@@ -4,6 +4,7 @@
 module QuadRendering ( withQuadRenderer
                      , QuadRenderer
                      , withQuadRenderBuffer
+                     , QuadRenderBuffer
                      , drawQuad
                      , RGBA(..)
                      , FillColor(..)
@@ -15,6 +16,7 @@ module QuadRendering ( withQuadRenderer
 
 import qualified Graphics.Rendering.OpenGL as GL
 import qualified Data.Vector.Storable.Mutable as VSM
+import qualified Data.Vector.Mutable as VM
 import Data.List
 import Data.Maybe
 import Control.Applicative
@@ -101,9 +103,17 @@ withQuadRenderer =
                                        [qrShdProgTex, qrShdProgColOnly]
     )
 
+-- TODO: Write an Unbox instance for this and switch to an unboxed mutable vector
+data QuadRenderAttrib = QuadRenderAttrib
+    { -- TODO
+    }
+
 data QuadRenderBuffer = QuadRenderBuffer
-    { qbVBOMap :: !(VSM.IOVector GL.GLfloat)
-    , qbEBOMap :: !(VSM.IOVector GL.GLuint )
+    { qbVBOMap  :: !(VSM.IOVector GL.GLfloat      )
+    , qbEBOMap  :: !(VSM.IOVector GL.GLuint       )
+    , qbAttribs :: !(VM.IOVector  QuadRenderAttrib)
+    , qbMaxQuad :: !Int
+    , qbNumQuad :: !(IORef Int)
     }
 
 -- Prepare data structures and render when inner exits. This is meant to be called once or
@@ -134,8 +144,11 @@ withQuadRenderBuffer (QuadRenderer { .. }) f = do
                           ( \ptrEBO -> newForeignPtr_ ptrEBO >>= \fpEBO ->
                                 let numidx   = 3 * qrMaxTri
                                     qbEBOMap = VSM.unsafeFromForeignPtr0 fpEBO numidx
-                                in  -- Run in outer base monad
-                                    run $ Just <$> f QuadRenderBuffer { .. }
+                                in  do qbNumQuad <- newIORef 0
+                                       qbAttribs <- VM.new qrMaxQuad
+                                       -- Run in outer base monad
+                                       run $ Just <$>
+                                           f QuadRenderBuffer { qbMaxQuad = qrMaxQuad , .. }
                           )
                           ( reportMappingFailure "EBO" )
             )
@@ -144,6 +157,9 @@ withQuadRenderBuffer (QuadRenderer { .. }) f = do
         Nothing -> return Nothing
         Just ra -> do -- Buffers have been successfully mapped, filled and unmapped,
                       -- we can now render
+                      --
+                      -- TODO
+                      --
                       return $ Just ra
 
 data RGBA = RGBA {-# UNPACK #-} !Float
@@ -164,9 +180,21 @@ data FillTransparency = FTNone
                       | FTSrcAlpha
                       deriving (Show)
 
-drawQuad :: IO ()
-drawQuad = do
+-- Record all data to render the specified quad into the passed render buffer
+drawQuad :: QuadRenderBuffer
+         -> Float
+         -> Float
+         -> Float
+         -> Float
+         -> Float
+         -> FillColor
+         -> FillTransparency
+         -> Maybe GL.TextureObject
+         -> IO ()
+drawQuad (QuadRenderBuffer { .. }) x1 y1 x2 y2 depth col trans tex = do
+    --
     -- TODO
+    --
     return ()
 
 disableVAOAndShaders :: IO ()
@@ -185,6 +213,34 @@ mkBindDynamicBO target size = do
                                , GL.StreamDraw -- Dynamic
                                )
     return vbo
+
+-- Convert rectangle position and draw parameters into a set of render-ready vertex attributes
+paramToPosColUV :: Float
+                -> Float
+                -> Float
+                -> Float
+                -> FillColor
+                -> ([(Float, Float)], [RGBA], [(Float, Float)])
+paramToPosColUV x1 y1 x2 y2 col =
+    let pos' = [ (x1, y1), (x2, y1), (x2, y2), (x1, y2) ]
+        cols = case col of FCWhite                 -> replicate 4 (RGBA 1 1 1 1)
+                           FCBlack                 -> replicate 4 (RGBA 0 0 0 1)
+                           FCSolid c               -> replicate 4 c
+                           FCBottomTopGradient b t -> [b, b, t, t]
+                           FCLeftRightGradient l r -> [l, r, l, r]
+        texs = [ (0, 0), (1, 0), (1, 1), (0, 1) ]
+    in  (pos', cols, texs)
+
+setTransparency :: FillTransparency -> IO ()
+setTransparency trans =
+    case trans of FTNone         -> GL.blend GL.$= GL.Disabled
+                  FTBlend weight -> do
+                      GL.blend      GL.$= GL.Enabled
+                      GL.blendFunc  GL.$= (GL.ConstantAlpha, GL.OneMinusConstantAlpha)
+                      GL.blendColor GL.$= GL.Color4 0 0 0 (realToFrac weight :: GL.GLfloat)
+                  FTSrcAlpha     -> do
+                      GL.blend      GL.$= GL.Enabled
+                      GL.blendFunc  GL.$= (GL.SrcAlpha, GL.OneMinusSrcAlpha)
 
 -- Inefficient / obsolete (just used for testing / development) immediate mode and ad-hoc
 -- drawing functions not actually using the QuadRenderer follow
@@ -379,34 +435,6 @@ drawQuadAdHocVBOShader x1 y1 x2 y2 depth col trans tex = do
     GL.deleteObjectName ebo
     GL.deleteObjectName vbo
     GL.deleteObjectName vao
-
--- Convert rectangle position and draw parameters into a set of render-ready vertex attributes
-paramToPosColUV :: Float
-                -> Float
-                -> Float
-                -> Float
-                -> FillColor
-                -> ([(Float, Float)], [RGBA], [(Float, Float)])
-paramToPosColUV x1 y1 x2 y2 col =
-    let pos' = [ (x1, y1), (x2, y1), (x2, y2), (x1, y2) ]
-        cols = case col of FCWhite                 -> replicate 4 (RGBA 1 1 1 1)
-                           FCBlack                 -> replicate 4 (RGBA 0 0 0 1)
-                           FCSolid c               -> replicate 4 c
-                           FCBottomTopGradient b t -> [b, b, t, t]
-                           FCLeftRightGradient l r -> [l, r, l, r]
-        texs = [ (0, 0), (1, 0), (1, 1), (0, 1) ]
-    in  (pos', cols, texs)
-
-setTransparency :: FillTransparency -> IO ()
-setTransparency trans =
-    case trans of FTNone         -> GL.blend GL.$= GL.Disabled
-                  FTBlend weight -> do
-                      GL.blend      GL.$= GL.Enabled
-                      GL.blendFunc  GL.$= (GL.ConstantAlpha, GL.OneMinusConstantAlpha)
-                      GL.blendColor GL.$= GL.Color4 0 0 0 (realToFrac weight :: GL.GLfloat)
-                  FTSrcAlpha     -> do
-                      GL.blend      GL.$= GL.Enabled
-                      GL.blendFunc  GL.$= (GL.SrcAlpha, GL.OneMinusSrcAlpha)
 
 setTextureFFP :: Maybe GL.TextureObject -> IO ()
 setTextureFFP tex = do
