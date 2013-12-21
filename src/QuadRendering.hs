@@ -105,7 +105,11 @@ withQuadRenderer =
 
 -- TODO: Write an Unbox instance for this and switch to an unboxed mutable vector
 data QuadRenderAttrib = QuadRenderAttrib
-    { -- TODO
+    { -- TODO: Implement
+      --
+      -- TODO: Should we store data in here, or maybe functions setting up the state?
+      --       Consider that we want to avoid redundant state changes, sort by state and
+      --       sort back-to-front for transparency
     }
 
 data QuadRenderBuffer = QuadRenderBuffer
@@ -158,7 +162,11 @@ withQuadRenderBuffer (QuadRenderer { .. }) f = do
         Just ra -> do -- Buffers have been successfully mapped, filled and unmapped,
                       -- we can now render
                       --
-                      -- TODO
+                      -- TODO: Implement
+                      --
+                      -- TODO: Do we even need a set of indices for each quad? Could just
+                      --       have a single set and use glDrawElementsBaseVertex /
+                      --       glMultiDrawElementsBaseVertex
                       --
                       return $ Just ra
 
