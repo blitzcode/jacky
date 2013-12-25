@@ -86,22 +86,24 @@ draw = do
 
     --tweetText <- (maybe "" (\(tw, _) -> T.unpack $ twText tw) . M.maxView) <$> gets stTweetByID
     rc        <- liftIO $ rectFromWndFB window
-    void $ runUI rc 1000 $ do
-        fill (FCBottomTopGradient (RGBA 0.2 0.2 0.2 1) (RGBA 0.4 0.4 1 1))
-             FTNone
-             Nothing
-        layer $
-            split SBottom 16
-                ( fill FCWhite (FTBlend 0.5) Nothing
-                )
-                ( split STop 100
-                      ( fill FCWhite (FTBlend 0.5) Nothing
-                      )
-                      ( do drawAvatarTiles
-                           fontRenderingTest
-                           return ()
-                      )
-                )
+    qr        <- asks envQuadRenderer
+    void $ withQuadRenderBuffer qr $ \qb ->
+        runUI rc 1000 qb $ do
+            fill (FCBottomTopGradient (RGBA 0.2 0.2 0.2 1) (RGBA 0.4 0.4 1 1))
+                 FTNone
+                 Nothing
+            layer $
+                split SBottom 16
+                    ( fill FCWhite (FTBlend 0.5) Nothing
+                    )
+                    ( split STop 100
+                          ( fill FCWhite (FTBlend 0.5) Nothing
+                          )
+                          ( do drawAvatarTiles
+                               fontRenderingTest
+                               return ()
+                          )
+                    )
 
 fontRenderingTest :: UIT AppDraw ()
 fontRenderingTest = do
@@ -260,6 +262,7 @@ processSMEvent ev =
         SMBytesReceived b -> modify' $ \s -> s { stStatBytesRecvAPI = stStatBytesRecvAPI s + b }
         _                 -> liftIO . traceS TLInfo $ show ev -- Trace all other messages in full
 
+-- TODO: Add stats for FontRendering and QuadRenderer
 {-# NOINLINE traceStats #-}
 traceStats :: AppDraw ()
 traceStats = do
@@ -349,6 +352,8 @@ run = do
               -- GL.finish
               GLFW.swapBuffers window
               GLFW.pollEvents
+              -- TODO: See if just calling it once per-frame already causes a slowdown due
+              --       to synchronization
               traceOnGLError $ Just "main loop"
           tqGLFW <- asks envGLFWEventsQueue
           processAllEvents (Left tqGLFW) processGLFWEvent

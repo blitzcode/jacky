@@ -251,7 +251,7 @@ main = do
                   wndHgt = 644
               withWindow wndWdh wndHgt "Twitter" envGLFWEventsQueue $ \envWindow ->
                 withTextureCache cacheSize envImageCache $ \envTextureCache ->
-                  withQuadRenderer $ \envQuadRenderer ->
+                  withQuadRenderer 16384 {- TODO: Hardcoded -} $ \envQuadRenderer ->
                     withFontRenderer (FlagForceAutohint `elem` flags)
                                      (FlagDisableKern   `elem` flags)
                                      $ \envFontRenderer -> do

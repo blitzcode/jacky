@@ -23,6 +23,8 @@ import Foreign.Ptr
 import Foreign.Storable
 import Foreign.Marshal.Array
 
+import GLHelpers
+
 -- GLSL shaders and support functions
 
 mkShaderProgam :: B.ByteString -> B.ByteString -> IO (Either String GL.Program)
@@ -42,6 +44,7 @@ mkShaderProgam vsSrc fsSrc =
         -- The bracket only deletes in case of an exception, still need to delete manually
         -- in case of a monadic error
         when (null $ rights [r]) $ GL.deleteObjectName shdProg
+        traceOnGLError $ Just "mkShaderProgam end"
         return r
     -- Compile and link helpers
     where compile shd src = do

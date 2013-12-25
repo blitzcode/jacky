@@ -88,8 +88,8 @@ loadTypeface      fr fontFile pixelHeight mbForceAutohint mbDisableKern =
         (fromMaybe (frDefForceAutohint fr) mbForceAutohint)
         (fromMaybe (frDefDisableKern   fr) mbDisableKern  )
 
-drawText :: FontRenderer -> Int -> Int -> FT2.Typeface -> String -> IO ()
-drawText fr x y face string = do
+drawText :: FontRenderer -> QuadRenderBuffer -> Int -> Int -> FT2.Typeface -> String -> IO ()
+drawText fr qb x y face string = do
     -- Turn string into a list of glyphs, insert new glyphs into the cache if required
     glyphCache <- readIORef $ frGlyphCache fr
     (glyphCache', glyphs) <- foldM
@@ -126,7 +126,10 @@ drawText fr x y face string = do
                   x2 = x1 + gWidth
                   y2 = y1 + gHeight
               -- Draw
-              drawQuadAdHocVBOShader (fromIntegral x1)
+              -- TODO: @@@
+              -- drawQuadAdHocVBOShader
+              drawQuad qb
+                                     (fromIntegral x1)
                                      (fromIntegral y1)
                                      (fromIntegral x2)
                                      (fromIntegral y2)

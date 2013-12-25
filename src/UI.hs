@@ -39,13 +39,6 @@ import FontRendering
 -- TODO: Use 'linear' package for OpenGL vector / matrix stuff
 --       https://github.com/ocharles/blog/blob/master/code/2013-12-02-linear-example.hs
 
--- TODO: Replace immediate mode drawing with a rendering manager, storing
---       geometry in vertex buffers, batching up draw calls, sorting by texture
---       and state change etc.
-
--- TODO: Replace fixed-function rendering with GLSL shaders
---       http://www.arcadianvisions.com/blog/?p=224
-
 -- TODO: We have a lot of overhead by running inside of a StateT on top of a
 --       RWST from App. Also see here:
 --
@@ -56,6 +49,9 @@ import FontRendering
 --       absolute coordinates. Probably need to have more of the code in
 --       place. Having newtype wrappers for abs/rel might avoid bugs and
 --       make the API safer
+--
+-- TODO: Can we reuse or cache the UI structure build up instead of completely redoing it
+--       every frame?
 data Rectangle = Rectangle { rcX1 :: {-# UNPACK #-} !Float
                            , rcY1 :: {-# UNPACK #-} !Float
                            , rcX2 :: {-# UNPACK #-} !Float
@@ -74,6 +70,7 @@ stuff2 = RRectangle $ Rectangle 1 2 3 4
 -- TODO: Record hit boxes and event handlers registered during runUI
 data UIState = UIState { uisRect  :: {-# UNPACK #-} !Rectangle
                        , uisDepth :: {-# UNPACK #-} !Float
+                       , uisQB    :: {-# UNPACK #-} !QuadRenderBuffer
                        }
 
 type UIT m a = StateT UIState m a
@@ -145,11 +142,9 @@ dimensions = do
     (Rectangle x1 y1 x2 y2) <- gets uisRect
     return (x2 - x1, y2 - y1)
 
-runUI :: Monad m => Rectangle -> Float -> UIT m a -> m (a, UIState)
-runUI rc depth f =
-    runStateT f UIState { uisRect  = rc
-                        , uisDepth = depth
-                        }
+runUI :: Monad m => Rectangle -> Float -> QuadRenderBuffer -> UIT m a -> m (a, UIState)
+runUI uisRect uisDepth uisQB f =
+    runStateT f UIState { .. }
 
 fill :: MonadIO m
      => FillColor
@@ -159,16 +154,19 @@ fill :: MonadIO m
 fill col trans tex = do
     (Rectangle x1 y1 x2 y2) <- gets uisRect
     depth                   <- gets uisDepth
-    liftIO $ drawQuadAdHocVBOShader x1 y1 x2 y2 depth col trans tex
+    qb                      <- gets uisQB
+    liftIO $ drawQuad qb x1 y1 x2 y2 depth col trans tex
+    --liftIO $ drawQuadAdHocVBOShader x1 y1 x2 y2 depth col trans tex
 
 text :: MonadIO m
-     => FontRenderer
+     => FontRenderer -- TODO: Keep font renderer inside the UI state?
      -> Typeface
      -> String
      -> UIT m ()
 text fr face string = do
     (Rectangle x1 y1 _ _) <- gets uisRect
-    liftIO $ drawText fr (round x1) (round y1) face string
+    qb                    <- gets uisQB
+    liftIO $ drawText fr qb (round x1) (round y1) face string
 
 {-# INLINE fill #-}
 --{-# INLINE text #-}
