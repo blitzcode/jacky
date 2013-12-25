@@ -1,11 +1,12 @@
 
-{-# LANGUAGE PackageImports #-}
+{-# LANGUAGE PackageImports, LambdaCase #-}
 
 module GLHelpers ( setup2D
                  , getCurTex2DSize
                  , getGLStrings
                  , uploadTexture2D
                  , throwOnGLError
+                 , traceOnGLError
                  , setTextureFiltering
                  , TextureFiltering(..)
                  , setTextureClampST
@@ -22,6 +23,8 @@ import Data.Maybe
 import qualified Data.Vector.Storable as VS
 import Foreign.Storable
 
+import Trace
+
 -- Various utility functions related to OpenGL
 
 setup2D :: Int -> Int -> IO ()
@@ -34,11 +37,24 @@ setup2D w h = do
     -- Magic number working for NV & ATI
     -- GL.translate (GL.Vector3 0.375 0.375 0.0 :: GL.Vector3 GL.GLfloat)
 
+getErrors :: Maybe String -> IO (Maybe String)
+getErrors context =
+    GL.get GL.errors >>= \case
+        []  -> return Nothing
+        err -> return . Just $
+                   "OpenGL Error" ++ maybe ": " (\c -> " (" ++ c ++ "): ") context ++ show err
+
 throwOnGLError :: Maybe String -> IO ()
-throwOnGLError context = do
-    err <- GL.get GL.errors
-    unless (null err) $
-        error $ "OpenGL Error" ++ maybe ": " (\c -> " (" ++ c ++ "): ") context ++ show err
+throwOnGLError context =
+    getErrors context >>= \case
+        Nothing  -> return ()
+        Just err -> error err
+
+traceOnGLError :: Maybe String -> IO ()
+traceOnGLError context =
+    getErrors context >>= \case
+        Nothing  -> return ()
+        Just err -> traceS TLError err
 
 -- TODO: Don't query OpenGL state
 getCurTex2DSize :: IO (Int, Int)

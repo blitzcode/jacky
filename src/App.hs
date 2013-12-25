@@ -14,7 +14,7 @@ import Control.Monad.Reader
 import Control.Monad.State hiding (State)
 import Data.Monoid
 import Data.Int
-import qualified Data.Text as T
+-- import qualified Data.Text as T
 import Text.Printf
 import qualified Data.Map.Strict as M
 import qualified Data.ByteString.Char8 as B8
@@ -84,7 +84,7 @@ draw = do
         GL.clear [GL.ColorBuffer, GL.DepthBuffer]
         GL.depthFunc GL.$= Just GL.Lequal
 
-    tweetText <- (maybe "" (\(tw, _) -> T.unpack $ twText tw) . M.maxView) <$> gets stTweetByID
+    --tweetText <- (maybe "" (\(tw, _) -> T.unpack $ twText tw) . M.maxView) <$> gets stTweetByID
     rc        <- liftIO $ rectFromWndFB window
     void $ runUI rc 1000 $ do
         fill (FCBottomTopGradient (RGBA 0.2 0.2 0.2 1) (RGBA 0.4 0.4 1 1))
@@ -349,9 +349,7 @@ run = do
               -- GL.finish
               GLFW.swapBuffers window
               GLFW.pollEvents
-              err <- GL.get GL.errors
-              unless (null err) .
-                  traceS TLError $ "OpenGL Error: " ++ concatMap show err
+              traceOnGLError $ Just "main loop"
           tqGLFW <- asks envGLFWEventsQueue
           processAllEvents (Left tqGLFW) processGLFWEvent
           -- Done?
