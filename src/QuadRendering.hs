@@ -2,7 +2,8 @@
 {-# LANGUAGE   RecordWildCards
              , OverloadedStrings
              , LambdaCase
-             , FlexibleContexts #-}
+             , FlexibleContexts
+             , BangPatterns #-}
 
 module QuadRendering ( withQuadRenderer
                      , QuadRenderer
@@ -193,20 +194,25 @@ drawRenderBuffer :: QuadRenderBuffer -> IO ()
 drawRenderBuffer (QuadRenderBuffer { .. }) = do
     let QuadRenderer { .. } = qbQR
     GL.bindVertexArrayObject GL.$= Just qrVAO
-    numQuad <- readIORef qbNumQuad
     -- TODO: We're setting the shader matrix from FFP projection matrix
     forM_ [qrShdProgTex, qrShdProgColOnly] $ \shdProg -> do
         GL.currentProgram GL.$= Just shdProg
         setProjMatrixFromFFP shdProg "in_mvp"
-    forM_ [0..numQuad - 1] $ \i -> do
+    -- Texture, use first TU
+    GL.currentProgram GL.$= Just qrShdProgTex
+    (GL.get $ GL.uniformLocation qrShdProgTex "tex") >>= \loc ->
+        GL.uniform loc GL.$= GL.Index1 (0 :: GL.GLint)
+    GL.activeTexture   GL.$= GL.TextureUnit 0
+    -- Draw all quads
+    readIORef qbNumQuad >>= \numQuad -> forM_ [0..numQuad - 1] $ \i -> do
         -- Setup OpenGL state
         --
         -- TODO: Avoid redundant state changes, sort quads by their state
         QuadRenderAttrib { .. } <- VM.read qbAttribs i
         case qaMaybeTexture of
-            Just tex -> do GL.currentProgram GL.$= Just qrShdProgTex
-                           setTextureShader tex 0 qrShdProgTex "tex"
-            Nothing  -> GL.currentProgram GL.$= Just qrShdProgColOnly
+            Just _  -> do GL.currentProgram GL.$= Just qrShdProgTex
+                          GL.textureBinding GL.Texture2D GL.$= qaMaybeTexture
+            Nothing -> GL.currentProgram GL.$= Just qrShdProgColOnly
         setTransparency qaFillTransparency
         -- Draw quad as two triangles
         let idxPerQuad = 2 * 3
