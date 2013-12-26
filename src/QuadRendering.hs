@@ -148,17 +148,13 @@ withQuadRenderBuffer qbQR'@(QuadRenderer { .. }) f = do
     -- Map. If this function is nested inside a withQuadRenderBuffer with the same QuadRenderer,
     -- the mapping operation will fail as OpenGL does not allow two concurrent mappings. Hence,
     -- no need to check for this explicitly
-
-    -- TODO: bracket_ this, call disableVAOAndShaders on cleanup, remove counterpart from
-    --       drawRenderBuffer, etc.
-    liftIO $ GL.bindVertexArrayObject GL.$= Just qrVAO
-
     r <- control $ \run -> liftIO $
         let reportMappingFailure boType mf = do
                 traceS TLError $
                     "withQuadRenderBuffer - " ++ boType ++ " mapping failure: " ++ show mf
                 run $ return Nothing
-        in  GL.withMappedBuffer -- VBO
+            bindVAO = GL.bindVertexArrayObject GL.$= Just qrVAO
+        in  bindVAO >> GL.withMappedBuffer -- VBO
                 GL.ArrayBuffer
                 GL.WriteOnly
                 ( \ptrVBO -> newForeignPtr_ ptrVBO >>= \fpVBO ->
@@ -172,17 +168,15 @@ withQuadRenderBuffer qbQR'@(QuadRenderer { .. }) f = do
                                         qbEBOMap = VSM.unsafeFromForeignPtr0 fpEBO numidx
                                     in  do qbNumQuad <- newIORef 0
                                            qbAttribs <- VM.new qrMaxQuad
-                                           -- Run in outer base monad
-                                           r<-run $ do let qb = QuadRenderBuffer { qbQR = qbQR', .. }
-                                                       r <- f qb
-                                                       return $ Just (r, qb)
-                                           -- TODO @@@
-                                           --
-                                           -- TODO: Implement better way to restore the
-                                           -- VAO which might have been changed by the
-                                           -- inner, etc.
-                                           liftIO $ GL.bindVertexArrayObject GL.$= Just qrVAO
-                                           return r
+                                           finally
+                                               ( run $ do -- Run in outer base monad
+                                                     let qb = QuadRenderBuffer { qbQR = qbQR' , .. }
+                                                     r <- f qb
+                                                     return $ Just (r, qb)
+                                               )
+                                               bindVAO -- Make sure we rebind our VAO, otherwise
+                                                       -- unmapping might fail if the inner
+                                                       -- modified the bound buffer objects
                               )
                               ( reportMappingFailure "EBO" )
                 )
