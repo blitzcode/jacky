@@ -251,7 +251,11 @@ main = do
                   wndHgt = 644
               withWindow wndWdh wndHgt "Twitter" envGLFWEventsQueue $ \envWindow ->
                 withTextureCache cacheSize envImageCache $ \envTextureCache ->
-                  withQuadRenderer 16384 {- TODO: Hardcoded -} $ \envQuadRenderer ->
+                  let maxQuad = foldr (\f r -> case f of
+                                                   FlagQuadRBSize n -> fromMaybe r $ parseMaybe n
+                                                   _ -> r
+                                      ) defQuadRBSize flags
+                  in withQuadRenderer maxQuad $ \envQuadRenderer ->
                     withFontRenderer (FlagForceAutohint `elem` flags)
                                      (FlagDisableKern   `elem` flags)
                                      $ \envFontRenderer -> do

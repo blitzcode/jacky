@@ -113,7 +113,7 @@ fontRenderingTest = do
     Just lucida    <- liftIO $ getLoadedTypeface fr "Lucida Grande" 32
     Just helvetica <- liftIO $ getLoadedTypeface fr "Helvetica" 48
     Just arial     <- liftIO $ getLoadedTypeface fr "Arial Unicode MS" 16
-    
+
     {-
     -- TODO: ...
     --fill FCWhite FTNone Nothing

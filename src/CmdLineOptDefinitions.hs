@@ -32,6 +32,7 @@ data Flag = FlagOAuthFile String
           | FlagFT2Test
           | FlagForceAutohint
           | FlagDisableKern
+          | FlagQuadRBSize String
             deriving (Eq, Show)
 
 defLogFolder, defImageCacheFolder, defTraceFn :: String
@@ -48,8 +49,10 @@ defTweetHistory :: Int
 defTweetHistory = 1024
 defImgMemCacheSize :: Int
 defImgMemCacheSize = 1024
-defStatTraceInterval = 10.0
 defStatTraceInterval :: Double
+defStatTraceInterval = 10.0
+defQuadRBSize :: Int
+defQuadRBSize = 16384
 
 parseCmdLineOpt :: (MonadError String m, MonadIO m) => m [Flag]
 parseCmdLineOpt = do
@@ -167,6 +170,11 @@ parseCmdLineOpt = do
                            ["disable-kern"]
                            (NoArg FlagDisableKern)
                            "disable kerning for FreeType 2 fonts"
+                  , Option []
+                           ["quad-rb-size"]
+                           (ReqArg FlagQuadRBSize "NUMBER")
+                           ("quad capacity font / UI OpenGL render buf. (default: "
+                               ++ show defQuadRBSize ++ ")")
                   , Option ['h']
                            ["help"]
                            (NoArg FlagHelp)
