@@ -129,6 +129,7 @@ drawText fr qb x y face string = do
               -- TODO: @@@
               -- drawQuadAdHocVBOShader
               drawQuad qb
+              --drawQuadImmediate
                                      (fromIntegral x1)
                                      (fromIntegral y1)
                                      (fromIntegral x2)

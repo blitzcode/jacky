@@ -150,7 +150,7 @@ withQuadRenderBuffer :: (MonadBaseControl IO m, MonadIO m)
                      => QuadRenderer
                      -> (QuadRenderBuffer -> m a)
                      -> m (Maybe a) -- We return Nothing if mapping fails
-withQuadRenderBuffer qbQR'@(QuadRenderer { .. }) f = do
+withQuadRenderBuffer qbQR@(QuadRenderer { .. }) f = do
     -- Map. If this function is nested inside a withQuadRenderBuffer with the same QuadRenderer,
     -- the mapping operation will fail as OpenGL does not allow two concurrent mappings. Hence,
     -- no need to check for this explicitly
@@ -176,7 +176,7 @@ withQuadRenderBuffer qbQR'@(QuadRenderer { .. }) f = do
                                            qbAttribs <- VM.new qrMaxQuad
                                            finally
                                                ( run $ do -- Run in outer base monad
-                                                     let qb = QuadRenderBuffer { qbQR = qbQR' , .. }
+                                                     let qb = QuadRenderBuffer { .. }
                                                      r <- f qb
                                                      return $ Just (r, qb)
                                                )
@@ -208,27 +208,23 @@ drawRenderBuffer (QuadRenderBuffer { .. }) = do
     (GL.get $ GL.uniformLocation qrShdProgTex "tex") >>= \loc ->
         GL.uniform loc GL.$= GL.Index1 (0 :: GL.GLint)
     GL.activeTexture   GL.$= GL.TextureUnit 0
-
-    numQuad <- readIORef qbNumQuad
     -- Sort attributes to reduce state changes
-    --
-    -- TODO: Consider using vector-algorithms to sort mutable vector in-place
-    attribs <- (sort . V.toList) <$> (V.unsafeFreeze . VM.unsafeTake numQuad $ qbAttribs)
-
+    attribs <- readIORef qbNumQuad >>= \numQuad -> -- Number of used elements
+               sort . V.toList                     -- TODO: Sort mutable vector in-place with
+                                                   --       vector-algorithms?
+               <$> ( V.unsafeFreeze                -- Can only convert immutable vector to a list
+                         . VM.unsafeTake numQuad   -- Drop undefined elements
+                         $ qbAttribs
+                   )
     -- Setup some initial state and build corresponding attribute record
     GL.currentProgram              GL.$= Just qrShdProgColOnly
     GL.textureBinding GL.Texture2D GL.$= Nothing
     setTransparency FTNone
     let initialState = QuadRenderAttrib FTNone Nothing 0
-
     -- Draw all quads
-    --readIORef qbNumQuad >>= \numQuad -> forM_ [0..numQuad - 1] $ \i -> do
-    --forM_ attribs $ \attrib -> forM_ attrib $ \(i, QuadRenderAttrib { .. }) -> do
-    --V.foldM_
     foldM_
         ( \oldA newA -> do
-             -- Modify OpenGL state which changed between the old and the new rendering
-             -- attributes
+             -- Modify OpenGL state which changed between old / new rendering attributes
              case (qaMaybeTexture oldA, qaMaybeTexture newA) of
                 (Just oldTex, Just newTex) ->
                     when (oldTex /= newTex) $
@@ -244,7 +240,7 @@ drawRenderBuffer (QuadRenderBuffer { .. }) = do
                  setTransparency $ qaFillTransparency newA
              -- Draw quad as two triangles
              --
-             -- TODO: Draw more primitives if the state doesn't change
+             -- TODO: Draw more primitives at once if the state doesn't change
              let idxPerQuad = 2 * 3
                  szi        = sizeOf(0 :: GL.GLuint)
               in GL.drawElements GL.Triangles
