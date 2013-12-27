@@ -212,6 +212,8 @@ renderGlyph face c =
 -- TODO: It seems that FT2 can't actually use the type of kerning information present in
 --       most fonts (kern vs GPOS table)
 --
+-- TODO: Cache this on the Haskell side
+--
 getKerning :: Typeface -> Char -> Char -> IO Float
 getKerning face left right =
     if   tfDisableKern face -- We can disable kerning on a per-face basis
