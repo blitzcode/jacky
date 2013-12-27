@@ -19,11 +19,12 @@ module QuadRendering ( withQuadRenderer
                      ) where
 
 import qualified Graphics.Rendering.OpenGL as GL
+import qualified Data.Vector as V
 import qualified Data.Vector.Storable.Mutable as VSM
 import qualified Data.Vector.Mutable as VM
 import Data.List
 import Data.Maybe
--- import Control.Applicative
+import Control.Applicative
 import Control.Monad
 import Control.Exception
 import Control.Monad.IO.Class
@@ -129,7 +130,7 @@ data QuadRenderAttrib = QuadRenderAttrib
       -- TODO: Should we store data in here, or maybe functions setting up the state?
       --       Consider that we want to avoid redundant state changes, sort by state and
       --       sort back-to-front for transparency
-    }
+    } deriving (Eq)
 
 data QuadRenderBuffer = QuadRenderBuffer
     { qbVBOMap  :: !(VSM.IOVector GL.GLfloat      )
@@ -203,24 +204,53 @@ drawRenderBuffer (QuadRenderBuffer { .. }) = do
     (GL.get $ GL.uniformLocation qrShdProgTex "tex") >>= \loc ->
         GL.uniform loc GL.$= GL.Index1 (0 :: GL.GLint)
     GL.activeTexture   GL.$= GL.TextureUnit 0
+
+    numQuad <- readIORef qbNumQuad
+    --attribs <- (group . zip [0..] . take numQuad . V.toList) <$> V.unsafeFreeze qbAttribs
+
+    {-
+    mapM_ (\x -> putStrLn $ show x) $ nub $ map (length) attribs
+    putStrLn ""
+    -}
+
+    -- Setup some initial state and build corresponding attribute record
+    GL.currentProgram              GL.$= Just qrShdProgColOnly
+    GL.textureBinding GL.Texture2D GL.$= Nothing
+    setTransparency FTNone
+    let initialState = QuadRenderAttrib FTNone Nothing
+
     -- Draw all quads
-    readIORef qbNumQuad >>= \numQuad -> forM_ [0..numQuad - 1] $ \i -> do
-        -- Setup OpenGL state
-        --
-        -- TODO: Avoid redundant state changes, sort quads by their state
-        QuadRenderAttrib { .. } <- VM.read qbAttribs i
-        case qaMaybeTexture of
-            Just _  -> do GL.currentProgram GL.$= Just qrShdProgTex
-                          GL.textureBinding GL.Texture2D GL.$= qaMaybeTexture
-            Nothing -> GL.currentProgram GL.$= Just qrShdProgColOnly
-        setTransparency qaFillTransparency
-        -- Draw quad as two triangles
-        let idxPerQuad = 2 * 3
-            szi        = sizeOf(0 :: GL.GLuint)
-         in GL.drawElements GL.Triangles
-                            (fromIntegral idxPerQuad)
-                            GL.UnsignedInt
-                            $ nullPtr `plusPtr` (i * idxPerQuad * szi)
+    --readIORef qbNumQuad >>= \numQuad -> forM_ [0..numQuad - 1] $ \i -> do
+    --forM_ attribs $ \attrib -> forM_ attrib $ \(i, QuadRenderAttrib { .. }) -> do
+    foldM_
+        ( \oldA i -> do
+             newA <- VM.read qbAttribs i
+             -- Modify OpenGL state which changed between the old and the new rendering
+             -- attributes
+             case (qaMaybeTexture oldA, qaMaybeTexture newA) of
+                (Just oldTex, Just newTex) ->
+                    when (oldTex /= newTex) $
+                        GL.textureBinding GL.Texture2D GL.$= Just newTex
+                (Nothing, Just newTex) -> do
+                    GL.currentProgram              GL.$= Just qrShdProgTex
+                    GL.textureBinding GL.Texture2D GL.$= Just newTex
+                (Just _, Nothing) ->
+                    GL.currentProgram GL.$= Just qrShdProgColOnly
+                (Nothing, Nothing) ->
+                    return ()
+             when (qaFillTransparency oldA /= qaFillTransparency newA) .
+                 setTransparency $ qaFillTransparency newA
+             -- Draw quad as two triangles
+             let idxPerQuad = 2 * 3
+                 szi        = sizeOf(0 :: GL.GLuint)
+              in GL.drawElements GL.Triangles
+                                 (fromIntegral idxPerQuad)
+                                 GL.UnsignedInt
+                                 $ nullPtr `plusPtr` (i * idxPerQuad * szi)
+             return $ newA
+        )
+        initialState
+        [0..numQuad - 1]
     -- Done
     disableVAOAndShaders
 
@@ -228,19 +258,19 @@ data RGBA = RGBA {-# UNPACK #-} !Float
                  {-# UNPACK #-} !Float
                  {-# UNPACK #-} !Float
                  {-# UNPACK #-} !Float
-                 deriving (Show)
+                 deriving (Eq, Show)
 
 data FillColor = FCWhite
                | FCBlack
                | FCSolid !RGBA
                | FCBottomTopGradient !RGBA !RGBA
                | FCLeftRightGradient !RGBA !RGBA
-               deriving (Show)
+               deriving (Eq, Show)
 
 data FillTransparency = FTNone
                       | FTBlend !Float
                       | FTSrcAlpha
-                      deriving (Show)
+                      deriving (Eq, Show)
 
 -- Record all data to render the specified quad into the passed render buffer
 drawQuad :: QuadRenderBuffer
