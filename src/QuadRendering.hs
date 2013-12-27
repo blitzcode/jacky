@@ -61,6 +61,7 @@ data QuadRenderer = QuadRenderer
       -- Shaders
     , qrShdProgTex     :: !GL.Program
     , qrShdProgColOnly :: !GL.Program
+      -- TODO: Add some rendering statistics
     }
 
 -- Initialize / clean up all OpenGL resources for our renderer
@@ -127,10 +128,13 @@ withQuadRenderer qrMaxQuad f = do
 data QuadRenderAttrib = QuadRenderAttrib
     { qaFillTransparency :: !FillTransparency
     , qaMaybeTexture     :: !(Maybe GL.TextureObject)
-      -- TODO: Should we store data in here, or maybe functions setting up the state?
-      --       Consider that we want to avoid redundant state changes, sort by state and
-      --       sort back-to-front for transparency
+    , qaIndexIndex       :: !Int -- Index into the EBO so we know what primitive to render
+                                 -- after sorting by attributes
     } deriving (Eq)
+
+-- TODO: Need to sort by depth (layer) first so transparency works
+instance Ord QuadRenderAttrib where
+    a <= b = qaMaybeTexture a <= qaMaybeTexture b -- Sort by texture / shader
 
 data QuadRenderBuffer = QuadRenderBuffer
     { qbVBOMap  :: !(VSM.IOVector GL.GLfloat      )
@@ -195,7 +199,7 @@ drawRenderBuffer :: QuadRenderBuffer -> IO ()
 drawRenderBuffer (QuadRenderBuffer { .. }) = do
     let QuadRenderer { .. } = qbQR
     GL.bindVertexArrayObject GL.$= Just qrVAO
-    -- TODO: We're setting the shader matrix from FFP projection matrix
+    -- TODO: We're setting the shader matrix from the FFP projection matrix
     forM_ [qrShdProgTex, qrShdProgColOnly] $ \shdProg -> do
         GL.currentProgram GL.$= Just shdProg
         setProjMatrixFromFFP shdProg "in_mvp"
@@ -206,25 +210,23 @@ drawRenderBuffer (QuadRenderBuffer { .. }) = do
     GL.activeTexture   GL.$= GL.TextureUnit 0
 
     numQuad <- readIORef qbNumQuad
-    --attribs <- (group . zip [0..] . take numQuad . V.toList) <$> V.unsafeFreeze qbAttribs
-
-    {-
-    mapM_ (\x -> putStrLn $ show x) $ nub $ map (length) attribs
-    putStrLn ""
-    -}
+    -- Sort attributes to reduce state changes
+    --
+    -- TODO: Consider using vector-algorithms to sort mutable vector in-place
+    attribs <- (sort . V.toList) <$> (V.unsafeFreeze . VM.unsafeTake numQuad $ qbAttribs)
 
     -- Setup some initial state and build corresponding attribute record
     GL.currentProgram              GL.$= Just qrShdProgColOnly
     GL.textureBinding GL.Texture2D GL.$= Nothing
     setTransparency FTNone
-    let initialState = QuadRenderAttrib FTNone Nothing
+    let initialState = QuadRenderAttrib FTNone Nothing 0
 
     -- Draw all quads
     --readIORef qbNumQuad >>= \numQuad -> forM_ [0..numQuad - 1] $ \i -> do
     --forM_ attribs $ \attrib -> forM_ attrib $ \(i, QuadRenderAttrib { .. }) -> do
+    --V.foldM_
     foldM_
-        ( \oldA i -> do
-             newA <- VM.read qbAttribs i
+        ( \oldA newA -> do
              -- Modify OpenGL state which changed between the old and the new rendering
              -- attributes
              case (qaMaybeTexture oldA, qaMaybeTexture newA) of
@@ -241,16 +243,18 @@ drawRenderBuffer (QuadRenderBuffer { .. }) = do
              when (qaFillTransparency oldA /= qaFillTransparency newA) .
                  setTransparency $ qaFillTransparency newA
              -- Draw quad as two triangles
+             --
+             -- TODO: Draw more primitives if the state doesn't change
              let idxPerQuad = 2 * 3
                  szi        = sizeOf(0 :: GL.GLuint)
               in GL.drawElements GL.Triangles
                                  (fromIntegral idxPerQuad)
                                  GL.UnsignedInt
-                                 $ nullPtr `plusPtr` (i * idxPerQuad * szi)
+                                 $ nullPtr `plusPtr` (qaIndexIndex newA * idxPerQuad * szi)
              return $ newA
         )
         initialState
-        [0..numQuad - 1]
+        attribs
     -- Done
     disableVAOAndShaders
 
@@ -312,7 +316,7 @@ drawQuad (QuadRenderBuffer { .. })
            in forM_ (zip [eboOffs..] [0, 1, 2, 0, 2, 3]) $ \(i, e) ->
                   VSM.write qbEBOMap i (fromIntegral $ e + vboOffs)
           -- Write rendering attributes
-          VM.write qbAttribs numQuad $ QuadRenderAttrib { .. }
+          VM.write qbAttribs numQuad $ QuadRenderAttrib { qaIndexIndex = numQuad, .. }
           -- One more quad
           modifyIORef' qbNumQuad (+ 1)
 
