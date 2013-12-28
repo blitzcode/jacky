@@ -136,7 +136,7 @@ drawText fr qb x y face string = do
                                      (fromIntegral y2)
                                      1
                                      FCBlack
-                                     FTSrcAlpha
+                                     TRSrcAlpha
                                      (Just tex)
               return (xoffs + gAdvanceHorz + kernHorz, c)
         ) (fromIntegral x, toEnum 0) $ reverse glyphs

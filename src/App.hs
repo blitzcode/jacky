@@ -90,21 +90,21 @@ draw = do
     void $ withQuadRenderBuffer qr $ \qb ->
         runUI rc 1000 qb $ do
             fill (FCBottomTopGradient (RGBA 0.2 0.2 0.2 1) (RGBA 0.4 0.4 1 1))
-                 FTNone
+                 TRNone
                  Nothing
             layer $
                 split SBottom 16
-                    ( fill FCWhite (FTBlend 0.5) Nothing
+                    ( fill FCWhite (TRBlend 0.5) Nothing
                     )
                     ( split STop 100
-                          ( fill FCWhite (FTBlend 0.5) Nothing
+                          ( fill FCWhite (TRBlend 0.5) Nothing
                           )
                           ( do --drawAvatarTiles
                                layer $
                                    fontRenderingTest
                                center 200 100 $
                                    layer $
-                                       fill (FCSolid $ RGBA 0 1 0 1) (FTBlend 0.75) Nothing
+                                       fill (FCSolid $ RGBA 0 1 0 1) (TRBlend 0.75) Nothing
                                return ()
                           )
                     )
@@ -179,10 +179,10 @@ drawAvatarTiles = do
                 -}
                 frame (rectFromXYWH (fromIntegral cx) (fromIntegral cy)
                                     (fromIntegral cw) (fromIntegral ch)
-                      ) $ fill FCWhite FTNone (Just tex)
+                      ) $ fill FCWhite TRNone (Just tex)
             _ -> frame (rectFromXYWH (fromIntegral cx) (fromIntegral cy)
                                      (fromIntegral cw) (fromIntegral ch)
-                       ) $ fill (FCSolid (RGBA 1 0 1 1)) FTNone Nothing
+                       ) $ fill (FCSolid (RGBA 1 0 1 1)) TRNone Nothing
 
 -- Process all available events in both bounded and unbounded STM queues
 processAllEvents :: (MonadIO m) => Either (TQueue a) (TBQueue a) -> (a -> m ()) -> m ()

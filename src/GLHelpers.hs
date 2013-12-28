@@ -10,6 +10,10 @@ module GLHelpers ( setup2D
                  , setTextureFiltering
                  , TextureFiltering(..)
                  , setTextureClampST
+                 , setTransparency
+                 , Transparency(..)
+                 , mkBindDynamicBO
+                 , disableVAOAndShaders
                  ) where
 
 import qualified Graphics.Rendering.OpenGL as GL
@@ -22,6 +26,7 @@ import Text.Printf
 import Data.Maybe
 import qualified Data.Vector.Storable as VS
 import Foreign.Storable
+import Foreign.Ptr
 
 import Trace
 
@@ -72,6 +77,40 @@ getGLStrings =
     <*> (length <$> GL.get GL.glExtensions)
     <*> (fromJust <$> GLFW.getVersionString)
     -- <*> (show <$> GL.get GL.glExtensions)
+
+data Transparency = TRNone
+                  | TRBlend !Float
+                  | TRSrcAlpha
+                  deriving (Eq, Show)
+
+setTransparency :: Transparency -> IO ()
+setTransparency trans =
+    case trans of TRNone         -> GL.blend GL.$= GL.Disabled
+                  TRBlend weight -> do
+                      GL.blend      GL.$= GL.Enabled
+                      GL.blendFunc  GL.$= (GL.ConstantAlpha, GL.OneMinusConstantAlpha)
+                      GL.blendColor GL.$= GL.Color4 0 0 0 (realToFrac weight :: GL.GLfloat)
+                  TRSrcAlpha     -> do
+                      GL.blend      GL.$= GL.Enabled
+                      GL.blendFunc  GL.$= (GL.SrcAlpha, GL.OneMinusSrcAlpha)
+
+-- Create, bind and allocate Vertex / Element Array Buffer Object (VBO /  EBO)
+mkBindDynamicBO :: GL.BufferTarget -> Int -> IO GL.BufferObject
+mkBindDynamicBO target size = do
+    vbo <- GL.genObjectName
+    GL.bindBuffer target GL.$= Just vbo
+    GL.bufferData target GL.$= ( fromIntegral size -- In bytes
+                               , nullPtr
+                               , GL.StreamDraw -- Dynamic
+                               )
+    traceOnGLError $ Just "mkBindDynamicBO"
+    return vbo
+
+-- Disable vertex attribute arrays and shaders
+disableVAOAndShaders :: IO ()
+disableVAOAndShaders = do
+    GL.bindVertexArrayObject GL.$= Nothing
+    GL.currentProgram        GL.$= Nothing
 
 data TextureFiltering = TFNone | TFMinMag | TFMinOnly | TFMagOnly
 

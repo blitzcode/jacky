@@ -16,10 +16,10 @@ module UI ( UIState
           , dimensions
           , fill
           , text
-            -- Re-export from GLImmediate
+            -- Re-export from QuadRendering
           , RGBA(..)
           , FillColor(..)
-          , FillTransparency(..)
+          , Transparency(..)
           ) where
 
 import Control.Applicative
@@ -162,7 +162,7 @@ runUI uisRect uisDepth uisQB f =
 
 fill :: MonadIO m
      => FillColor
-     -> FillTransparency
+     -> Transparency
      -> Maybe GL.TextureObject
      -> UIT m ()
 fill col trans tex = do
