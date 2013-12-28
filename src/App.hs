@@ -99,7 +99,7 @@ draw = do
                     ( split STop 100
                           ( fill FCWhite (FTBlend 0.5) Nothing
                           )
-                          ( do drawAvatarTiles
+                          ( do --drawAvatarTiles
                                layer $
                                    fontRenderingTest
                                center 200 100 $

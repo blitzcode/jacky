@@ -127,7 +127,7 @@ drawText fr qb x y face string = do
                   y2 = y1 + gHeight
               -- Draw
               -- TODO: @@@
-              -- drawQuadAdHocVBOShader
+              --drawQuadAdHocVBOShader
               drawQuad qb
               --drawQuadImmediate
                                      (fromIntegral x1)

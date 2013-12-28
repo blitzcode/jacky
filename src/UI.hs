@@ -10,6 +10,7 @@ module UI ( UIState
           , runUI
           , splitRect
           , split
+          , center
           , frame
           , layer
           , dimensions
@@ -22,14 +23,14 @@ module UI ( UIState
           ) where
 
 import Control.Applicative
-import Control.Monad.Trans.State.Strict -- TODO: Use Strict/Lazy/mtl/transformers?
+import Control.Monad.Trans.Reader
 import Control.Monad.IO.Class
 import qualified Graphics.Rendering.OpenGL as GL
 import qualified "GLFW-b" Graphics.UI.GLFW as GLFW
 import Data.Tuple
 
 import QuadRendering
-import StateModify
+--import StateModify
 import FontRendering
 
 -- Drawing, layout and event handling for the user interface
@@ -73,7 +74,7 @@ data UIState = UIState { uisRect  :: !Rectangle
                        , uisQB    :: !QuadRenderBuffer
                        }
 
-type UIT m a = StateT UIState m a
+type UIT m a = ReaderT UIState m a
 
 -- TODO: Maybe we should rather put this in the GLFW module or somewhere else?
 rectFromWndFB :: GLFW.Window -> IO Rectangle
@@ -107,9 +108,23 @@ splitRect side pos rc =
 
 split :: (Applicative m, Monad m) => Side -> Float -> UIT m () -> UIT m () -> UIT m ()
 split side pos near far = do
-    (rcNear, rcFar) <- splitRect side pos <$> gets uisRect
+    (rcNear, rcFar) <- splitRect side pos <$> asks uisRect
     frameAbsolute rcNear near
     frameAbsolute rcFar  far
+
+center :: Monad m => Float -> Float -> UIT m a -> UIT m a
+center w h f = do
+    (Rectangle x1 y1 x2 y2) <- asks uisRect
+    let centerX = (x2 - x1) / 2
+        centerY = (y2 - y1) / 2
+        halfW   = w / 2
+        halfH   = h / 2
+    frameAbsolute (Rectangle (centerX - halfW)
+                             (centerY - halfH)
+                             (centerX + halfW)
+                             (centerY + halfH)
+                  )
+                  f
 
 rectOffset :: Rectangle -> Rectangle -> Rectangle
 rectOffset inner outer =
@@ -119,32 +134,31 @@ rectOffset inner outer =
 
 frame :: Monad m => Rectangle -> UIT m a -> UIT m a
 frame inner f = do
-    outer <- gets uisRect
+    outer <- asks uisRect
     frameAbsolute (rectOffset inner outer) f
 
 frameAbsolute :: Monad m => Rectangle -> UIT m a -> UIT m a
-frameAbsolute rc = withDiscardStateT (\s -> s { uisRect = rc })
+frameAbsolute rc = local (\s -> s { uisRect = rc })
 
 -- TODO: Make better use of the depth range. Have a system where user can
 --       specify different priorities of 'front' layers, and all the children of
 --       a given layer can be guaranteed to never exceed a given depth
 layer :: Monad m => UIT m a -> UIT m a
-layer = withDiscardStateT (\s -> s { uisDepth = uisDepth s - 1 })
+layer = local (\s -> s { uisDepth = uisDepth s - 1 })
 
 -- TODO: Implement a few more combinators
 --
---       center
 --       layout (using RectPacker)
 --       clip (two types, one clipping the rectangle, the other using glScissor)
 
 dimensions :: Monad m => UIT m (Float, Float)
 dimensions = do
-    (Rectangle x1 y1 x2 y2) <- gets uisRect
+    (Rectangle x1 y1 x2 y2) <- asks uisRect
     return (x2 - x1, y2 - y1)
 
-runUI :: Monad m => Rectangle -> Float -> QuadRenderBuffer -> UIT m a -> m (a, UIState)
+runUI :: Monad m => Rectangle -> Float -> QuadRenderBuffer -> UIT m a -> m a {-(a, UIState)-}
 runUI uisRect uisDepth uisQB f =
-    runStateT f UIState { .. }
+    runReaderT f UIState { .. }
 
 fill :: MonadIO m
      => FillColor
@@ -152,10 +166,12 @@ fill :: MonadIO m
      -> Maybe GL.TextureObject
      -> UIT m ()
 fill col trans tex = do
-    UIState { .. } <- get
-    liftIO $ drawQuad uisQB (rcX1 uisRect) (rcY1 uisRect) (rcX2 uisRect) (rcY2 uisRect) uisDepth col trans tex
-    --liftIO $ drawQuadAdHocVBOShader x1 y1 x2 y2 depth col trans tex
-    --liftIO $ drawQuadImmediate x1 y1 x2 y2 depth col trans tex
+    UIState { .. } <- ask
+    liftIO $
+        --drawQuadAdHocVBOShader
+        --drawQuadImmediate
+        drawQuad uisQB
+            (rcX1 uisRect) (rcY1 uisRect) (rcX2 uisRect) (rcY2 uisRect) uisDepth col trans tex
 
 text :: MonadIO m
      => FontRenderer -- TODO: Keep font renderer inside the UI state?
@@ -163,8 +179,8 @@ text :: MonadIO m
      -> String
      -> UIT m ()
 text fr face string = do
-    (Rectangle x1 y1 _ _) <- gets uisRect
-    qb                    <- gets uisQB
+    (Rectangle x1 y1 _ _) <- asks uisRect
+    qb                    <- asks uisQB
     liftIO $ drawText fr qb (round x1) (round y1) face string
 
 {-# INLINEABLE fill #-}
