@@ -302,12 +302,71 @@ drawQuad (QuadRenderBuffer { .. })
           --
           -- TODO: Could use a hashmap to reuse vertices between quads
           --
-          let (pos', cols, texs) = paramToPosColUV x1 y1 x2 y2 col
-              vboOffs            = numQuad * 4
-          forM_ (zip4 [vboOffs..] pos' cols texs) $
-              \(i, (x, y), RGBA r g b a, (u, v)) ->
-                  forM_ (zip [0..] [x, y, (-qaDepth), r, g, b, a, u, v]) $
-                      \(offs, f) -> VSM.write qbVBOMap (i * qrTotalStride + offs) $ realToFrac f
+          -- TODO: The code we're using is an unrolled version of this:
+          --
+          -- let (pos', cols, texs) = paramToPosColUV x1 y1 x2 y2 col
+          --     vboOffs            = numQuad * 4
+          -- forM_ (zip4 [vboOffs..] pos' cols texs) $
+          --     \(i, (x, y), RGBA r g b a, (u, v)) ->
+          --         forM_ (zip [0..] [x, y, (-qaDepth), r, g, b, a, u, v]) $
+          --             \(offs, f) -> VSM.write qbVBOMap (i * qrTotalStride + offs) $ realToFrac f
+          --
+          -- Would be nice to find a more elegant version yet still fast version
+          --
+          let vtxBase = numQuad * 4 * qrTotalStride
+              vtx0    = vtxBase + (qrTotalStride * 0)
+              vtx1    = vtxBase + (qrTotalStride * 1)
+              vtx2    = vtxBase + (qrTotalStride * 2)
+              vtx3    = vtxBase + (qrTotalStride * 3)
+              [  RGBA r0 g0 b0 a0
+               , RGBA r1 g1 b1 a1
+               , RGBA r2 g2 b2 a2
+               , RGBA r3 g3 b3 a3
+               ] = case col of FCWhite                 -> replicate 4 (RGBA 1 1 1 1)
+                               FCBlack                 -> replicate 4 (RGBA 0 0 0 1)
+                               FCSolid c               -> replicate 4 c
+                               FCBottomTopGradient b t -> [b, b, t, t]
+                               FCLeftRightGradient l r -> [l, r, l, r]
+           in do -- Vertex 0
+                 VSM.unsafeWrite qbVBOMap (vtx0 + 0) $ realToFrac x1         -- X
+                 VSM.unsafeWrite qbVBOMap (vtx0 + 1) $ realToFrac y1         -- Y
+                 VSM.unsafeWrite qbVBOMap (vtx0 + 2) $ realToFrac (-qaDepth) -- Z
+                 VSM.unsafeWrite qbVBOMap (vtx0 + 3) $ realToFrac r0         -- R
+                 VSM.unsafeWrite qbVBOMap (vtx0 + 4) $ realToFrac g0         -- G
+                 VSM.unsafeWrite qbVBOMap (vtx0 + 5) $ realToFrac b0         -- B
+                 VSM.unsafeWrite qbVBOMap (vtx0 + 6) $ realToFrac a0         -- A
+                 VSM.unsafeWrite qbVBOMap (vtx0 + 7) $ 0                     -- U
+                 VSM.unsafeWrite qbVBOMap (vtx0 + 8) $ 0                     -- V
+                 -- Vertex 1
+                 VSM.unsafeWrite qbVBOMap (vtx1 + 0) $ realToFrac x2         -- X
+                 VSM.unsafeWrite qbVBOMap (vtx1 + 1) $ realToFrac y1         -- Y
+                 VSM.unsafeWrite qbVBOMap (vtx1 + 2) $ realToFrac (-qaDepth) -- Z
+                 VSM.unsafeWrite qbVBOMap (vtx1 + 3) $ realToFrac r1         -- R
+                 VSM.unsafeWrite qbVBOMap (vtx1 + 4) $ realToFrac g1         -- G
+                 VSM.unsafeWrite qbVBOMap (vtx1 + 5) $ realToFrac b1         -- B
+                 VSM.unsafeWrite qbVBOMap (vtx1 + 6) $ realToFrac a1         -- A
+                 VSM.unsafeWrite qbVBOMap (vtx1 + 7) $ 1                     -- U
+                 VSM.unsafeWrite qbVBOMap (vtx1 + 8) $ 0                     -- V
+                 -- Vertex 2
+                 VSM.unsafeWrite qbVBOMap (vtx2 + 0) $ realToFrac x2         -- X
+                 VSM.unsafeWrite qbVBOMap (vtx2 + 1) $ realToFrac y2         -- Y
+                 VSM.unsafeWrite qbVBOMap (vtx2 + 2) $ realToFrac (-qaDepth) -- Z
+                 VSM.unsafeWrite qbVBOMap (vtx2 + 3) $ realToFrac r2         -- R
+                 VSM.unsafeWrite qbVBOMap (vtx2 + 4) $ realToFrac g2         -- G
+                 VSM.unsafeWrite qbVBOMap (vtx2 + 5) $ realToFrac b2         -- B
+                 VSM.unsafeWrite qbVBOMap (vtx2 + 6) $ realToFrac a2         -- A
+                 VSM.unsafeWrite qbVBOMap (vtx2 + 7) $ 1                     -- U
+                 VSM.unsafeWrite qbVBOMap (vtx2 + 8) $ 1                     -- V
+                 -- Vertex 3
+                 VSM.unsafeWrite qbVBOMap (vtx3 + 0) $ realToFrac x1         -- X
+                 VSM.unsafeWrite qbVBOMap (vtx3 + 1) $ realToFrac y2         -- Y
+                 VSM.unsafeWrite qbVBOMap (vtx3 + 2) $ realToFrac (-qaDepth) -- Z
+                 VSM.unsafeWrite qbVBOMap (vtx3 + 3) $ realToFrac r3         -- R
+                 VSM.unsafeWrite qbVBOMap (vtx3 + 4) $ realToFrac g3         -- G
+                 VSM.unsafeWrite qbVBOMap (vtx3 + 5) $ realToFrac b3         -- B
+                 VSM.unsafeWrite qbVBOMap (vtx3 + 6) $ realToFrac a3         -- A
+                 VSM.unsafeWrite qbVBOMap (vtx3 + 7) $ 0                     -- U
+                 VSM.unsafeWrite qbVBOMap (vtx3 + 8) $ 1                     -- V
           -- Write index data to the mapped element array buffer
           --
           -- TODO: Do we even need a set of indices for each quad? Could just
@@ -315,10 +374,18 @@ drawQuad (QuadRenderBuffer { .. })
           --       glMultiDrawElementsBaseVertex
           --
           let eboOffs = numQuad * 6
-           in forM_ (zip [eboOffs..] [0, 1, 2, 0, 2, 3]) $ \(i, e) ->
-                  VSM.write qbEBOMap i (fromIntegral $ e + vboOffs)
-          -- Write rendering attributes
-          VM.write qbAttribs numQuad $ QuadRenderAttrib { qaIndexIndex = numQuad, .. }
+              vboOffs = numQuad * 4
+           in -- Unrolled version of
+              -- forM_ (zip [eboOffs..] [0, 1, 2, 0, 2, 3]) $ \(i, e) ->
+              --     VSM.write qbEBOMap i (fromIntegral $ e + vboOffs)
+              do VSM.unsafeWrite qbEBOMap (eboOffs + 0) . fromIntegral $ vboOffs + 0
+                 VSM.unsafeWrite qbEBOMap (eboOffs + 1) . fromIntegral $ vboOffs + 1
+                 VSM.unsafeWrite qbEBOMap (eboOffs + 2) . fromIntegral $ vboOffs + 2
+                 VSM.unsafeWrite qbEBOMap (eboOffs + 3) . fromIntegral $ vboOffs + 0
+                 VSM.unsafeWrite qbEBOMap (eboOffs + 4) . fromIntegral $ vboOffs + 2
+                 VSM.unsafeWrite qbEBOMap (eboOffs + 5) . fromIntegral $ vboOffs + 3
+          -- Write rendering attributes (need to be strict since it's not an unboxed vector)
+          VM.write qbAttribs numQuad $! QuadRenderAttrib { qaIndexIndex = numQuad, .. }
           -- One more quad
           modifyIORef' qbNumQuad (+ 1)
 
