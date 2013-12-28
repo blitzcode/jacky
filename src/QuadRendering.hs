@@ -130,11 +130,17 @@ data QuadRenderAttrib = QuadRenderAttrib
     , qaMaybeTexture     :: !(Maybe GL.TextureObject)
     , qaIndexIndex       :: !Int -- Index into the EBO so we know what primitive to render
                                  -- after sorting by attributes
+    , qaDepth            :: !Float -- We store the depth / layer information already in the
+                                   -- VBO, but replicate them here so we can sort for transparency
     } deriving (Eq)
 
--- TODO: Need to sort by depth (layer) first so transparency works
+-- Back-to-front ordering (transparency) and then sorting to reduce OpenGL state changes
 instance Ord QuadRenderAttrib where
-    a <= b = qaMaybeTexture a <= qaMaybeTexture b -- Sort by texture / shader
+    compare a b = let cmpDepth = compare (qaMaybeTexture a) (qaMaybeTexture b)
+             in  if   cmpDepth /= EQ
+                 then cmpDepth                   -- Sort by depth first
+                 else compare (qaMaybeTexture a) -- Sort by texture at the same depth
+                              (qaMaybeTexture b)
 
 data QuadRenderBuffer = QuadRenderBuffer
     { qbVBOMap  :: !(VSM.IOVector GL.GLfloat      )
@@ -208,7 +214,7 @@ drawRenderBuffer (QuadRenderBuffer { .. }) = do
     (GL.get $ GL.uniformLocation qrShdProgTex "tex") >>= \loc ->
         GL.uniform loc GL.$= GL.Index1 (0 :: GL.GLint)
     GL.activeTexture   GL.$= GL.TextureUnit 0
-    -- Sort attributes to reduce state changes
+    -- Sort attributes (transparency and reduce state changes)
     attribs <- readIORef qbNumQuad >>= \numQuad -> -- Number of used elements
                sort . V.toList                     -- TODO: Sort mutable vector in-place with
                                                    --       vector-algorithms?
@@ -220,7 +226,7 @@ drawRenderBuffer (QuadRenderBuffer { .. }) = do
     GL.currentProgram              GL.$= Just qrShdProgColOnly
     GL.textureBinding GL.Texture2D GL.$= Nothing
     setTransparency FTNone
-    let initialState = QuadRenderAttrib FTNone Nothing 0
+    let initialState = QuadRenderAttrib FTNone Nothing 0 0.0
     -- Draw all quads
     foldM_
         ( \oldA newA -> do
@@ -282,7 +288,7 @@ drawQuad :: QuadRenderBuffer
          -> IO ()
 drawQuad (QuadRenderBuffer { .. })
          x1 y1 x2 y2
-         depth
+         qaDepth
          col
          qaFillTransparency
          qaMaybeTexture = do
@@ -300,7 +306,7 @@ drawQuad (QuadRenderBuffer { .. })
               vboOffs            = numQuad * 4
           forM_ (zip4 [vboOffs..] pos' cols texs) $
               \(i, (x, y), RGBA r g b a, (u, v)) ->
-                  forM_ (zip [0..] [x, y, (-depth), r, g, b, a, u, v]) $
+                  forM_ (zip [0..] [x, y, (-qaDepth), r, g, b, a, u, v]) $
                       \(offs, f) -> VSM.write qbVBOMap (i * qrTotalStride + offs) $ realToFrac f
           -- Write index data to the mapped element array buffer
           --
