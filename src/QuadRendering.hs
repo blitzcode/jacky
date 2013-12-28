@@ -35,6 +35,9 @@ import Foreign.Ptr
 import Foreign.ForeignPtr
 import Foreign.Storable
 
+-- vector-algorithms-0.6.0.1
+-- import qualified Data.Vector.Algorithms.Merge as M
+
 import Trace
 import GLImmediate
 import GLHelpers
@@ -135,12 +138,15 @@ data QuadRenderAttrib = QuadRenderAttrib
     } deriving (Eq)
 
 -- Back-to-front ordering (transparency) and then sorting to reduce OpenGL state changes
+--
+-- TODO: Profiling shows we spend a good deal of time in compare. Since we're unlikely to
+--       find a sort with less comparisons, maybe we can write a faster function here?
 instance Ord QuadRenderAttrib where
     compare a b = let cmpDepth = compare (qaDepth b) (qaDepth a)
-             in  if   cmpDepth /= EQ
-                 then cmpDepth                   -- Sort by depth first
-                 else compare (qaMaybeTexture a) -- Sort by texture at the same depth
-                              (qaMaybeTexture b)
+                  in  if   cmpDepth /= EQ
+                      then cmpDepth                   -- Sort by depth first
+                      else compare (qaMaybeTexture a) -- Sort by texture at the same depth
+                                   (qaMaybeTexture b)
 
 data QuadRenderBuffer = QuadRenderBuffer
     { qbVBOMap  :: !(VSM.IOVector GL.GLfloat      )
@@ -318,55 +324,53 @@ drawQuad (QuadRenderBuffer { .. })
               vtx1    = vtxBase + (qrTotalStride * 1)
               vtx2    = vtxBase + (qrTotalStride * 2)
               vtx3    = vtxBase + (qrTotalStride * 3)
-              [  RGBA r0 g0 b0 a0
-               , RGBA r1 g1 b1 a1
-               , RGBA r2 g2 b2 a2
-               , RGBA r3 g3 b3 a3
-               ] = case col of FCWhite                 -> replicate 4 (RGBA 1 1 1 1)
-                               FCBlack                 -> replicate 4 (RGBA 0 0 0 1)
-                               FCSolid c               -> replicate 4 c
-                               FCBottomTopGradient b t -> [b, b, t, t]
-                               FCLeftRightGradient l r -> [l, r, l, r]
+              [ RGBA r0 g0 b0 a0, RGBA r1 g1 b1 a1, RGBA r2 g2 b2 a2, RGBA r3 g3 b3 a3 ] =
+                  case col of FCWhite                 -> replicate 4 (RGBA 1 1 1 1)
+                              FCBlack                 -> replicate 4 (RGBA 0 0 0 1)
+                              FCSolid c               -> replicate 4 c
+                              FCBottomTopGradient b t -> [b, b, t, t]
+                              FCLeftRightGradient l r -> [l, r, l, r]
+              uw      =  VSM.unsafeWrite qbVBOMap
            in do -- Vertex 0
-                 VSM.unsafeWrite qbVBOMap (vtx0 + 0) $ realToFrac x1         -- X
-                 VSM.unsafeWrite qbVBOMap (vtx0 + 1) $ realToFrac y1         -- Y
-                 VSM.unsafeWrite qbVBOMap (vtx0 + 2) $ realToFrac (-qaDepth) -- Z
-                 VSM.unsafeWrite qbVBOMap (vtx0 + 3) $ realToFrac r0         -- R
-                 VSM.unsafeWrite qbVBOMap (vtx0 + 4) $ realToFrac g0         -- G
-                 VSM.unsafeWrite qbVBOMap (vtx0 + 5) $ realToFrac b0         -- B
-                 VSM.unsafeWrite qbVBOMap (vtx0 + 6) $ realToFrac a0         -- A
-                 VSM.unsafeWrite qbVBOMap (vtx0 + 7) $ 0                     -- U
-                 VSM.unsafeWrite qbVBOMap (vtx0 + 8) $ 0                     -- V
+                 uw (vtx0 + 0) $ realToFrac x1         -- X
+                 uw (vtx0 + 1) $ realToFrac y1         -- Y
+                 uw (vtx0 + 2) $ realToFrac (-qaDepth) -- Z
+                 uw (vtx0 + 3) $ realToFrac r0         -- R
+                 uw (vtx0 + 4) $ realToFrac g0         -- G
+                 uw (vtx0 + 5) $ realToFrac b0         -- B
+                 uw (vtx0 + 6) $ realToFrac a0         -- A
+                 uw (vtx0 + 7) $ 0                     -- U
+                 uw (vtx0 + 8) $ 0                     -- V
                  -- Vertex 1
-                 VSM.unsafeWrite qbVBOMap (vtx1 + 0) $ realToFrac x2         -- X
-                 VSM.unsafeWrite qbVBOMap (vtx1 + 1) $ realToFrac y1         -- Y
-                 VSM.unsafeWrite qbVBOMap (vtx1 + 2) $ realToFrac (-qaDepth) -- Z
-                 VSM.unsafeWrite qbVBOMap (vtx1 + 3) $ realToFrac r1         -- R
-                 VSM.unsafeWrite qbVBOMap (vtx1 + 4) $ realToFrac g1         -- G
-                 VSM.unsafeWrite qbVBOMap (vtx1 + 5) $ realToFrac b1         -- B
-                 VSM.unsafeWrite qbVBOMap (vtx1 + 6) $ realToFrac a1         -- A
-                 VSM.unsafeWrite qbVBOMap (vtx1 + 7) $ 1                     -- U
-                 VSM.unsafeWrite qbVBOMap (vtx1 + 8) $ 0                     -- V
+                 uw (vtx1 + 0) $ realToFrac x2         -- X
+                 uw (vtx1 + 1) $ realToFrac y1         -- Y
+                 uw (vtx1 + 2) $ realToFrac (-qaDepth) -- Z
+                 uw (vtx1 + 3) $ realToFrac r1         -- R
+                 uw (vtx1 + 4) $ realToFrac g1         -- G
+                 uw (vtx1 + 5) $ realToFrac b1         -- B
+                 uw (vtx1 + 6) $ realToFrac a1         -- A
+                 uw (vtx1 + 7) $ 1                     -- U
+                 uw (vtx1 + 8) $ 0                     -- V
                  -- Vertex 2
-                 VSM.unsafeWrite qbVBOMap (vtx2 + 0) $ realToFrac x2         -- X
-                 VSM.unsafeWrite qbVBOMap (vtx2 + 1) $ realToFrac y2         -- Y
-                 VSM.unsafeWrite qbVBOMap (vtx2 + 2) $ realToFrac (-qaDepth) -- Z
-                 VSM.unsafeWrite qbVBOMap (vtx2 + 3) $ realToFrac r2         -- R
-                 VSM.unsafeWrite qbVBOMap (vtx2 + 4) $ realToFrac g2         -- G
-                 VSM.unsafeWrite qbVBOMap (vtx2 + 5) $ realToFrac b2         -- B
-                 VSM.unsafeWrite qbVBOMap (vtx2 + 6) $ realToFrac a2         -- A
-                 VSM.unsafeWrite qbVBOMap (vtx2 + 7) $ 1                     -- U
-                 VSM.unsafeWrite qbVBOMap (vtx2 + 8) $ 1                     -- V
+                 uw (vtx2 + 0) $ realToFrac x2         -- X
+                 uw (vtx2 + 1) $ realToFrac y2         -- Y
+                 uw (vtx2 + 2) $ realToFrac (-qaDepth) -- Z
+                 uw (vtx2 + 3) $ realToFrac r2         -- R
+                 uw (vtx2 + 4) $ realToFrac g2         -- G
+                 uw (vtx2 + 5) $ realToFrac b2         -- B
+                 uw (vtx2 + 6) $ realToFrac a2         -- A
+                 uw (vtx2 + 7) $ 1                     -- U
+                 uw (vtx2 + 8) $ 1                     -- V
                  -- Vertex 3
-                 VSM.unsafeWrite qbVBOMap (vtx3 + 0) $ realToFrac x1         -- X
-                 VSM.unsafeWrite qbVBOMap (vtx3 + 1) $ realToFrac y2         -- Y
-                 VSM.unsafeWrite qbVBOMap (vtx3 + 2) $ realToFrac (-qaDepth) -- Z
-                 VSM.unsafeWrite qbVBOMap (vtx3 + 3) $ realToFrac r3         -- R
-                 VSM.unsafeWrite qbVBOMap (vtx3 + 4) $ realToFrac g3         -- G
-                 VSM.unsafeWrite qbVBOMap (vtx3 + 5) $ realToFrac b3         -- B
-                 VSM.unsafeWrite qbVBOMap (vtx3 + 6) $ realToFrac a3         -- A
-                 VSM.unsafeWrite qbVBOMap (vtx3 + 7) $ 0                     -- U
-                 VSM.unsafeWrite qbVBOMap (vtx3 + 8) $ 1                     -- V
+                 uw (vtx3 + 0) $ realToFrac x1         -- X
+                 uw (vtx3 + 1) $ realToFrac y2         -- Y
+                 uw (vtx3 + 2) $ realToFrac (-qaDepth) -- Z
+                 uw (vtx3 + 3) $ realToFrac r3         -- R
+                 uw (vtx3 + 4) $ realToFrac g3         -- G
+                 uw (vtx3 + 5) $ realToFrac b3         -- B
+                 uw (vtx3 + 6) $ realToFrac a3         -- A
+                 uw (vtx3 + 7) $ 0                     -- U
+                 uw (vtx3 + 8) $ 1                     -- V
           -- Write index data to the mapped element array buffer
           --
           -- TODO: Do we even need a set of indices for each quad? Could just
@@ -375,17 +379,18 @@ drawQuad (QuadRenderBuffer { .. })
           --
           let eboOffs = numQuad * 6
               vboOffs = numQuad * 4
+              uw      = VSM.unsafeWrite qbEBOMap
            in -- Unrolled version of
               -- forM_ (zip [eboOffs..] [0, 1, 2, 0, 2, 3]) $ \(i, e) ->
               --     VSM.write qbEBOMap i (fromIntegral $ e + vboOffs)
-              do VSM.unsafeWrite qbEBOMap (eboOffs + 0) . fromIntegral $ vboOffs + 0
-                 VSM.unsafeWrite qbEBOMap (eboOffs + 1) . fromIntegral $ vboOffs + 1
-                 VSM.unsafeWrite qbEBOMap (eboOffs + 2) . fromIntegral $ vboOffs + 2
-                 VSM.unsafeWrite qbEBOMap (eboOffs + 3) . fromIntegral $ vboOffs + 0
-                 VSM.unsafeWrite qbEBOMap (eboOffs + 4) . fromIntegral $ vboOffs + 2
-                 VSM.unsafeWrite qbEBOMap (eboOffs + 5) . fromIntegral $ vboOffs + 3
+              do uw (eboOffs + 0) . fromIntegral $ vboOffs + 0
+                 uw (eboOffs + 1) . fromIntegral $ vboOffs + 1
+                 uw (eboOffs + 2) . fromIntegral $ vboOffs + 2
+                 uw (eboOffs + 3) . fromIntegral $ vboOffs + 0
+                 uw (eboOffs + 4) . fromIntegral $ vboOffs + 2
+                 uw (eboOffs + 5) . fromIntegral $ vboOffs + 3
           -- Write rendering attributes (need to be strict since it's not an unboxed vector)
-          VM.write qbAttribs numQuad $! QuadRenderAttrib { qaIndexIndex = numQuad, .. }
+          VM.unsafeWrite qbAttribs numQuad $! QuadRenderAttrib { qaIndexIndex = numQuad, .. }
           -- One more quad
           modifyIORef' qbNumQuad (+ 1)
 
