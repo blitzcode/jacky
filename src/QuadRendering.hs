@@ -136,7 +136,7 @@ data QuadRenderAttrib = QuadRenderAttrib
 
 -- Back-to-front ordering (transparency) and then sorting to reduce OpenGL state changes
 instance Ord QuadRenderAttrib where
-    compare a b = let cmpDepth = compare (qaMaybeTexture a) (qaMaybeTexture b)
+    compare a b = let cmpDepth = compare (qaDepth b) (qaDepth a)
              in  if   cmpDepth /= EQ
                  then cmpDepth                   -- Sort by depth first
                  else compare (qaMaybeTexture a) -- Sort by texture at the same depth
