@@ -100,14 +100,18 @@ draw = do
                           ( fill FCWhite (FTBlend 0.5) Nothing
                           )
                           ( do drawAvatarTiles
-                               fontRenderingTest
+                               layer $
+                                   fontRenderingTest
+                               center 200 100 $
+                                   layer $
+                                       fill (FCSolid $ RGBA 0 1 0 1) (FTBlend 0.75) Nothing
                                return ()
                           )
                     )
 
 fontRenderingTest :: UIT AppDraw ()
 fontRenderingTest = do
-    fr             <- asks envFontRenderer
+    fr             <- lift $ asks envFontRenderer
     Just verdana   <- liftIO $ getLoadedTypeface fr "Verdana" 12
     Just futura    <- liftIO $ getLoadedTypeface fr "Futura" 24
     Just lucida    <- liftIO $ getLoadedTypeface fr "Lucida Grande" 32
