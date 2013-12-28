@@ -3,7 +3,7 @@ module StateModify ( modify'
                    , withDiscardStateT
                    ) where
 
-import Control.Monad.State
+import Control.Monad.State.Strict
 
 -- Strict modify
 modify' :: MonadState s m => (s -> s) -> m ()

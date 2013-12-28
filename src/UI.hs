@@ -1,5 +1,5 @@
 
-{-# LANGUAGE PackageImports, RecordWildCards #-}
+{-# LANGUAGE BangPatterns, PackageImports, RecordWildCards #-}
 
 module UI ( UIState
           , UIT
@@ -22,7 +22,7 @@ module UI ( UIState
           ) where
 
 import Control.Applicative
-import Control.Monad.Trans.State.Lazy -- TODO: Use Strict/Lazy/mtl/transformers?
+import Control.Monad.Trans.State.Strict -- TODO: Use Strict/Lazy/mtl/transformers?
 import Control.Monad.IO.Class
 import qualified Graphics.Rendering.OpenGL as GL
 import qualified "GLFW-b" Graphics.UI.GLFW as GLFW
@@ -52,10 +52,10 @@ import FontRendering
 --
 -- TODO: Can we reuse or cache the UI structure build up instead of completely redoing it
 --       every frame?
-data Rectangle = Rectangle { rcX1 :: {-# UNPACK #-} !Float
-                           , rcY1 :: {-# UNPACK #-} !Float
-                           , rcX2 :: {-# UNPACK #-} !Float
-                           , rcY2 :: {-# UNPACK #-} !Float
+data Rectangle = Rectangle { rcX1 :: !Float
+                           , rcY1 :: !Float
+                           , rcX2 :: !Float
+                           , rcY2 :: !Float
                            } deriving (Show)
 
 {-
@@ -68,9 +68,9 @@ stuff2 = RRectangle $ Rectangle 1 2 3 4
 -}
 
 -- TODO: Record hit boxes and event handlers registered during runUI
-data UIState = UIState { uisRect  :: {-# UNPACK #-} !Rectangle
-                       , uisDepth :: {-# UNPACK #-} !Float
-                       , uisQB    :: {-# UNPACK #-} !QuadRenderBuffer
+data UIState = UIState { uisRect  :: !Rectangle
+                       , uisDepth :: !Float
+                       , uisQB    :: !QuadRenderBuffer
                        }
 
 type UIT m a = StateT UIState m a
@@ -152,11 +152,10 @@ fill :: MonadIO m
      -> Maybe GL.TextureObject
      -> UIT m ()
 fill col trans tex = do
-    (Rectangle x1 y1 x2 y2) <- gets uisRect
-    depth                   <- gets uisDepth
-    qb                      <- gets uisQB
-    liftIO $ drawQuad qb x1 y1 x2 y2 depth col trans tex
+    UIState { .. } <- get
+    liftIO $ drawQuad uisQB (rcX1 uisRect) (rcY1 uisRect) (rcX2 uisRect) (rcY2 uisRect) uisDepth col trans tex
     --liftIO $ drawQuadAdHocVBOShader x1 y1 x2 y2 depth col trans tex
+    --liftIO $ drawQuadImmediate x1 y1 x2 y2 depth col trans tex
 
 text :: MonadIO m
      => FontRenderer -- TODO: Keep font renderer inside the UI state?
@@ -168,14 +167,13 @@ text fr face string = do
     qb                    <- gets uisQB
     liftIO $ drawText fr qb (round x1) (round y1) face string
 
-{-# INLINE fill #-}
---{-# INLINE text #-}
---{-# INLINE frame #-}
---{-# INLINE frameAbsolute #-}
---{-# INLINE fillDraw #-}
---{-# INLINE rectOffset #-}
---{-# INLINE layer #-}
---{-# INLINE runUI #-}
---{-# INLINE split #-}
---{-# INLINE splitRect #-}
+{-# INLINEABLE fill #-}
+--{-# INLINEABLE text #-}
+--{-# INLINEABLE frame #-}
+--{-# INLINEABLE frameAbsolute #-}
+--{-# INLINEABLE rectOffset #-}
+--{-# INLINEABLE layer #-}
+--{-# INLINEABLE runUI #-}
+--{-# INLINEABLE split #-}
+--{-# INLINEABLE splitRect #-}
 
