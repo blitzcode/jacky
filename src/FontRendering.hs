@@ -91,6 +91,7 @@ loadTypeface      fr fontFile pixelHeight mbForceAutohint mbDisableKern =
 drawText :: FontRenderer -> QuadRenderBuffer -> Int -> Int -> FT2.Typeface -> String -> IO ()
 drawText fr qb x y face string = do
     -- Turn string into a list of glyphs, insert new glyphs into the cache if required
+    -- TODO: Use LRUBoundedMap to retire elements when we reach some memory consumption cap
     glyphCache <- readIORef $ frGlyphCache fr
     (glyphCache', glyphs) <- foldM
         (\(cache, outGlyphs) c ->
@@ -116,7 +117,7 @@ drawText fr qb x y face string = do
                                        in return (cache', entry : outGlyphs)
         ) (glyphCache, []) string
     writeIORef (frGlyphCache fr) glyphCache'
-    -- Render glyphs (TODO: Don't use immediate mode rendering)
+    -- Render glyphs
     foldM_
         ( \(xoffs, prevc) (GlyphCacheEntry c (FT2.GlyphMetrics { .. }) tex) -> do
               -- Compute lower-left origin for glyph, taking into account kerning, bearing etc.
