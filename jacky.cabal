@@ -48,6 +48,7 @@ executable jacky
                     , DeriveDataTypeable
                     , RecordWildCards
                     , RankNTypes
+                    , ExistentialQuantification
                     , NamedFieldPuns
   build-depends:      base                 >=4.6
                     , containers           >=0.5
