@@ -171,7 +171,15 @@ fill col trans tex = do
         --drawQuadAdHocVBOShader
         --drawQuadImmediate
         drawQuad uisQB
-            (rcX1 uisRect) (rcY1 uisRect) (rcX2 uisRect) (rcY2 uisRect) uisDepth col trans tex
+                 (rcX1 uisRect)
+                 (rcY1 uisRect)
+                 (rcX2 uisRect)
+                 (rcY2 uisRect)
+                 uisDepth
+                 col
+                 trans
+                 tex
+                 QuadUVDefault
 
 text :: MonadIO m
      => FontRenderer -- TODO: Keep font renderer inside the UI state?

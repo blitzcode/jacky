@@ -138,6 +138,8 @@ drawText fr qb x y face string = do
                                      FCBlack
                                      TRSrcAlpha
                                      (Just tex)
+                                     QuadUVDefault
+
               return (xoffs + gAdvanceHorz + kernHorz, c)
         ) (fromIntegral x, toEnum 0) $ reverse glyphs
 

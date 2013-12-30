@@ -10,6 +10,8 @@ module QuadRendering ( withQuadRenderer
                      , withQuadRenderBuffer
                      , QuadRenderBuffer
                      , drawQuad
+                     , QuadUV(..)
+                     -- Re-exports from GLHelpers
                      , Transparency(..)
                        -- Re-exports from QuadRenderingAdHoc
                      , RGBA(..)
@@ -24,7 +26,6 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Storable.Mutable as VSM
 import qualified Data.Vector.Mutable as VM
 import Data.List
-import Data.Maybe
 import Control.Applicative
 import Control.Monad
 import Control.Exception
@@ -214,7 +215,7 @@ drawRenderBuffer (QuadRenderBuffer { .. }) = do
         GL.currentProgram GL.$= Just shdProg
         setProjMatrixFromFFP shdProg "in_mvp"
     -- Texture, use first TU
-    GL.currentProgram GL.$= Just qrShdProgTex
+    GL.currentProgram  GL.$= Just qrShdProgTex
     (GL.get $ GL.uniformLocation qrShdProgTex "tex") >>= \loc ->
         GL.uniform loc GL.$= GL.Index1 (0 :: GL.GLint)
     GL.activeTexture   GL.$= GL.TextureUnit 0
@@ -264,6 +265,13 @@ drawRenderBuffer (QuadRenderBuffer { .. }) = do
     -- Done
     disableVAOAndShaders
 
+data QuadUV = QuadUVDefault
+            | QuadUV {-# UNPACK #-} !Float -- UV Bottom Left
+                     {-# UNPACK #-} !Float
+                     {-# UNPACK #-} !Float -- UV Top Right
+                     {-# UNPACK #-} !Float
+              deriving (Eq, Show)
+
 -- Record all data to render the specified quad into the passed render buffer
 drawQuad :: QuadRenderBuffer
          -> Float -> Float -> Float -> Float
@@ -271,13 +279,15 @@ drawQuad :: QuadRenderBuffer
          -> FillColor
          -> Transparency
          -> Maybe GL.TextureObject
+         -> QuadUV
          -> IO ()
 drawQuad (QuadRenderBuffer { .. })
-         x1 y1 x2 y2
-         qaDepth
+         !x1 !y1 !x2 !y2
+         !qaDepth
          col
          qaFillTransparency
-         qaMaybeTexture = do
+         qaMaybeTexture
+         uv = do
     let QuadRenderer { .. } = qbQR -- Bring buffer layout information into scope
     -- Are we at capacity?
     numQuad <- readIORef qbNumQuad
@@ -299,17 +309,23 @@ drawQuad (QuadRenderBuffer { .. })
           --
           -- Would be nice to find a more elegant version yet still fast version
           --
-          let vtxBase = numQuad * 4 * qrTotalStride
-              vtx0    = vtxBase + (qrTotalStride * 0)
-              vtx1    = vtxBase + (qrTotalStride * 1)
-              vtx2    = vtxBase + (qrTotalStride * 2)
-              vtx3    = vtxBase + (qrTotalStride * 3)
-              [ RGBA r0 g0 b0 a0, RGBA r1 g1 b1 a1, RGBA r2 g2 b2 a2, RGBA r3 g3 b3 a3 ] =
-                  case col of FCWhite                 -> replicate 4 (RGBA 1 1 1 1)
-                              FCBlack                 -> replicate 4 (RGBA 0 0 0 1)
-                              FCSolid c               -> replicate 4 c
-                              FCBottomTopGradient b t -> [b, b, t, t]
-                              FCLeftRightGradient l r -> [l, r, l, r]
+          let !vtxBase = numQuad * 4 * qrTotalStride
+              !vtx0    = vtxBase + (qrTotalStride * 0)
+              !vtx1    = vtxBase + (qrTotalStride * 1)
+              !vtx2    = vtxBase + (qrTotalStride * 2)
+              !vtx3    = vtxBase + (qrTotalStride * 3)
+              !( RGBA !r0 !g0 !b0 !a0
+               , RGBA !r1 !g1 !b1 !a1
+               , RGBA !r2 !g2 !b2 !a2
+               , RGBA !r3 !g3 !b3 !a3
+               ) = case col of FCWhite                 -> let c = RGBA 1 1 1 1 in (c, c, c, c)
+                               FCBlack                 -> let c = RGBA 0 0 0 1 in (c, c, c, c)
+                               FCSolid c               -> (c, c, c, c)
+                               FCBottomTopGradient b t -> (b, b, t, t)
+                               FCLeftRightGradient l r -> (l, r, l, r)
+              !(!u0, !v0, !u1, !v1) =
+                  case uv of QuadUVDefault          -> (0, 0, 1, 1)
+                             QuadUV u0' v0' u1' v1' -> (u0', v0', u1', v1')
               uw      =  VSM.unsafeWrite qbVBOMap
            in do -- Vertex 0
                  uw (vtx0 + 0) $ realToFrac x1         -- X
@@ -319,8 +335,8 @@ drawQuad (QuadRenderBuffer { .. })
                  uw (vtx0 + 4) $ realToFrac g0         -- G
                  uw (vtx0 + 5) $ realToFrac b0         -- B
                  uw (vtx0 + 6) $ realToFrac a0         -- A
-                 uw (vtx0 + 7) $ 0                     -- U
-                 uw (vtx0 + 8) $ 0                     -- V
+                 uw (vtx0 + 7) $ realToFrac u0         -- U
+                 uw (vtx0 + 8) $ realToFrac v0         -- V
                  -- Vertex 1
                  uw (vtx1 + 0) $ realToFrac x2         -- X
                  uw (vtx1 + 1) $ realToFrac y1         -- Y
@@ -329,8 +345,8 @@ drawQuad (QuadRenderBuffer { .. })
                  uw (vtx1 + 4) $ realToFrac g1         -- G
                  uw (vtx1 + 5) $ realToFrac b1         -- B
                  uw (vtx1 + 6) $ realToFrac a1         -- A
-                 uw (vtx1 + 7) $ 1                     -- U
-                 uw (vtx1 + 8) $ 0                     -- V
+                 uw (vtx1 + 7) $ realToFrac u1         -- U
+                 uw (vtx1 + 8) $ realToFrac v0         -- V
                  -- Vertex 2
                  uw (vtx2 + 0) $ realToFrac x2         -- X
                  uw (vtx2 + 1) $ realToFrac y2         -- Y
@@ -339,8 +355,8 @@ drawQuad (QuadRenderBuffer { .. })
                  uw (vtx2 + 4) $ realToFrac g2         -- G
                  uw (vtx2 + 5) $ realToFrac b2         -- B
                  uw (vtx2 + 6) $ realToFrac a2         -- A
-                 uw (vtx2 + 7) $ 1                     -- U
-                 uw (vtx2 + 8) $ 1                     -- V
+                 uw (vtx2 + 7) $ realToFrac u1         -- U
+                 uw (vtx2 + 8) $ realToFrac v1         -- V
                  -- Vertex 3
                  uw (vtx3 + 0) $ realToFrac x1         -- X
                  uw (vtx3 + 1) $ realToFrac y2         -- Y
@@ -349,17 +365,17 @@ drawQuad (QuadRenderBuffer { .. })
                  uw (vtx3 + 4) $ realToFrac g3         -- G
                  uw (vtx3 + 5) $ realToFrac b3         -- B
                  uw (vtx3 + 6) $ realToFrac a3         -- A
-                 uw (vtx3 + 7) $ 0                     -- U
-                 uw (vtx3 + 8) $ 1                     -- V
+                 uw (vtx3 + 7) $ realToFrac u0         -- U
+                 uw (vtx3 + 8) $ realToFrac v1         -- V
           -- Write index data to the mapped element array buffer
           --
           -- TODO: Do we even need a set of indices for each quad? Could just
           --       have a single set and use glDrawElementsBaseVertex /
           --       glMultiDrawElementsBaseVertex
           --
-          let eboOffs = numQuad * 6
-              vboOffs = numQuad * 4
-              uw      = VSM.unsafeWrite qbEBOMap
+          let !eboOffs = numQuad * 6
+              !vboOffs = numQuad * 4
+              uw       = VSM.unsafeWrite qbEBOMap
            in -- Unrolled version of
               -- forM_ (zip [eboOffs..] [0, 1, 2, 0, 2, 3]) $ \(i, e) ->
               --     VSM.write qbEBOMap i (fromIntegral $ e + vboOffs)
