@@ -134,14 +134,16 @@ setTextureClampST =
 texelSize :: GL.PixelInternalFormat -> Int
 texelSize ifmt = case ifmt of
     GL.Alpha'     -> 1; GL.Alpha8     -> 1;
+    GL.R16        -> 2; GL.R8         -> 1;
     GL.Luminance' -> 1; GL.Luminance8 -> 1;
     GL.Intensity  -> 1; GL.Intensity8 -> 1;
     GL.RGB'       -> 3; GL.RGB8       -> 3;
-    _ -> 4 -- TODO: Just assume four components for the rest
+    _ -> 4 -- TODO: Just assume four components / float / 32bit integer for the rest
 
 uploadTexture2D :: Storable texel
                 => GL.PixelFormat
                 -> GL.PixelInternalFormat
+                -- TODO: Add GL.DataType paramter?
                 -> Int
                 -> Int
                 -> VS.Vector texel
@@ -153,9 +155,9 @@ uploadTexture2D fmt ifmt w h img genMipMap tf clamp = do
     -- Check vector size
     let vsize = VS.length img * sizeOf (img VS.! 0)
      in unless (w * h * texelSize ifmt == vsize) $
-            error "Image vector and OpenGL texture specification size mismatch"
+            error "uploadTexture2D - Image vector and OpenGL texture specification size mismatch"
     -- Generate and bind texture object
-    [tex] <- GL.genObjectNames 1 :: IO [GL.TextureObject]
+    tex <- GL.genObjectName
     GL.textureBinding GL.Texture2D GL.$= Just tex
     -- Might not conform to the default 32 bit alignment
     GL.rowAlignment GL.Unpack GL.$= 1
@@ -177,6 +179,9 @@ uploadTexture2D fmt ifmt w h img genMipMap tf clamp = do
             )
             0
             . GL.PixelData fmt GL.UnsignedByte
+    -- Set texture parameters
+    when (isJust tf) . setTextureFiltering $ fromJust tf
+    when clamp       $ setTextureClampST
     -- Call raw API MIP-map generation function, could also use
     --
     -- GL.generateMipmap GL.Texture2D GL.$= GL.Enabled
@@ -189,10 +194,6 @@ uploadTexture2D fmt ifmt w h img genMipMap tf clamp = do
     --     (fromIntegral w)
     --     (fromIntegral h)
     --     (GL.PixelData GL.RGBA GL.UnsignedByte ptr)
-
-    -- Set texture parameters
-    when (isJust tf) . setTextureFiltering $ fromJust tf
     when genMipMap   $ GLR.glGenerateMipmap GLR.gl_TEXTURE_2D
-    when clamp       $ setTextureClampST
     return tex
 

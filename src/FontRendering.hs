@@ -28,6 +28,7 @@ import Data.Maybe
 import qualified FT2Interface as FT2
 import GLHelpers
 import QuadRendering
+import TextureAtlas
 
 -- OpenGL font rendering based on the FreeType 2 wrapper in FT2Interface
 
@@ -42,7 +43,7 @@ withFontRenderer :: Bool -> Bool -> (FontRenderer -> IO a) -> IO a
 withFontRenderer frDefForceAutohint frDefDisableKern f =
     FT2.withFT2 $ \frFT2 -> -- We initialize our own FT2 library
         bracket ( do frGlyphCache <- newIORef HM.empty
-                     return $ FontRenderer { .. }
+                     return FontRenderer { .. }
                 )
                 ( -- Delete all OpenGL textures in the glyph cache
                   \fr -> readIORef (frGlyphCache fr)

@@ -89,6 +89,7 @@ insertImage (TextureAtlas { .. }) w h img = do
     -- TODO
     -- Upload texture data
     -- TODO: Make upload asynchronous using PBOs
+    GL.rowAlignment GL.Unpack GL.$= 1
     VS.unsafeWith img $
         GL.texSubImage2D
             GL.Texture2D
@@ -98,7 +99,8 @@ insertImage (TextureAtlas { .. }) w h img = do
             . GL.PixelData taFmt taType
     return undefined -- TODO
 
--- TODO:  MIP-map generation
+-- TODO:  MIP-map generation (should be deferred, i.e. not every time a texture is touched)
 --        Support textures larger than the atlas size
 --        Texture deletion
+--        Clamping / filtering? Maybe leave that to the client?
 
