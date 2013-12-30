@@ -14,6 +14,7 @@ module GLHelpers ( setup2D
                  , Transparency(..)
                  , mkBindDynamicBO
                  , disableVAOAndShaders
+                 , texelSize
                  ) where
 
 import qualified Graphics.Rendering.OpenGL as GL
@@ -129,12 +130,21 @@ setTextureClampST =
     forM_ [GL.S, GL.T] $
         \x -> GL.textureWrapMode GL.Texture2D x GL.$= (GL.Repeated, GL.ClampToEdge)
 
-uploadTexture2D :: Storable pixel
+-- Number of bytes in an OpenGL pixel format
+texelSize :: GL.PixelInternalFormat -> Int
+texelSize ifmt = case ifmt of
+    GL.Alpha'     -> 1; GL.Alpha8     -> 1;
+    GL.Luminance' -> 1; GL.Luminance8 -> 1;
+    GL.Intensity  -> 1; GL.Intensity8 -> 1;
+    GL.RGB'       -> 3; GL.RGB8       -> 3;
+    _ -> 4 -- TODO: Just assume four components for the rest
+
+uploadTexture2D :: Storable texel
                 => GL.PixelFormat
                 -> GL.PixelInternalFormat
                 -> Int
                 -> Int
-                -> VS.Vector pixel
+                -> VS.Vector texel
                 -> Bool
                 -> Maybe TextureFiltering
                 -> Bool
@@ -142,13 +152,7 @@ uploadTexture2D :: Storable pixel
 uploadTexture2D fmt ifmt w h img genMipMap tf clamp = do
     -- Check vector size
     let vsize = VS.length img * sizeOf (img VS.! 0)
-        pixelsize = case ifmt of
-                        GL.Alpha'     -> 1; GL.Alpha8     -> 1;
-                        GL.Luminance' -> 1; GL.Luminance8 -> 1;
-                        GL.Intensity  -> 1; GL.Intensity8 -> 1;
-                        GL.RGB'       -> 3; GL.RGB8       -> 3;
-                        _ -> 4 -- TODO: Just assume four components for the rest
-     in unless (w * h * pixelsize == vsize) $
+     in unless (w * h * texelSize ifmt == vsize) $
             error "Image vector and OpenGL texture specification size mismatch"
     -- Generate and bind texture object
     [tex] <- GL.genObjectNames 1 :: IO [GL.TextureObject]
