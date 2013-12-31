@@ -34,6 +34,8 @@ import QuadRendering
 
 -- OpenGL font rendering based on the FreeType 2 wrapper in FT2Interface
 
+-- TODO: Add support for a fallback typeface which we use when another font lacks a glyph
+
 data FontRenderer = FontRenderer
     { frFT2              :: !FT2.FT2Library
     , frTexAtlas         :: !TA.TextureAtlas

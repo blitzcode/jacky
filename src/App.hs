@@ -287,6 +287,9 @@ traceStats = do
             frameTimes <- (takeWhile (\x -> time - x < interval) . BS.toList) <$> gets stFrameTimes
             apiRecv    <- gets stStatBytesRecvAPI
             gc         <- liftIO $ getGCStats
+            -- Debug: write font renderer texture atlas textures to disk
+            -- fr         <- asks envFontRenderer
+            -- liftIO $ debugDumpAtlas fr "."
             let frameDeltas      = case frameTimes of (x:xs) -> goFD x xs; _ -> []
                 goFD prev (x:xs) = (prev - x) : goFD x xs
                 goFD _    []     = []
