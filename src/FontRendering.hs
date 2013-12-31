@@ -47,7 +47,7 @@ withFontRenderer :: Bool -> Bool -> Bool -> (FontRenderer -> IO a) -> IO a
 withFontRenderer frDefForceAutohint frDefDisableKern frUseTexAtlas f =
     FT2.withFT2 $ \frFT2 -> -- We initialize our own FT2 library
       TA.withTextureAtlas 512
-                          0
+                          1
                           GL.Alpha
                           GL.Alpha8
                           GL.UnsignedByte
@@ -80,7 +80,7 @@ mkGlyphCacheKey face c = let ha = hash face
                              --       the internal FT2 face pointer. With ASCII characters and
                              --       faces allocated in succession we might have all relevant
                              --       information in a few lower bits of the hash
-                             (ha * hb) `xor` ha `xor` hb
+                             (ha * hb) `xor` (ha * 997) `xor` (hb * 991)
 
 -- For re-exporting functions from FT2 taking our FontRenderer instead of the internal FT2Library
 ft2ToFR :: FontRenderer -> (FT2.FT2Library -> b) -> b

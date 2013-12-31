@@ -105,8 +105,10 @@ insertImage ta@(TextureAtlas { .. }) w h img = do
     -- have a manageable number of atlas textures and insertion should generally succeed
     -- quickly
     (textures', tex, texX, texY) <- readIORef taTextures >>= \textures ->
-        let go (x@(rp, tex) S.:< xs) xs' = -- Try to find empty block and mark it as used
-                case RP.pack (w + taBorder * 2) (h + taBorder * 2) rp of
+        let wb = w + taBorder * 2
+            hb = h + taBorder * 2
+            go (x@(rp, tex) S.:< xs) xs' = -- Try to find empty block and mark it as used
+                case RP.pack wb hb rp of
                     (rp', Just (texX, texY)) -> -- Success
                       return
                         ( ( xs' S.|>      -- Rebuild sequence so far
@@ -120,7 +122,7 @@ insertImage ta@(TextureAtlas { .. }) w h img = do
                             do -- Make new texture and insert
                                tex <- emptyTexture ta
                                let emptyRP                 = RP.empty taTexWdh taTexWdh
-                                   (rp, Just (texX, texY)) = RP.pack w h emptyRP
+                                   (rp, Just (texX, texY)) = RP.pack wb hb emptyRP
                                return ( (rp, tex) S.<| textures -- Prepend original sequence
                                       , tex, texX, texY         -- Location of empty block
                                       )
