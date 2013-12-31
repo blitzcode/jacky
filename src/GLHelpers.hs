@@ -15,6 +15,7 @@ module GLHelpers ( setup2D
                  , mkBindDynamicBO
                  , disableVAOAndShaders
                  , texelSize
+                 , saveTextureToPNG
                  ) where
 
 import qualified Graphics.Rendering.OpenGL as GL
@@ -26,8 +27,10 @@ import Control.Monad
 import Text.Printf
 import Data.Maybe
 import qualified Data.Vector.Storable as VS
+import qualified Data.Vector.Storable.Mutable as VSM
 import Foreign.Storable
 import Foreign.Ptr
+import qualified Codec.Picture as JP
 
 import Trace
 
@@ -196,4 +199,28 @@ uploadTexture2D fmt ifmt w h img genMipMap tf clamp = do
     --     (GL.PixelData GL.RGBA GL.UnsignedByte ptr)
     when genMipMap   $ GLR.glGenerateMipmap GLR.gl_TEXTURE_2D
     return tex
+
+saveTextureToPNG :: GL.TextureObject
+                 -> GL.PixelFormat
+                 -> GL.PixelInternalFormat
+                 -> GL.DataType
+                 -> FilePath
+                 -> IO ()
+saveTextureToPNG tex fmt ifmt dtype fn = do
+    GL.textureBinding GL.Texture2D GL.$= Just tex
+    (w, h) <- getCurTex2DSize
+    GL.rowAlignment GL.Unpack GL.$= 1
+    let flipImage img = JP.generateImage (\x y -> JP.pixelAt img x (h - 1 - y)) w h
+    case texelSize ifmt of
+        1 -> -- Assume Y8
+             do img <- VSM.new $ w * h :: IO (VSM.IOVector JP.Pixel8)
+                VSM.unsafeWith img $
+                    GL.getTexImage GL.Texture2D 0 . GL.PixelData fmt dtype
+                JP.savePngImage fn . JP.ImageY8 . flipImage . JP.Image w h =<< VS.freeze img
+        4 -> -- Assume RGBA (TODO: Did not test this variant)
+             do img <- VSM.new $ w * h * 4 :: IO (VSM.IOVector JP.Pixel8)
+                VSM.unsafeWith img $
+                    GL.getTexImage GL.Texture2D 0 . GL.PixelData fmt dtype
+                JP.savePngImage fn . JP.ImageRGBA8 . flipImage . JP.Image w h =<< VS.freeze img
+        _ -> return () -- Unsupported
 
