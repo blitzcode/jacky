@@ -258,6 +258,7 @@ main = do
                   in withQuadRenderer maxQuad $ \envQuadRenderer ->
                     withFontRenderer (FlagForceAutohint `elem` flags)
                                      (FlagDisableKern   `elem` flags)
+                                     True -- Use a texture atlas
                                      $ \envFontRenderer -> do
                       when (FlagFT2Test `elem` flags) $ debugPrintTest envFontRenderer
                       traceSystemInfo envFontRenderer

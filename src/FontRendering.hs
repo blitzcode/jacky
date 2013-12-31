@@ -17,12 +17,12 @@ module FontRendering ( withFontRenderer
 import qualified Graphics.Rendering.OpenGL as GL
 import Control.Monad
 import Control.Exception
--- import Control.Applicative
 import qualified Data.Vector.Storable as VS
 import qualified Data.HashMap.Strict as HM
 import Data.Hashable
 import Data.IORef
 import Data.Bits
+import Data.Word
 import Data.Maybe
 
 import qualified FT2Interface as FT2
@@ -34,28 +34,43 @@ import TextureAtlas
 
 data FontRenderer = FontRenderer
     { frFT2              :: !FT2.FT2Library
+    , frTexAtlas         :: !TextureAtlas
     , frGlyphCache       :: !(IORef (HM.HashMap GlyphCacheKey GlyphCacheEntry))
     , frDefForceAutohint :: !Bool
     , frDefDisableKern   :: !Bool
+    , frUseTexAtlas      :: !Bool
     }
 
-withFontRenderer :: Bool -> Bool -> (FontRenderer -> IO a) -> IO a
-withFontRenderer frDefForceAutohint frDefDisableKern f =
+withFontRenderer :: Bool -> Bool -> Bool -> (FontRenderer -> IO a) -> IO a
+withFontRenderer frDefForceAutohint frDefDisableKern frUseTexAtlas f =
     FT2.withFT2 $ \frFT2 -> -- We initialize our own FT2 library
+      withTextureAtlas 512
+                       0
+                       GL.Alpha
+                       GL.Alpha8
+                       GL.UnsignedByte
+                       (0 :: Word8)
+                       TFMinMag
+                       $ \frTexAtlas ->
         bracket ( do frGlyphCache <- newIORef HM.empty
                      return FontRenderer { .. }
                 )
-                ( -- Delete all OpenGL textures in the glyph cache
-                  \fr -> readIORef (frGlyphCache fr)
-                             >>= GL.deleteObjectNames
-                                     . map (\(GlyphCacheEntry _ _ tex) -> tex) . HM.elems
+                ( \fr ->
+                      if   frUseTexAtlas
+                      then -- Textures are just references managed by the texture atlas,
+                           -- don't delete them
+                           return ()
+                      else -- Delete all OpenGL textures in the glyph cache
+                           readIORef (frGlyphCache fr)
+                               >>= GL.deleteObjectNames
+                                       . map (\(GlyphCacheEntry _ _ tex _) -> tex) . HM.elems
                 )
                 f
 
 -- Glyph Cache - We lookup glyphs based on a character code plus a typeface, and we store
 --               glyph metrics and texture information
 
-data GlyphCacheEntry = GlyphCacheEntry !Char !FT2.GlyphMetrics !GL.TextureObject
+data GlyphCacheEntry = GlyphCacheEntry !Char !FT2.GlyphMetrics !GL.TextureObject !QuadUV
 
 type GlyphCacheKey = Int
 
@@ -90,37 +105,44 @@ loadTypeface      fr fontFile pixelHeight mbForceAutohint mbDisableKern =
         (fromMaybe (frDefDisableKern   fr) mbDisableKern  )
 
 drawText :: FontRenderer -> QuadRenderBuffer -> Int -> Int -> FT2.Typeface -> String -> IO ()
-drawText fr qb x y face string = do
+drawText (FontRenderer { .. }) qb x y face string = do
     -- Turn string into a list of glyphs, insert new glyphs into the cache if required
     -- TODO: Use LRUBoundedMap to retire elements when we reach some memory consumption cap
-    glyphCache <- readIORef $ frGlyphCache fr
+    glyphCache <- readIORef frGlyphCache
     (glyphCache', glyphs) <- foldM
         (\(cache, outGlyphs) c ->
             let key = mkGlyphCacheKey face c
             in  case HM.lookup key cache of
                     Just entry -> return (cache, entry : outGlyphs)
-                    Nothing    -> -- New glyph, render it and upload texture data
-                                  FT2.renderGlyph face c >>=
-                                    \(metrics@(FT2.GlyphMetrics { .. }), bitmap) -> do
-                                      -- Texture (TODO: Pack in texture atlas)
-                                      tex <- uploadTexture2D
-                                          GL.Alpha
-                                          GL.Alpha'
-                                          gWidth
-                                          gHeight
-                                          bitmap
-                                          True
-                                          (Just TFMinMag)
-                                          True
-                                      -- Update cache
-                                      let entry  = GlyphCacheEntry c metrics tex
-                                          cache' = HM.insert key entry cache
-                                       in return (cache', entry : outGlyphs)
+                    Nothing    ->
+                        -- New glyph, render it and upload texture data
+                        FT2.renderGlyph face c >>=
+                          \(metrics@(FT2.GlyphMetrics { .. }), bitmap) -> do
+                            entry <- if   frUseTexAtlas
+                                     then do (tex, u0, v0, u1, v1) <-
+                                                 insertImage frTexAtlas -- Insert into tex. atlas
+                                                             gWidth
+                                                             gHeight
+                                                             bitmap
+                                             return . GlyphCacheEntry
+                                                 c metrics tex $ QuadUV u0 v0 u1 v1
+                                     else do tex <- uploadTexture2D GL.Alpha -- Make new texture
+                                                                    GL.Alpha8
+                                                                    gWidth
+                                                                    gHeight
+                                                                    bitmap
+                                                                    True
+                                                                    (Just TFMinMag)
+                                                                    True
+                                             return $ GlyphCacheEntry
+                                                 c metrics tex QuadUVDefault
+                            -- Update cache
+                            return (HM.insert key entry cache, entry : outGlyphs)
         ) (glyphCache, []) string
-    writeIORef (frGlyphCache fr) glyphCache'
+    writeIORef frGlyphCache glyphCache'
     -- Render glyphs
     foldM_
-        ( \(xoffs, prevc) (GlyphCacheEntry c (FT2.GlyphMetrics { .. }) tex) -> do
+        ( \(xoffs, prevc) (GlyphCacheEntry c (FT2.GlyphMetrics { .. }) tex uv) -> do
               -- Compute lower-left origin for glyph, taking into account kerning, bearing etc.
               kernHorz <- FT2.getKerning face prevc c
               let x1 = round $ xoffs + fromIntegral gBearingX + kernHorz :: Int
@@ -137,7 +159,7 @@ drawText fr qb x y face string = do
                        FCBlack
                        TRSrcAlpha
                        (Just tex)
-                       QuadUVDefault
+                       uv
               return (xoffs + gAdvanceHorz + kernHorz, c)
         ) (fromIntegral x, toEnum 0) $ reverse glyphs
 

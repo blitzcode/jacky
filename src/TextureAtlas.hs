@@ -7,9 +7,11 @@ module TextureAtlas ( TextureAtlas
                     ) where
 
 import qualified Graphics.Rendering.OpenGL as GL
+import qualified Graphics.Rendering.OpenGL.Raw as GLR
 import Data.IORef
+import qualified Data.Sequence as S
+import qualified Data.Foldable as F
 import qualified Data.Vector.Storable as VS
-import Control.Applicative
 import Control.Monad
 import Control.Exception
 import Foreign.Storable
@@ -19,15 +21,20 @@ import GLHelpers
 import qualified RectPacker as RP
 
 -- Pack multiple rectangular images into a set of OpenGL textures
+--
+-- TODO: Support textures larger than the atlas size (separate list)
+--       Add debug feature for dumping textures to disk
+--       Texture deletion
 
 data TextureAtlas = forall texel. Storable texel => TextureAtlas
-    { taBorder     :: !Int -- Number of border pixels around the packed images
-    , taTexWdh     :: !Int -- Width of the textures we're packing into
-    , taFmt        :: !GL.PixelFormat -- Texture format
-    , taIFmt       :: !GL.PixelInternalFormat
-    , taType       :: !GL.DataType
-    , taTextures   :: !(IORef [(RP.RectPacker, GL.TextureObject)]) -- Texture objects / layout
-    , taBackground :: !texel -- Single texel for background filling, can have multiple components
+    { taBorder     :: !Int                    -- Number of border pixels around the packed images
+    , taTexWdh     :: !Int                    -- Width of the textures we're packing into
+    , taFmt        :: !GL.PixelFormat         -- Texture format
+    , taIFmt       :: !GL.PixelInternalFormat -- ..
+    , taType       :: !GL.DataType            -- ..
+    , taFiltering  :: !TextureFiltering       -- Default filtering specified for the texture object
+    , taBackground :: !texel                  -- Single texel for background filling
+    , taTextures   :: !(IORef (S.Seq (RP.RectPacker, GL.TextureObject))) -- Texture objs. / layout
     }
 
 withTextureAtlas :: Storable texel
@@ -37,24 +44,27 @@ withTextureAtlas :: Storable texel
                  -> GL.PixelInternalFormat
                  -> GL.DataType
                  -> texel
+                 -> TextureFiltering
                  -> (TextureAtlas -> IO a)
                  -> IO a
-withTextureAtlas taTexWdh taBorder taFmt taIFmt taType taBackground =
+withTextureAtlas taTexWdh taBorder taFmt taIFmt taType taBackground taFiltering =
     bracket
         ( do when (sizeOf taBackground /= texelSize taIFmt) $
                  error "withTextureAtlas - Background texel / OpenGL texture format size mismatch"
-             newIORef [] >>= \taTextures -> return TextureAtlas { .. }
+             newIORef S.empty >>= \taTextures -> return TextureAtlas { .. }
         )
-        ( \ta -> mapM_ (GL.deleteObjectName . snd) =<< readIORef (taTextures ta) )
+        ( \ta -> F.mapM_ (GL.deleteObjectName . snd) =<< readIORef (taTextures ta) )
 
 -- Create a new empty texture
 emptyTexture :: TextureAtlas -> IO GL.TextureObject
 emptyTexture (TextureAtlas { .. }) = do
-    -- Build texture
+    -- Build texture, configure default sampler
     tex <- GL.genObjectName
     GL.textureBinding GL.Texture2D GL.$= Just tex
-    GL.rowAlignment GL.Unpack GL.$= 1
+    setTextureClampST
+    setTextureFiltering taFiltering
     -- Fill with background color
+    GL.rowAlignment GL.Unpack GL.$= 1
     withArray (replicate (taTexWdh * taTexWdh) taBackground) $
         -- TODO: Use immutable texture through glTexStorage
         GL.texImage2D
@@ -87,69 +97,55 @@ insertImage ta@(TextureAtlas { .. }) w h img = do
         error "insertImage - Image vector size mismatch"
     when (sizeOf (img VS.! 0) /= texelSize taIFmt) $
         error "insertImage - Texel size mismatch"
-
-{-
-foldP :: (a -> b -> b) -> (a -> Bool) -> b -> [a] -> b
-foldP f p acc = foldr go acc
-    where go x r | p x       = f x r
-                 | otherwise = r
--}
-
- -- scanl :: (a -> b -> a) -> a -> [b] -> [a]
-
-{-
-    span (isNothing . fst) . map (\x -> (Nothing, x)) $ textures
-
-    -- Find room for the image
-    (tex, texX, texY) <- readIORef taTextures >>= \textures ->
-        -- Try to find empty block and mark it as used
-        let (textures', insResult) =
-                foldr (\x@(rp, tex) (xs, r) ->
-                           case RP.pack w h rp of -- Try to insert
-                               (rp', Just (texX, texY)) ->
-                                   ( (rp', tex) : xs
-                                   , Just (tex, texX, texY)
-                                   )
-                               (_ , Nothing) -> (x : xs, r) -- Failure, leave everything unchanged
-                      ) ([], Nothing) textures
-        in  case insResult of
-                Just r -> -- 
-                          do writeIORef taTextures textures'
-                             return r
-                Nothing -> -- We didn't find a texture with enough free space, prepend a new one
-                           do tex <- emptyTexture ta
-                              let emptyRP                 = RP.empty taTexWdh taTexWdh
-                               in (rp, Just (texX, texY)) = RP.pack w h emptyRP
-                              writeIORef taTextures $ (rp, tex) : textures
-                              return (tex, texX, texY)
-                              -}
-
-    {-
-    (textures', x, y, tex) <-
-        let go (x@(rp, tex):xs) =
-                case RP.pack w h rp of
-                    (rp', Just (x, y)) -> return $ (rp', tex) : xs
-                    (_  , Nothing    ) -> liftM2 (:) (return x) (go xs)
-            go [] = do tex <- emptyTexture ta
-                       go [(RP.empty taTexWdh taTexWdh, tex)]
-        in  go textures
-    -}
-
-
+    -- Find room for the image. This is somewhat cumbersome and slow O(n), but we should
+    -- have a manageable number of atlas textures and insertion should generally succeed
+    -- quickly
+    (textures', tex, texX, texY) <- readIORef taTextures >>= \textures ->
+        let go (x@(rp, tex) S.:< xs) xs' = -- Try to find empty block and mark it as used
+                case RP.pack (w + taBorder * 2) (h + taBorder * 2) rp of
+                    (rp', Just (texX, texY)) -> -- Success
+                      return
+                        ( ( xs' S.|>      -- Rebuild sequence so far
+                            (rp', tex)    -- Append updated texture atlas entry
+                          ) S.>< xs       -- Stop processing remainder, just append
+                        , tex, texX, texY -- Location of empty block
+                        )
+                    (_ , Nothing) -> -- Failure, leave everything unchanged and keep searching
+                        go (S.viewl xs) (xs' S.|> x)
+            go S.EmptyL _ = -- We didn't find a texture with enough free space
+                            do -- Make new texture and insert
+                               tex <- emptyTexture ta
+                               let emptyRP                 = RP.empty taTexWdh taTexWdh
+                                   (rp, Just (texX, texY)) = RP.pack w h emptyRP
+                               return ( (rp, tex) S.<| textures -- Prepend original sequence
+                                      , tex, texX, texY         -- Location of empty block
+                                      )
+        in  go (S.viewl textures) S.empty
+    -- Write back texture atlas sequence
+    -- TODO: Sort by free space, don't want to traverse a list of full textures every time
+    writeIORef taTextures textures'
     -- Upload texture data
     -- TODO: Make upload asynchronous using PBOs
+    GL.textureBinding GL.Texture2D GL.$= Just tex
     GL.rowAlignment GL.Unpack GL.$= 1
     VS.unsafeWith img $
         GL.texSubImage2D
             GL.Texture2D
             0
-            (GL.TexturePosition2D 0 0)
-            (GL.TextureSize2D (fromIntegral w) (fromIntegral h))
+            (GL.TexturePosition2D (fromIntegral $ texX + taBorder)
+                                  (fromIntegral $ texY + taBorder))
+            (GL.TextureSize2D (fromIntegral w)
+                              (fromIntegral h))
             . GL.PixelData taFmt taType
-    return undefined -- TODO
-
--- TODO:  MIP-map generation (should be deferred, i.e. not every time a texture is touched)
---        Support textures larger than the atlas size (separate list)
---        Texture deletion
---        Clamping / filtering? Maybe leave that to the client?
+    -- Call raw API MIP-map generation function
+    -- TODO: MIP-map generation should be deferred, not every time a texture is touched
+    GLR.glGenerateMipmap GLR.gl_TEXTURE_2D
+    -- Compute UV coordinates and return
+    let tw = fromIntegral taTexWdh
+     in return ( tex
+               , fromIntegral (texX + taBorder    ) / tw
+               , fromIntegral (texY + taBorder    ) / tw
+               , fromIntegral (texX + taBorder + w) / tw
+               , fromIntegral (texY + taBorder + h) / tw
+               )
 

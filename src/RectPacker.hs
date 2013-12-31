@@ -14,6 +14,8 @@ import Data.List
 
 -- TODO: We could do a lot better, see http://clb.demon.fi/files/RectangleBinPack.pdf
 
+-- TODO: Keep track of free space, so we can sort multiple rectangles packers by that criterion
+
 data RectPacker = RectPacker !KDTree !Int !Int deriving (Show)
 
 data KDTree = Split                !Bool
