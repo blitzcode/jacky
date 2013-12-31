@@ -3,11 +3,13 @@
 
 module TextureAtlas ( TextureAtlas
                     , withTextureAtlas
+                    , insertImage
                     ) where
 
 import qualified Graphics.Rendering.OpenGL as GL
 import Data.IORef
 import qualified Data.Vector.Storable as VS
+import Control.Applicative
 import Control.Monad
 import Control.Exception
 import Foreign.Storable
@@ -79,14 +81,61 @@ insertImage :: Storable texel
                   , Float, Float     -- UV Bottom Left
                   , Float, Float     -- UV Top Right
                   )
-insertImage (TextureAtlas { .. }) w h img = do
+insertImage ta@(TextureAtlas { .. }) w h img = do
     -- Check image format
     when (w * h /= VS.length img) $
         error "insertImage - Image vector size mismatch"
     when (sizeOf (img VS.! 0) /= texelSize taIFmt) $
         error "insertImage - Texel size mismatch"
-    -- Find empty block
-    -- TODO
+
+{-
+foldP :: (a -> b -> b) -> (a -> Bool) -> b -> [a] -> b
+foldP f p acc = foldr go acc
+    where go x r | p x       = f x r
+                 | otherwise = r
+-}
+
+ -- scanl :: (a -> b -> a) -> a -> [b] -> [a]
+
+{-
+    span (isNothing . fst) . map (\x -> (Nothing, x)) $ textures
+
+    -- Find room for the image
+    (tex, texX, texY) <- readIORef taTextures >>= \textures ->
+        -- Try to find empty block and mark it as used
+        let (textures', insResult) =
+                foldr (\x@(rp, tex) (xs, r) ->
+                           case RP.pack w h rp of -- Try to insert
+                               (rp', Just (texX, texY)) ->
+                                   ( (rp', tex) : xs
+                                   , Just (tex, texX, texY)
+                                   )
+                               (_ , Nothing) -> (x : xs, r) -- Failure, leave everything unchanged
+                      ) ([], Nothing) textures
+        in  case insResult of
+                Just r -> -- 
+                          do writeIORef taTextures textures'
+                             return r
+                Nothing -> -- We didn't find a texture with enough free space, prepend a new one
+                           do tex <- emptyTexture ta
+                              let emptyRP                 = RP.empty taTexWdh taTexWdh
+                               in (rp, Just (texX, texY)) = RP.pack w h emptyRP
+                              writeIORef taTextures $ (rp, tex) : textures
+                              return (tex, texX, texY)
+                              -}
+
+    {-
+    (textures', x, y, tex) <-
+        let go (x@(rp, tex):xs) =
+                case RP.pack w h rp of
+                    (rp', Just (x, y)) -> return $ (rp', tex) : xs
+                    (_  , Nothing    ) -> liftM2 (:) (return x) (go xs)
+            go [] = do tex <- emptyTexture ta
+                       go [(RP.empty taTexWdh taTexWdh, tex)]
+        in  go textures
+    -}
+
+
     -- Upload texture data
     -- TODO: Make upload asynchronous using PBOs
     GL.rowAlignment GL.Unpack GL.$= 1
@@ -100,7 +149,7 @@ insertImage (TextureAtlas { .. }) w h img = do
     return undefined -- TODO
 
 -- TODO:  MIP-map generation (should be deferred, i.e. not every time a texture is touched)
---        Support textures larger than the atlas size
+--        Support textures larger than the atlas size (separate list)
 --        Texture deletion
 --        Clamping / filtering? Maybe leave that to the client?
 

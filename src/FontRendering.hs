@@ -128,20 +128,16 @@ drawText fr qb x y face string = do
                   x2 = x1 + gWidth
                   y2 = y1 + gHeight
               -- Draw
-              -- TODO: @@@
-              --drawQuadAdHocVBOShader
               drawQuad qb
-              --drawQuadImmediate
-                                     (fromIntegral x1)
-                                     (fromIntegral y1)
-                                     (fromIntegral x2)
-                                     (fromIntegral y2)
-                                     1
-                                     FCBlack
-                                     TRSrcAlpha
-                                     (Just tex)
-                                     QuadUVDefault
-
+                       (fromIntegral x1)
+                       (fromIntegral y1)
+                       (fromIntegral x2)
+                       (fromIntegral y2)
+                       1
+                       FCBlack
+                       TRSrcAlpha
+                       (Just tex)
+                       QuadUVDefault
               return (xoffs + gAdvanceHorz + kernHorz, c)
         ) (fromIntegral x, toEnum 0) $ reverse glyphs
 

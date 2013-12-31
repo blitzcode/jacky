@@ -168,8 +168,8 @@ fill :: MonadIO m
 fill col trans tex = do
     UIState { .. } <- ask
     liftIO $
-        --drawQuadAdHocVBOShader
-        --drawQuadImmediate
+        -- drawQuadAdHocVBOShader
+        -- drawQuadImmediate
         drawQuad uisQB
                  (rcX1 uisRect)
                  (rcY1 uisRect)

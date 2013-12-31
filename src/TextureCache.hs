@@ -19,6 +19,13 @@ import qualified LRUBoundedMap as LBM
 import Trace
 import GLHelpers
 
+-- OpenGL texture cache on top of the ImageCache module
+--
+-- TODO: Pack small textures into larger aggregate ones to reduce state changes. This
+--       would be similar to what TextureAtlas provides, but a simple grid layout for a
+--       set of textures of a fixed size (Twitter avatar images etc.) would support easy
+--       removal / retiring of images
+
 -- This is only a mutable structure so we can use the bracket pattern to free
 -- all textures on shutdown. Otherwise, we could implement this part of the caching
 -- system in a functionally pure way
@@ -27,10 +34,10 @@ data TextureCache = TextureCache { tcCacheEntries :: IORef (LBM.Map B.ByteString
                                  }
 
 withTextureCache :: Int -> ImageCache -> (TextureCache -> IO ()) -> IO ()
-withTextureCache maxCacheEntries hic f = do
+withTextureCache maxCacheEntries tcImageCache = do
     bracket
         ( newIORef (LBM.empty maxCacheEntries) >>= \tcCacheEntries ->
-              return $ TextureCache { tcImageCache = hic, .. }
+              return $ TextureCache {  .. }
         )
         ( \tc -> do
              cacheEntries <- readIORef $ tcCacheEntries tc
@@ -41,7 +48,6 @@ withTextureCache maxCacheEntries hic f = do
              traceT TLInfo $ "Shutting down texture cache"
              GL.deleteObjectNames . map snd . LBM.toList $ cacheEntries
         )
-        f
 
 -- Fetch an image from the texture cache, or forward the request to the image
 -- cache in case we don't have it. We need the tick for the image cache (keep
@@ -69,7 +75,7 @@ fetchImage tc tick uri = do
                     tex <- uploadTexture2D GL.RGBA GL.RGBA8 w h img True (Just TFMinMag) True
                     -- Insert into cache, delete any overflow
                     let (newEntries, delTex) = LBM.insert uri tex cacheEntries
-                    case delTex of Just (_, obj) -> GL.deleteObjectNames [obj]; _ -> return ()
+                    case delTex of Just (_, obj) -> GL.deleteObjectName obj; _ -> return ()
                     -- Remove from image cache
                     deleteImage (tcImageCache tc) uri
                     -- Write back the cache directory and return
