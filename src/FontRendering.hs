@@ -5,6 +5,8 @@ module FontRendering ( withFontRenderer
                      , FontRenderer
                      , drawTextBitmap
                      , drawText
+                       -- Wrap TextureAtlas exports
+                     , debugDumpAtlas
                        -- Pass through (or wrap) some FT2 exports
                      , debugPrintTest
                      , getFT2Version
@@ -26,15 +28,15 @@ import Data.Word
 import Data.Maybe
 
 import qualified FT2Interface as FT2
+import qualified TextureAtlas as TA
 import GLHelpers
 import QuadRendering
-import TextureAtlas
 
 -- OpenGL font rendering based on the FreeType 2 wrapper in FT2Interface
 
 data FontRenderer = FontRenderer
     { frFT2              :: !FT2.FT2Library
-    , frTexAtlas         :: !TextureAtlas
+    , frTexAtlas         :: !TA.TextureAtlas
     , frGlyphCache       :: !(IORef (HM.HashMap GlyphCacheKey GlyphCacheEntry))
     , frDefForceAutohint :: !Bool
     , frDefDisableKern   :: !Bool
@@ -44,26 +46,22 @@ data FontRenderer = FontRenderer
 withFontRenderer :: Bool -> Bool -> Bool -> (FontRenderer -> IO a) -> IO a
 withFontRenderer frDefForceAutohint frDefDisableKern frUseTexAtlas f =
     FT2.withFT2 $ \frFT2 -> -- We initialize our own FT2 library
-      withTextureAtlas 512
-                       0
-                       GL.Alpha
-                       GL.Alpha8
-                       GL.UnsignedByte
-                       (0 :: Word8)
-                       TFMinMag
-                       $ \frTexAtlas ->
-        bracket ( do frGlyphCache <- newIORef HM.empty
-                     return FontRenderer { .. }
-                )
-                ( \fr ->
-                      if   frUseTexAtlas
-                      then -- Textures are just references managed by the texture atlas,
-                           -- don't delete them
-                           return ()
-                      else -- Delete all OpenGL textures in the glyph cache
-                           readIORef (frGlyphCache fr)
-                               >>= GL.deleteObjectNames
-                                       . map (\(GlyphCacheEntry _ _ tex _) -> tex) . HM.elems
+      TA.withTextureAtlas 512
+                          0
+                          GL.Alpha
+                          GL.Alpha8
+                          GL.UnsignedByte
+                          (0 :: Word8)
+                          TFMinMag
+                          $ \frTexAtlas ->
+        bracket ( newIORef HM.empty >>= \frGlyphCache -> return FontRenderer { .. } )
+                ( \fr -> if   frUseTexAtlas
+                         then -- Textures are managed by the texture atlas, don't delete them
+                              return ()
+                         else -- Delete all OpenGL textures in the glyph cache
+                              readIORef (frGlyphCache fr)
+                                  >>= GL.deleteObjectNames
+                                          . map (\(GlyphCacheEntry _ _ tex _) -> tex) . HM.elems
                 )
                 f
 
@@ -104,6 +102,9 @@ loadTypeface      fr fontFile pixelHeight mbForceAutohint mbDisableKern =
         (fromMaybe (frDefForceAutohint fr) mbForceAutohint)
         (fromMaybe (frDefDisableKern   fr) mbDisableKern  )
 
+debugDumpAtlas :: FontRenderer -> FilePath -> IO ()
+debugDumpAtlas fr = TA.debugDumpAtlas (frTexAtlas fr)
+
 drawText :: FontRenderer -> QuadRenderBuffer -> Int -> Int -> FT2.Typeface -> String -> IO ()
 drawText (FontRenderer { .. }) qb x y face string = do
     -- Turn string into a list of glyphs, insert new glyphs into the cache if required
@@ -120,10 +121,10 @@ drawText (FontRenderer { .. }) qb x y face string = do
                           \(metrics@(FT2.GlyphMetrics { .. }), bitmap) -> do
                             entry <- if   frUseTexAtlas
                                      then do (tex, u0, v0, u1, v1) <-
-                                                 insertImage frTexAtlas -- Insert into tex. atlas
-                                                             gWidth
-                                                             gHeight
-                                                             bitmap
+                                                 TA.insertImage frTexAtlas -- Insert into tex. atlas
+                                                                gWidth
+                                                                gHeight
+                                                                bitmap
                                              return . GlyphCacheEntry
                                                  c metrics tex $ QuadUV u0 v0 u1 v1
                                      else do tex <- uploadTexture2D GL.Alpha -- Make new texture

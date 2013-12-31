@@ -11,7 +11,7 @@ module QuadRendering ( withQuadRenderer
                      , QuadRenderBuffer
                      , drawQuad
                      , QuadUV(..)
-                     -- Re-exports from GLHelpers
+                       -- Re-exports from GLHelpers
                      , Transparency(..)
                        -- Re-exports from QuadRenderingAdHoc
                      , RGBA(..)
@@ -307,7 +307,7 @@ drawQuad (QuadRenderBuffer { .. })
           --         forM_ (zip [0..] [x, y, (-qaDepth), r, g, b, a, u, v]) $
           --             \(offs, f) -> VSM.write qbVBOMap (i * qrTotalStride + offs) $ realToFrac f
           --
-          -- Would be nice to find a more elegant version yet still fast version
+          -- Would be nice to find a more elegant yet still fast version
           --
           let !vtxBase = numQuad * 4 * qrTotalStride
               !vtx0    = vtxBase + (qrTotalStride * 0)

@@ -4,6 +4,7 @@
 module TextureAtlas ( TextureAtlas
                     , withTextureAtlas
                     , insertImage
+                    , debugDumpAtlas
                     ) where
 
 import qualified Graphics.Rendering.OpenGL as GL
@@ -16,6 +17,9 @@ import Control.Monad
 import Control.Exception
 import Foreign.Storable
 import Foreign.Marshal.Array
+import System.Directory
+import System.FilePath
+import Text.Printf
 
 import GLHelpers
 import qualified RectPacker as RP
@@ -148,4 +152,16 @@ insertImage ta@(TextureAtlas { .. }) w h img = do
                , fromIntegral (texX + taBorder + w) / tw
                , fromIntegral (texY + taBorder + h) / tw
                )
+
+debugDumpAtlas :: TextureAtlas -> FilePath -> IO ()
+debugDumpAtlas (TextureAtlas { .. }) dir =
+    doesDirectoryExist dir >>= \exists -> when exists $
+        readIORef taTextures >>= \textures ->
+            forM_ (F.toList textures `zip` ([1..] :: [Int])) $ \((_, tex), i) -> do
+                saveTextureToPNG
+                    tex
+                    taFmt
+                    taIFmt
+                    taType
+                    $ dir </> (printf "texture_atlas_%i_of_%i.png" i $ S.length textures)
 
