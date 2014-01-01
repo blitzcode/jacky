@@ -24,7 +24,7 @@ data KDTree = Split                !Bool
                                    !KDTree
             | Used
             | Empty
-              deriving (Show)
+              deriving (Eq, Show)
 
 dimensions :: RectPacker -> (Int, Int)
 dimensions (RectPacker _ w h) = (w, h)
@@ -72,8 +72,10 @@ pack insWdh insHgt (RectPacker root rootWdh rootHgt) =
                                 --
                               | isJust coordB -> let def = (Split vert pos a kdB, coordB) in
                                   case kdB of (Split vert' pos' Used b') ->
-                                                  if   vert == vert' -- Same axis?
-                                                  then (Split vert (pos + pos') a b', coordB)
+                                                  if   vert == vert' && -- Same axis?
+                                                       a    == Used     -- Is what we're about to
+                                                                        -- merge into fully used?
+                                                  then (Split vert (pos + pos') Used b', coordB)
                                                   else def
                                               _                          -> def
                               | otherwise     -> (node, Nothing)

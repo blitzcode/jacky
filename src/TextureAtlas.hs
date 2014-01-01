@@ -27,7 +27,6 @@ import qualified RectPacker as RP
 -- Pack multiple rectangular images into a set of OpenGL textures
 --
 -- TODO: Support textures larger than the atlas size (separate list)
---       Add debug feature for dumping textures to disk
 --       Texture deletion
 
 data TextureAtlas = forall texel. Storable texel => TextureAtlas
@@ -134,6 +133,17 @@ insertImage ta@(TextureAtlas { .. }) w h img = do
     -- TODO: Make upload asynchronous using PBOs
     GL.textureBinding GL.Texture2D GL.$= Just tex
     GL.rowAlignment GL.Unpack GL.$= 1
+    --
+    -- TODO: Remove me (random fragments of debugging code)
+    --
+    -- , taStep       :: !(IORef Int)
+    -- newIORef 0 >>= \taStep ->
+    -- printf "(%i, %i) - %ix%i\n" (texX + taBorder) (texY + taBorder) w h
+    -- i <- readIORef taStep
+    -- withArray (replicate (w * h) (fromIntegral $ i * 7 :: Word8)) $
+    -- saveTextureToPNG tex taFmt taIFmt taType ("step_" ++ show i ++ ".png")
+    -- modifyIORef' taStep (+ 1)
+    --
     VS.unsafeWith img $
         GL.texSubImage2D
             GL.Texture2D

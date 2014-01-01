@@ -121,6 +121,8 @@ drawText (FontRenderer { .. }) qb x y face string = do
                         -- New glyph, render it and upload texture data
                         FT2.renderGlyph face c >>=
                           \(metrics@(FT2.GlyphMetrics { .. }), bitmap) -> do
+                            -- TODO: Add handling of zero-area glyph images (spaces...)
+                            -- when (gWidth * gHeight == 0)
                             entry <- if   frUseTexAtlas
                                      then do (tex, u0, v0, u1, v1) <-
                                                  TA.insertImage frTexAtlas -- Insert into tex. atlas
