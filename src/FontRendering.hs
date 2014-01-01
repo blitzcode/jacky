@@ -121,26 +121,29 @@ drawText (FontRenderer { .. }) qb x y face string = do
                         -- New glyph, render it and upload texture data
                         FT2.renderGlyph face c >>=
                           \(metrics@(FT2.GlyphMetrics { .. }), bitmap) -> do
-                            -- TODO: Add handling of zero-area glyph images (spaces...)
-                            -- when (gWidth * gHeight == 0)
-                            entry <- if   frUseTexAtlas
-                                     then do (tex, u0, v0, u1, v1) <-
-                                                 TA.insertImage frTexAtlas -- Insert into tex. atlas
-                                                                gWidth
-                                                                gHeight
-                                                                bitmap
-                                             return . GlyphCacheEntry
-                                                 c metrics tex $ QuadUV u0 v0 u1 v1
-                                     else do tex <- uploadTexture2D GL.Alpha -- Make new texture
-                                                                    GL.Alpha8
-                                                                    gWidth
-                                                                    gHeight
-                                                                    bitmap
-                                                                    True
-                                                                    (Just TFMinMag)
-                                                                    True
-                                             return $ GlyphCacheEntry
-                                                 c metrics tex QuadUVDefault
+                            entry <- case () of
+                                _ | gWidth * gHeight == 0 -> -- Zero-area glyph (i.e. space)?
+                                        return $ GlyphCacheEntry
+                                            c metrics (GL.TextureObject 0) QuadUVDefault
+                                  | frUseTexAtlas -> do -- Insert into texture atlas
+                                        (tex, u0, v0, u1, v1) <-
+                                            TA.insertImage frTexAtlas
+                                                           gWidth
+                                                           gHeight
+                                                           bitmap
+                                        return . GlyphCacheEntry
+                                            c metrics tex $ QuadUV u0 v0 u1 v1
+                                  | otherwise -> do -- Make new texture
+                                        tex <- uploadTexture2D GL.Alpha
+                                                               GL.Alpha8
+                                                               gWidth
+                                                               gHeight
+                                                               bitmap
+                                                               True
+                                                               (Just TFMinMag)
+                                                               True
+                                        return $ GlyphCacheEntry
+                                            c metrics tex QuadUVDefault
                             -- Update cache
                             return (HM.insert key entry cache, entry : outGlyphs)
         ) (glyphCache, []) string
@@ -150,21 +153,22 @@ drawText (FontRenderer { .. }) qb x y face string = do
         ( \(xoffs, prevc) (GlyphCacheEntry c (FT2.GlyphMetrics { .. }) tex uv) -> do
               -- Compute lower-left origin for glyph, taking into account kerning, bearing etc.
               kernHorz <- FT2.getKerning face prevc c
-              let x1 = round $ xoffs + fromIntegral gBearingX + kernHorz :: Int
-                  y1 = y + (gBearingY - gHeight)
-                  x2 = x1 + gWidth
-                  y2 = y1 + gHeight
-              -- Draw
-              drawQuad qb
-                       (fromIntegral x1)
-                       (fromIntegral y1)
-                       (fromIntegral x2)
-                       (fromIntegral y2)
-                       1
-                       FCBlack
-                       TRSrcAlpha
-                       (Just tex)
-                       uv
+              when (gWidth * gHeight /= 0) $ -- Skip drawing empty glyphs
+                  let x1 = round $ xoffs + fromIntegral gBearingX + kernHorz :: Int
+                      y1 = y + (gBearingY - gHeight)
+                      x2 = x1 + gWidth
+                      y2 = y1 + gHeight
+                   in -- Draw
+                      drawQuad qb
+                           (fromIntegral x1)
+                           (fromIntegral y1)
+                           (fromIntegral x2)
+                           (fromIntegral y2)
+                           1
+                           FCBlack
+                           TRSrcAlpha
+                           (Just tex)
+                           uv
               return (xoffs + gAdvanceHorz + kernHorz, c)
         ) (fromIntegral x, toEnum 0) $ reverse glyphs
 
