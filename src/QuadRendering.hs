@@ -167,6 +167,11 @@ withQuadRenderBuffer qbQR@(QuadRenderer { .. }) f = do
     -- Map. If this function is nested inside a withQuadRenderBuffer with the same QuadRenderer,
     -- the mapping operation will fail as OpenGL does not allow two concurrent mappings. Hence,
     -- no need to check for this explicitly
+    --
+    -- TODO: Do not map and fill the EBO during inner / drawQuad, but rather inside
+    --       drawRenderBuffer after material sorting. This way we can minimize the
+    --       amount of draw calls
+    --
     r <- control $ \run -> liftIO $
         let reportMappingFailure boType mf = do
                 traceS TLError $
@@ -252,8 +257,6 @@ drawRenderBuffer (QuadRenderBuffer { .. }) = do
              when (qaFillTransparency oldA /= qaFillTransparency newA) .
                  setTransparency $ qaFillTransparency newA
              -- Draw quad as two triangles
-             --
-             -- TODO: Draw more primitives at once if the state doesn't change
              let idxPerQuad = 2 * 3
                  szi        = sizeOf(0 :: GL.GLuint)
               in GL.drawElements GL.Triangles
@@ -370,11 +373,6 @@ drawQuad (QuadRenderBuffer { .. })
                  uw (vtx3 + 7) $ realToFrac u0         -- U
                  uw (vtx3 + 8) $ realToFrac v1         -- V
           -- Write index data to the mapped element array buffer
-          --
-          -- TODO: Do we even need a set of indices for each quad? Could just
-          --       have a single set and use glDrawElementsBaseVertex /
-          --       glMultiDrawElementsBaseVertex
-          --
           let !eboOffs = numQuad * 6
               !vboOffs = numQuad * 4
               uw       = VSM.unsafeWrite qbEBOMap

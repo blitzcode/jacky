@@ -97,8 +97,7 @@ withImageCache manager memCacheEntryLimit numConcReq cacheFolder f = do
     ic <- do
         icOutstandingReq <- newTVarIO $ LBM.empty $ memCacheEntryLimit `div` 2
         icCacheEntries   <- newTVarIO $ LBM.empty memCacheEntryLimit
-        [icBytesTrans, icMisses, icDiskHits, icMemHits]
-            <- forM ([1..4] :: [Int]) $ \_ -> newIORef (0 :: Word64)
+        [icBytesTrans, icMisses, icDiskHits, icMemHits] <- replicateM 4 $ newIORef 0
         return $ ImageCache { icCacheFolder = B8.pack $ addTrailingPathSeparator cacheFolder
                             , ..
                             }
