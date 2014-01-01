@@ -267,16 +267,17 @@ main = do
                       -- Setup reader and state for main AppDraw monad
                       stCurTick <- getTick
                       let envInit = Env
-                              { envTweetHistSize     = foldr (\f r -> case f of
-                                                                FlagTweetHistory n ->
-                                                                    fromMaybe r $ parseMaybe n
-                                                                _ -> r)
-                                                             defTweetHistory flags
-                              , envStatTraceInterval = foldr (\f r -> case f of
-                                                                FlagStatTraceInterval n ->
-                                                                    fromMaybe r $ parseMaybe n
-                                                                _ -> r)
-                                                             defStatTraceInterval flags
+                              { envTweetHistSize       = foldr (\f r -> case f of
+                                                                  FlagTweetHistory n ->
+                                                                      fromMaybe r $ parseMaybe n
+                                                                  _ -> r)
+                                                               defTweetHistory flags
+                              , envStatTraceInterval   = foldr (\f r -> case f of
+                                                                  FlagStatTraceInterval n ->
+                                                                      fromMaybe r $ parseMaybe n
+                                                                  _ -> r)
+                                                               defStatTraceInterval flags
+                              , envDumpFT2AtlasOnTrace = FlagDumpFT2AtlasOnTrace `elem` flags
                               , ..
                               }
                           stateInit = State

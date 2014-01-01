@@ -33,6 +33,7 @@ data Flag = FlagOAuthFile String
           | FlagForceAutohint
           | FlagDisableKern
           | FlagQuadRBSize String
+          | FlagDumpFT2AtlasOnTrace
             deriving (Eq, Show)
 
 defLogFolder, defImageCacheFolder, defTraceFn :: String
@@ -175,6 +176,10 @@ parseCmdLineOpt = do
                            (ReqArg FlagQuadRBSize "NUMBER")
                            ("quad capacity font / UI OpenGL render buf. (default: "
                                ++ show defQuadRBSize ++ ")")
+                  , Option []
+                           ["dump-ft2-atlas-on-trace"]
+                           (NoArg FlagDumpFT2AtlasOnTrace)
+                           "dump the FreeType 2 texture atlas every trace interval"
                   , Option ['h']
                            ["help"]
                            (NoArg FlagHelp)

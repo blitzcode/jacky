@@ -41,19 +41,19 @@ import QuadRendering
 
 -- TODO: Start using Lens library for records and Reader/State
 
--- TODO: Use criterion package to benchmark, maybe show real-time results
---       through EKG
+-- TODO: Shouldn't the Env / State records have all strict fields?
 
 data Env = Env
-    { envWindow            :: GLFW.Window
-    , envGLFWEventsQueue   :: TQueue GLFWEvent
-    , envSMQueue           :: TBQueue StreamMessage
-    , envImageCache        :: ImageCache
-    , envTextureCache      :: TextureCache
-    , envTweetHistSize     :: Int
-    , envStatTraceInterval :: Double
-    , envFontRenderer      :: FontRenderer
-    , envQuadRenderer      :: QuadRenderer
+    { envWindow              :: GLFW.Window
+    , envGLFWEventsQueue     :: TQueue GLFWEvent
+    , envSMQueue             :: TBQueue StreamMessage
+    , envImageCache          :: ImageCache
+    , envTextureCache        :: TextureCache
+    , envTweetHistSize       :: Int
+    , envStatTraceInterval   :: Double
+    , envDumpFT2AtlasOnTrace :: Bool
+    , envFontRenderer        :: FontRenderer
+    , envQuadRenderer        :: QuadRenderer
     }
 
 data State = State
@@ -287,9 +287,10 @@ traceStats = do
             frameTimes <- (takeWhile (\x -> time - x < interval) . BS.toList) <$> gets stFrameTimes
             apiRecv    <- gets stStatBytesRecvAPI
             gc         <- liftIO $ getGCStats
+            fr         <- asks envFontRenderer
+            dumpFT2    <- asks envDumpFT2AtlasOnTrace
             -- Debug: write font renderer texture atlas textures to disk
-            -- fr         <- asks envFontRenderer
-            -- liftIO $ debugDumpAtlas fr "."
+            when dumpFT2 $ liftIO $ debugDumpAtlas fr "."
             let frameDeltas      = case frameTimes of (x:xs) -> goFD x xs; _ -> []
                 goFD prev (x:xs) = (prev - x) : goFD x xs
                 goFD _    []     = []
