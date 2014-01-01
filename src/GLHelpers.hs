@@ -85,7 +85,7 @@ getGLStrings =
 data Transparency = TRNone
                   | TRBlend !Float
                   | TRSrcAlpha
-                  deriving (Eq, Show)
+                  deriving (Eq, Ord, Show)
 
 setTransparency :: Transparency -> IO ()
 setTransparency trans =

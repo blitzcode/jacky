@@ -141,11 +141,13 @@ data QuadRenderAttrib = QuadRenderAttrib
 -- TODO: Profiling shows we spend a good deal of time in compare. Since we're unlikely to
 --       find a sort with less comparisons, maybe we can write a faster function here?
 instance Ord QuadRenderAttrib where
-    compare a b = let cmpDepth = compare (qaDepth b) (qaDepth a)
-                  in  if   cmpDepth /= EQ
-                      then cmpDepth                   -- Sort by depth first
-                      else compare (qaMaybeTexture a) -- Sort by texture at the same depth
-                                   (qaMaybeTexture b)
+    compare a b = let cmpDepth = compare (qaDepth            b) (qaDepth            a)
+                      cmpTex   = compare (qaMaybeTexture     a) (qaMaybeTexture     b)
+                      cmpTrans = compare (qaFillTransparency a) (qaFillTransparency b)
+                  in  case () of
+                          _ | cmpDepth /= EQ -> cmpDepth -- Sort by depth first
+                            | cmpTex   /= EQ -> cmpTex   -- Sort by texture at the same depth
+                            | otherwise      -> cmpTrans -- Finally by transparency
 
 data QuadRenderBuffer = QuadRenderBuffer
     { qbVBOMap  :: !(VSM.IOVector GL.GLfloat      )
