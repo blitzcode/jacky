@@ -107,12 +107,11 @@ loadTypeface      fr fontFile pixelHeight mbForceAutohint mbDisableKern =
 debugDumpAtlas :: FontRenderer -> FilePath -> IO ()
 debugDumpAtlas fr = TA.debugDumpAtlas (frTexAtlas fr)
 
-drawText :: FontRenderer -> QuadRenderBuffer -> Int -> Int -> FT2.Typeface -> String -> IO ()
-drawText (FontRenderer { .. }) qb x y face string = do
+stringToGlyphs :: FontRenderer -> FT2.Typeface -> String -> IO [GlyphCacheEntry]
+stringToGlyphs (FontRenderer { .. }) face string = do
     -- Turn string into a list of glyphs, insert new glyphs into the cache if required
     -- TODO: Use LRUBoundedMap to retire elements when we reach some memory consumption cap
-    glyphCache <- readIORef frGlyphCache
-    (glyphCache', glyphs) <- foldM
+    (glyphCache, glyphs) <- readIORef frGlyphCache >>= \glyphCache -> foldM
         (\(cache, outGlyphs) c ->
             let key = mkGlyphCacheKey face c
             in  case HM.lookup key cache of
@@ -147,7 +146,12 @@ drawText (FontRenderer { .. }) qb x y face string = do
                             -- Update cache
                             return (HM.insert key entry cache, entry : outGlyphs)
         ) (glyphCache, []) string
-    writeIORef frGlyphCache glyphCache'
+    writeIORef frGlyphCache glyphCache
+    return glyphs
+
+drawText :: FontRenderer -> QuadRenderBuffer -> Int -> Int -> FT2.Typeface -> String -> IO ()
+drawText fr qb x y face string = do
+    glyphs <- stringToGlyphs fr face string
     -- Render glyphs
     foldM_
         ( \(xoffs, prevc) (GlyphCacheEntry c (FT2.GlyphMetrics { .. }) tex uv) -> do
