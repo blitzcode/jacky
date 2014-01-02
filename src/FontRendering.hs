@@ -40,6 +40,7 @@ data FontRenderer = FontRenderer
     { frFT2              :: !FT2.FT2Library
     , frTexAtlas         :: !TA.TextureAtlas
     , frGlyphCache       :: !(IORef (HM.HashMap GlyphCacheKey GlyphCacheEntry))
+    , frKernCache        :: !(IORef (HM.HashMap KernCacheKey  Float          ))
     , frDefForceAutohint :: !Bool
     , frDefDisableKern   :: !Bool
     , frUseTexAtlas      :: !Bool
@@ -56,7 +57,10 @@ withFontRenderer frDefForceAutohint frDefDisableKern frUseTexAtlas f =
                           (0 :: Word8)
                           TFMinMag
                           $ \frTexAtlas ->
-        bracket ( newIORef HM.empty >>= \frGlyphCache -> return FontRenderer { .. } )
+        bracket ( do frGlyphCache <- newIORef HM.empty
+                     frKernCache  <- newIORef HM.empty
+                     return FontRenderer { .. }
+                )
                 ( \fr -> if   frUseTexAtlas
                          then -- Textures are managed by the texture atlas, don't delete them
                               return ()
@@ -83,6 +87,21 @@ mkGlyphCacheKey face c = let ha = hash face
                              --       faces allocated in succession we might have all relevant
                              --       information in a few lower bits of the hash
                              (ha * hb) `xor` (ha * 997) `xor` (hb * 991)
+
+-- Kerning Cache - Avoid several FT2 C API calls just to query kerning pair information.
+--                 Should storage ever become an issue, we can replace this with a Bloom
+--                 Filter as the vast majority of the time the kerning offset is zero
+
+type KernCacheKey = Int
+
+mkKernCacheKey :: FT2.Typeface -> Char -> Char -> KernCacheKey
+mkKernCacheKey face left right = let ha = hash face
+                                     hb = hash left
+                                     hc = hash right
+                                 in  (ha * hb * hc) `xor`
+                                     (ha * 983)     `xor`
+                                     (hb * 991)     `xor`
+                                     (hc * 997)
 
 -- For re-exporting functions from FT2 taking our FontRenderer instead of the internal FT2Library
 ft2ToFR :: FontRenderer -> (FT2.FT2Library -> b) -> b
@@ -149,14 +168,27 @@ stringToGlyphs (FontRenderer { .. }) face string = do
     writeIORef frGlyphCache glyphCache
     return glyphs
 
+-- Cached wrapper around FT2.getKerning
+--
+-- TODO: Combine this with stringToGlyphs so we have text layout cleanly
+--       separated from drawing
+getKerning :: FontRenderer -> FT2.Typeface -> Char -> Char -> IO Float
+getKerning fr face left right =
+    readIORef (frKernCache fr) >>= \kernCache ->
+        let key = mkKernCacheKey face left right
+        in  case HM.lookup key kernCache of
+                Just n  -> return n
+                Nothing -> do n <- FT2.getKerning face left right
+                              writeIORef (frKernCache fr) $ HM.insert key n kernCache
+                              return n
+
 drawText :: FontRenderer -> QuadRenderBuffer -> Int -> Int -> FT2.Typeface -> String -> IO ()
-drawText fr qb x y face string = do
-    glyphs <- stringToGlyphs fr face string
+drawText fr qb x y face string =
     -- Render glyphs
-    foldM_
+    stringToGlyphs fr face string >>= foldM_
         ( \(xoffs, prevc) (GlyphCacheEntry c (FT2.GlyphMetrics { .. }) tex uv) -> do
               -- Compute lower-left origin for glyph, taking into account kerning, bearing etc.
-              kernHorz <- FT2.getKerning face prevc c
+              kernHorz <- getKerning fr face prevc c
               when (gWidth * gHeight /= 0) $ -- Skip drawing empty glyphs
                   let x1 = round $ xoffs + fromIntegral gBearingX + kernHorz :: Int
                       y1 = y + (gBearingY - gHeight)
@@ -174,7 +206,7 @@ drawText fr qb x y face string = do
                            (Just tex)
                            uv
               return (xoffs + gAdvanceHorz + kernHorz, c)
-        ) (fromIntegral x, toEnum 0) $ reverse glyphs
+        ) (fromIntegral x, toEnum 0) . reverse
 
 -- Very basic and slow text rendering. Have FT2 render all the glyphs and draw them
 -- directly using glDrawPixels
