@@ -118,7 +118,7 @@ withQuadRenderer qrMaxQuad f = do
                 ( do -- Cleanup
                      GL.deleteObjectName qrVAO
                      GL.deleteObjectNames [qrVBO, qrEBO]
-                     mapM_ (GL.deleteObjectName) [qrShdProgTex, qrShdProgColOnly]
+                     GL.deleteObjectNames [qrShdProgTex, qrShdProgColOnly]
                      traceOnGLError $ Just "withQuadRenderer after cleanup"
                 )
     -- Throw on error
@@ -213,10 +213,8 @@ drawRenderBuffer (QuadRenderBuffer { .. }) = do
                          . VM.unsafeTake numQuad     -- Drop undefined elements
                          $ qbAttribs
                    )
-    -- Build EBO from state sorted attributes
-    --
-    -- TODO: Maybe skipping the EBO and just building and passing indices on-the-fly while
-    --       drawing is actually faster / simpler?
+    -- Build EBO from state sorted attributes. This benchmarked slightly faster than doing
+    -- drawing in a single pass with ad-hoc index buffer building
     GL.bindVertexArrayObject GL.$= Just qrVAO
     eboSucc <- GL.withMappedBuffer -- EBO
       GL.ElementArrayBuffer
@@ -331,7 +329,7 @@ drawQuad (QuadRenderBuffer { .. })
         else do
           -- Write vertex data to our mapped attribute buffers
           --
-          -- TODO: Could use a hashmap to reuse vertices between quads
+          -- TODO: Could use a hashmap to reuse vertices between adjacent quads
           --
           -- TODO: The code we're using is an unrolled version of this:
           --
