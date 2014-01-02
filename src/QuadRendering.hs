@@ -165,6 +165,8 @@ withQuadRenderBuffer qbQR@(QuadRenderer { .. }) f = do
     -- no need to check for this explicitly
     r <- control $ \run -> liftIO $
         let bindVAO = GL.bindVertexArrayObject GL.$= Just qrVAO
+            -- TODO: We could use glMapBufferRange instead and safe some work for
+            --       partially filled buffers, get asynchronous transfers etc.
         in  bindVAO >> GL.withMappedBuffer -- VBO
                 GL.ArrayBuffer
                 GL.WriteOnly
@@ -212,13 +214,16 @@ drawRenderBuffer (QuadRenderBuffer { .. }) = do
                          $ qbAttribs
                    )
     -- Build EBO from state sorted attributes
+    --
+    -- TODO: Maybe skipping the EBO and just building and passing indices on-the-fly while
+    --       drawing is actually faster / simpler?
     GL.bindVertexArrayObject GL.$= Just qrVAO
     eboSucc <- GL.withMappedBuffer -- EBO
       GL.ElementArrayBuffer
       GL.WriteOnly
       ( \ptrEBO -> newForeignPtr_ ptrEBO >>= \fpEBO ->
-          let numIdx = 3 * qrMaxTri
-              eboMap = VSM.unsafeFromForeignPtr0 fpEBO numIdx :: VSM.IOVector GL.GLuint
+          let !numIdx = 3 * qrMaxTri
+              !eboMap = VSM.unsafeFromForeignPtr0 fpEBO numIdx :: VSM.IOVector GL.GLuint
           in  do foldM_ -- Fold over draw call groups
                    ( \r a -> do
                        n <- foldM
@@ -266,7 +271,7 @@ drawRenderBuffer (QuadRenderBuffer { .. }) = do
         foldM_
             ( \(oldA, i) a -> do
                   let newA   = head a
-                      numIdx = length a * 6
+                      numIdx = length a * 6 -- TODO: Slow, just output this during the first pass
                   -- Modify OpenGL state which changed between old / new rendering attributes
                   case (qaMaybeTexture oldA, qaMaybeTexture newA) of
                      (Just oldTex, Just newTex) ->
