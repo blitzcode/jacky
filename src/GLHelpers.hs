@@ -101,14 +101,14 @@ setTransparency trans =
 -- Create, bind and allocate Vertex / Element Array Buffer Object (VBO /  EBO)
 mkBindDynamicBO :: GL.BufferTarget -> Int -> IO GL.BufferObject
 mkBindDynamicBO target size = do
-    vbo <- GL.genObjectName
-    GL.bindBuffer target GL.$= Just vbo
+    bo <- GL.genObjectName
+    GL.bindBuffer target GL.$= Just bo
     GL.bufferData target GL.$= ( fromIntegral size -- In bytes
                                , nullPtr
                                , GL.StreamDraw -- Dynamic
                                )
     traceOnGLError $ Just "mkBindDynamicBO"
-    return vbo
+    return bo
 
 -- Disable vertex attribute arrays and shaders
 disableVAOAndShaders :: IO ()
