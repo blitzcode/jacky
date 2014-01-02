@@ -91,9 +91,9 @@ withQuadRenderer qrMaxQuad f = do
     colAttrib <- setAttribArray 1 qrColStride qrTotalStride qrColOffset
     uvAttrib  <- setAttribArray 2 qrUVStride  qrTotalStride qrUVOffset
     -- EBO
-    let numidx = qrMaxTri * 3
+    let numIdx = qrMaxTri * 3
         szi    = sizeOf(0 :: GL.GLuint)
-    qrEBO <- mkBindDynamicBO GL.ElementArrayBuffer $ numidx * szi
+    qrEBO <- mkBindDynamicBO GL.ElementArrayBuffer $ numIdx * szi
     r <- runMaybeT $ do
         -- Create, compile and link shaders
         let mkShaderProgramMaybe vsSrc fsSrc =
@@ -130,16 +130,13 @@ withQuadRenderer qrMaxQuad f = do
 data QuadRenderAttrib = QuadRenderAttrib
     { qaFillTransparency :: !Transparency
     , qaMaybeTexture     :: !(Maybe GL.TextureObject)
-    , qaIndexIndex       :: !Int -- Index into the EBO so we know what primitive to render
+    , qaIndex            :: !Int -- Index into the VBO so we know what indices to generate
                                  -- after sorting by attributes
     , qaDepth            :: !Float -- We store the depth / layer information already in the
                                    -- VBO, but replicate them here so we can sort for transparency
     } deriving (Eq)
 
 -- Back-to-front ordering (transparency) and then sorting to reduce OpenGL state changes
---
--- TODO: Profiling shows we spend a good deal of time in compare. Since we're unlikely to
---       find a sort with less comparisons, maybe we can write a faster function here?
 instance Ord QuadRenderAttrib where
     compare a b = let cmpDepth = compare (qaDepth            b) (qaDepth            a)
                       cmpTex   = compare (qaMaybeTexture     a) (qaMaybeTexture     b)
@@ -150,11 +147,10 @@ instance Ord QuadRenderAttrib where
                             | otherwise      -> cmpTrans -- Finally by transparency
 
 data QuadRenderBuffer = QuadRenderBuffer
-    { qbVBOMap  :: !(VSM.IOVector GL.GLfloat      )
-    , qbEBOMap  :: !(VSM.IOVector GL.GLuint       )
-    , qbAttribs :: !(VM.IOVector  QuadRenderAttrib)
+    { qbQR      :: !QuadRenderer
     , qbNumQuad :: !(IORef Int)
-    , qbQR      :: !QuadRenderer
+    , qbAttribs :: !(VM.IOVector  QuadRenderAttrib)
+    , qbVBOMap  :: !(VSM.IOVector GL.GLfloat      )
     }
 
 -- Prepare data structures and render when inner exits. This is meant to be called once or
@@ -167,108 +163,137 @@ withQuadRenderBuffer qbQR@(QuadRenderer { .. }) f = do
     -- Map. If this function is nested inside a withQuadRenderBuffer with the same QuadRenderer,
     -- the mapping operation will fail as OpenGL does not allow two concurrent mappings. Hence,
     -- no need to check for this explicitly
-    --
-    -- TODO: Do not map and fill the EBO during inner / drawQuad, but rather inside
-    --       drawRenderBuffer after material sorting. This way we can minimize the
-    --       amount of draw calls
-    --
     r <- control $ \run -> liftIO $
-        let reportMappingFailure boType mf = do
-                traceS TLError $
-                    "withQuadRenderBuffer - " ++ boType ++ " mapping failure: " ++ show mf
-                run $ return Nothing
-            bindVAO = GL.bindVertexArrayObject GL.$= Just qrVAO
+        let bindVAO = GL.bindVertexArrayObject GL.$= Just qrVAO
         in  bindVAO >> GL.withMappedBuffer -- VBO
                 GL.ArrayBuffer
                 GL.WriteOnly
                 ( \ptrVBO -> newForeignPtr_ ptrVBO >>= \fpVBO ->
                       let numfloat = qrMaxVtx * qrTotalStride
                           qbVBOMap = VSM.unsafeFromForeignPtr0 fpVBO numfloat
-                      in  GL.withMappedBuffer -- EBO
-                              GL.ElementArrayBuffer
-                              GL.WriteOnly
-                              ( \ptrEBO -> newForeignPtr_ ptrEBO >>= \fpEBO ->
-                                    let numidx   = 3 * qrMaxTri
-                                        qbEBOMap = VSM.unsafeFromForeignPtr0 fpEBO numidx
-                                    in  do qbNumQuad <- newIORef 0
-                                           qbAttribs <- VM.new qrMaxQuad
-                                           finally
-                                               ( run $ do -- Run in outer base monad
-                                                     let qb = QuadRenderBuffer { .. }
-                                                     r <- f qb
-                                                     return $ Just (r, qb)
-                                               )
-                                               bindVAO -- Make sure we rebind our VAO, otherwise
-                                                       -- unmapping might fail if the inner
-                                                       -- modified the bound buffer objects
-                              )
-                              ( reportMappingFailure "EBO" )
+                      in  do qbNumQuad <- newIORef 0
+                             qbAttribs <- VM.new qrMaxQuad
+                             finally
+                                 ( run $ do -- Run in outer base monad
+                                       let qb = QuadRenderBuffer { .. }
+                                       r <- f qb
+                                       return $ Just (r, qb)
+                                 )
+                                 bindVAO -- Make sure we rebind our VAO, otherwise
+                                         -- unmapping might fail if the inner
+                                         -- modified the bound buffer objects
                 )
-                ( reportMappingFailure "VBO" )
+                ( \mf -> do traceS TLError $
+                                "withQuadRenderBuffer - VBO mapping failure: " ++ show mf
+                            run $ return Nothing
+                )
     case r of
         Nothing       -> return Nothing
         Just (ra, qb) -> liftIO $ do
-            -- Buffers have been successfully mapped, filled and unmapped, we can now render
-            drawRenderBuffer qb
-            return $ Just ra
+            -- VBO has been successfully mapped, filled and unmapped, attributes have been
+            -- collected as well, proceed to render
+            dr <- drawRenderBuffer qb
+            return $ if dr then Just ra else Nothing
 
 -- Internal function to draw the contents of a render buffer once we're done filling it
-drawRenderBuffer :: QuadRenderBuffer -> IO ()
+drawRenderBuffer :: QuadRenderBuffer -> IO Bool
 drawRenderBuffer (QuadRenderBuffer { .. }) = do
     let QuadRenderer { .. } = qbQR
-    GL.bindVertexArrayObject GL.$= Just qrVAO
-    -- TODO: We're setting the shader matrix from the FFP projection matrix
-    forM_ [qrShdProgTex, qrShdProgColOnly] $ \shdProg -> do
-        GL.currentProgram GL.$= Just shdProg
-        setProjMatrixFromFFP shdProg "in_mvp"
-    -- Texture, use first TU
-    GL.currentProgram  GL.$= Just qrShdProgTex
-    (GL.get $ GL.uniformLocation qrShdProgTex "tex") >>= \loc ->
-        GL.uniform loc GL.$= GL.Index1 (0 :: GL.GLint)
-    GL.activeTexture   GL.$= GL.TextureUnit 0
-    -- Sort attributes (transparency and reduce state changes)
+    -- Sort attributes (for transparency and reduced state changes)
     attribs <- readIORef qbNumQuad >>= \numQuad -> -- Number of used elements
-               sort . V.toList                     -- TODO: Sort mutable vector in-place with
-                                                   --       vector-algorithms?
-               <$> ( V.unsafeFreeze                -- Can only convert immutable vector to a list
-                         . VM.unsafeTake numQuad   -- Drop undefined elements
+               groupBy (\a b -> compare a b == EQ) . -- Group by state into single draw calls. We
+                                                     --   use the compare instance used for state
+                                                     --   sorting so we only break groups on
+                                                     --   relevant changes
+               sort . V.toList                       -- TODO: Sort mutable vector in-place with
+                                                     --       vector-algorithms?
+               <$> ( V.unsafeFreeze                  -- Can only convert immutable vector to a list
+                         . VM.unsafeTake numQuad     -- Drop undefined elements
                          $ qbAttribs
                    )
-    -- Setup some initial state and build corresponding attribute record
-    GL.currentProgram              GL.$= Just qrShdProgColOnly
-    GL.textureBinding GL.Texture2D GL.$= Nothing
-    setTransparency TRNone
-    let initialState = QuadRenderAttrib TRNone Nothing 0 0.0
-    -- Draw all quads
-    foldM_
-        ( \oldA newA -> do
-             -- Modify OpenGL state which changed between old / new rendering attributes
-             case (qaMaybeTexture oldA, qaMaybeTexture newA) of
-                (Just oldTex, Just newTex) ->
-                    when (oldTex /= newTex) $
-                        GL.textureBinding GL.Texture2D GL.$= Just newTex
-                (Nothing, Just newTex) -> do
-                    GL.currentProgram              GL.$= Just qrShdProgTex
-                    GL.textureBinding GL.Texture2D GL.$= Just newTex
-                (Just _, Nothing) ->
-                    GL.currentProgram GL.$= Just qrShdProgColOnly
-                (Nothing, Nothing) ->
-                    return ()
-             when (qaFillTransparency oldA /= qaFillTransparency newA) .
-                 setTransparency $ qaFillTransparency newA
-             -- Draw quad as two triangles
-             let idxPerQuad = 2 * 3
-                 szi        = sizeOf(0 :: GL.GLuint)
-              in GL.drawElements GL.Triangles
-                                 (fromIntegral idxPerQuad)
-                                 GL.UnsignedInt
-                                 $ nullPtr `plusPtr` (qaIndexIndex newA * idxPerQuad * szi)
-             return $ newA
-        )
-        initialState
-        attribs
-    -- Done
-    disableVAOAndShaders
+    -- Build EBO from state sorted attributes
+    GL.bindVertexArrayObject GL.$= Just qrVAO
+    eboSucc <- GL.withMappedBuffer -- EBO
+      GL.ElementArrayBuffer
+      GL.WriteOnly
+      ( \ptrEBO -> newForeignPtr_ ptrEBO >>= \fpEBO ->
+          let numIdx = 3 * qrMaxTri
+              eboMap = VSM.unsafeFromForeignPtr0 fpEBO numIdx :: VSM.IOVector GL.GLuint
+          in  do foldM_ -- Fold over draw call groups
+                   ( \r a -> do
+                       n <- foldM
+                         ( \gr ga -> do -- Fold over quads in group
+                             -- Write index data to the mapped element array buffer
+                             let !eboOffs = gr * 6
+                                 !vboOffs = qaIndex ga
+                                 uw       = VSM.unsafeWrite eboMap
+                              in -- Unrolled version of
+                                 -- forM_ (zip [eboOffs..] [0, 1, 2, 0, 2, 3]) $ \(i, e) ->
+                                 --     VSM.write eboMap i (fromIntegral $ e + vboOffs)
+                                 do uw (eboOffs + 0) . fromIntegral $ vboOffs + 0
+                                    uw (eboOffs + 1) . fromIntegral $ vboOffs + 1
+                                    uw (eboOffs + 2) . fromIntegral $ vboOffs + 2
+                                    uw (eboOffs + 3) . fromIntegral $ vboOffs + 0
+                                    uw (eboOffs + 4) . fromIntegral $ vboOffs + 2
+                                    uw (eboOffs + 5) . fromIntegral $ vboOffs + 3
+                             return $! gr + 1 -- Next six EBO entries
+                         ) r a
+                       return n
+                   ) 0 attribs
+                 return True
+      )
+      ( \mf -> do traceS TLError $ "drawRenderBuffer - EBO mapping failure: " ++ show mf
+                  return False
+      )
+    if not eboSucc
+      then return False
+      else do
+        -- TODO: We're setting the shader matrix from the FFP projection matrix
+        forM_ [qrShdProgTex, qrShdProgColOnly] $ \shdProg -> do
+            GL.currentProgram GL.$= Just shdProg
+            setProjMatrixFromFFP shdProg "in_mvp"
+        -- Texture, use first TU
+        GL.currentProgram  GL.$= Just qrShdProgTex
+        (GL.get $ GL.uniformLocation qrShdProgTex "tex") >>= \loc ->
+            GL.uniform loc GL.$= GL.Index1 (0 :: GL.GLint)
+        GL.activeTexture   GL.$= GL.TextureUnit 0
+        -- Setup some initial state and build corresponding attribute record
+        GL.currentProgram              GL.$= Just qrShdProgColOnly
+        GL.textureBinding GL.Texture2D GL.$= Nothing
+        setTransparency TRNone
+        let initialState = QuadRenderAttrib TRNone Nothing 0 0.0
+        -- Draw all quads
+        foldM_
+            ( \(oldA, i) a -> do
+                  let newA   = head a
+                      numIdx = length a * 6
+                  -- Modify OpenGL state which changed between old / new rendering attributes
+                  case (qaMaybeTexture oldA, qaMaybeTexture newA) of
+                     (Just oldTex, Just newTex) ->
+                         when (oldTex /= newTex) $
+                             GL.textureBinding GL.Texture2D GL.$= Just newTex
+                     (Nothing, Just newTex) -> do
+                         GL.currentProgram              GL.$= Just qrShdProgTex
+                         GL.textureBinding GL.Texture2D GL.$= Just newTex
+                     (Just _, Nothing) ->
+                         GL.currentProgram GL.$= Just qrShdProgColOnly
+                     (Nothing, Nothing) ->
+                         return ()
+                  when (qaFillTransparency oldA /= qaFillTransparency newA) .
+                      setTransparency $ qaFillTransparency newA
+                  -- Draw all quads in the current attribute group as two triangles
+                  let szi = sizeOf(0 :: GL.GLuint)
+                   in GL.drawElements GL.Triangles
+                                      (fromIntegral numIdx)
+                                      GL.UnsignedInt
+                                      $ nullPtr `plusPtr` (i * szi)
+                  return $ (newA, i + numIdx)
+            )
+            (initialState, 0)
+            attribs
+        -- Done
+        disableVAOAndShaders
+        return True
 
 data QuadUV = QuadUVDefault
             | QuadUV {-# UNPACK #-} !Float -- UV Bottom Left
@@ -372,21 +397,8 @@ drawQuad (QuadRenderBuffer { .. })
                  uw (vtx3 + 6) $ realToFrac a3         -- A
                  uw (vtx3 + 7) $ realToFrac u0         -- U
                  uw (vtx3 + 8) $ realToFrac v1         -- V
-          -- Write index data to the mapped element array buffer
-          let !eboOffs = numQuad * 6
-              !vboOffs = numQuad * 4
-              uw       = VSM.unsafeWrite qbEBOMap
-           in -- Unrolled version of
-              -- forM_ (zip [eboOffs..] [0, 1, 2, 0, 2, 3]) $ \(i, e) ->
-              --     VSM.write qbEBOMap i (fromIntegral $ e + vboOffs)
-              do uw (eboOffs + 0) . fromIntegral $ vboOffs + 0
-                 uw (eboOffs + 1) . fromIntegral $ vboOffs + 1
-                 uw (eboOffs + 2) . fromIntegral $ vboOffs + 2
-                 uw (eboOffs + 3) . fromIntegral $ vboOffs + 0
-                 uw (eboOffs + 4) . fromIntegral $ vboOffs + 2
-                 uw (eboOffs + 5) . fromIntegral $ vboOffs + 3
           -- Write rendering attributes (need to be strict since it's not an unboxed vector)
-          VM.unsafeWrite qbAttribs numQuad $! QuadRenderAttrib { qaIndexIndex = numQuad, .. }
+          VM.unsafeWrite qbAttribs numQuad $! QuadRenderAttrib { qaIndex = numQuad * 4, .. }
           -- One more quad
           modifyIORef' qbNumQuad (+ 1)
 
