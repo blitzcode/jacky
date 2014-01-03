@@ -201,53 +201,9 @@ withQuadRenderBuffer qbQR@(QuadRenderer { .. }) f = do
 drawRenderBuffer :: QuadRenderBuffer -> IO Bool
 drawRenderBuffer (QuadRenderBuffer { .. }) = do
     let QuadRenderer { .. } = qbQR
-    -- Sort attributes (for transparency and reduced state changes)
-    attribs <- readIORef qbNumQuad >>= \numQuad -> -- Number of used elements
-               groupBy (\a b -> compare a b == EQ) . -- Group by state into single draw calls. We
-                                                     --   use the compare instance used for state
-                                                     --   sorting so we only break groups on
-                                                     --   relevant changes
-               sort . V.toList                       -- TODO: Sort mutable vector in-place with
-                                                     --       vector-algorithms?
-               <$> ( V.unsafeFreeze                  -- Can only convert immutable vector to a list
-                         . VM.unsafeTake numQuad     -- Drop undefined elements
-                         $ qbAttribs
-                   )
-    -- Build EBO from state sorted attributes. This benchmarked slightly faster than doing
-    -- drawing in a single pass with ad-hoc index buffer building
     GL.bindVertexArrayObject GL.$= Just qrVAO
-    eboSucc <- GL.withMappedBuffer -- EBO
-      GL.ElementArrayBuffer
-      GL.WriteOnly
-      ( \ptrEBO -> newForeignPtr_ ptrEBO >>= \fpEBO ->
-          let !numIdx = 3 * qrMaxTri
-              !eboMap = VSM.unsafeFromForeignPtr0 fpEBO numIdx :: VSM.IOVector GL.GLuint
-          in  do foldM_ -- Fold over draw call groups
-                   ( \r a -> do
-                       n <- foldM
-                         ( \gr ga -> do -- Fold over quads in group
-                             -- Write index data to the mapped element array buffer
-                             let !eboOffs = gr * 6
-                                 !vboOffs = qaIndex ga
-                                 uw       = VSM.unsafeWrite eboMap
-                              in -- Unrolled version of
-                                 -- forM_ (zip [eboOffs..] [0, 1, 2, 0, 2, 3]) $ \(i, e) ->
-                                 --     VSM.write eboMap i (fromIntegral $ e + vboOffs)
-                                 do uw (eboOffs + 0) . fromIntegral $ vboOffs + 0
-                                    uw (eboOffs + 1) . fromIntegral $ vboOffs + 1
-                                    uw (eboOffs + 2) . fromIntegral $ vboOffs + 2
-                                    uw (eboOffs + 3) . fromIntegral $ vboOffs + 0
-                                    uw (eboOffs + 4) . fromIntegral $ vboOffs + 2
-                                    uw (eboOffs + 5) . fromIntegral $ vboOffs + 3
-                             return $! gr + 1 -- Next six EBO entries
-                         ) r a
-                       return n
-                   ) 0 attribs
-                 return True
-      )
-      ( \mf -> do traceS TLError $ "drawRenderBuffer - EBO mapping failure: " ++ show mf
-                  return False
-      )
+    attribs <- readIORef qbNumQuad >>= sortAttributes qbAttribs
+    eboSucc <- fillEBO qrMaxTri attribs
     if not eboSucc
       then return False
       else do
@@ -297,6 +253,57 @@ drawRenderBuffer (QuadRenderBuffer { .. }) = do
         -- Done
         disableVAOAndShaders
         return True
+
+-- Sort and group attributes (for transparency and reduced state changes)
+sortAttributes :: VM.IOVector QuadRenderAttrib -> Int -> IO [[QuadRenderAttrib]]
+sortAttributes attribs numQuad =
+    groupBy (\a b -> compare a b == EQ) . -- Group by state into single draw calls. We
+                                          --   use the compare instance used for state
+                                          --   sorting so we only break groups on
+                                          --   relevant changes
+    sort . V.toList                       -- TODO: Sort mutable vector in-place with
+                                          --       vector-algorithms?
+    <$> ( V.unsafeFreeze                  -- Can only convert immutable vector to a list
+              . VM.unsafeTake numQuad     -- Drop undefined elements
+              $ attribs
+        )
+
+-- Build EBO from state sorted attributes. This benchmarked slightly faster than doing
+-- drawing in a single pass with ad-hoc index buffer building
+fillEBO :: Int -> [[QuadRenderAttrib]] -> IO Bool -- Return false on mapping failure
+fillEBO maxTri attribs = do
+    GL.withMappedBuffer -- EBO, this assumes a matching VAO has been bound
+      GL.ElementArrayBuffer
+      GL.WriteOnly
+      ( \ptrEBO -> newForeignPtr_ ptrEBO >>= \fpEBO ->
+          let !numIdx = 3 * maxTri
+              !eboMap = VSM.unsafeFromForeignPtr0 fpEBO numIdx :: VSM.IOVector GL.GLuint
+          in  do foldM_ -- Fold over draw call groups
+                   ( \r a -> do
+                       n <- foldM
+                         ( \gr ga -> do -- Fold over quads in group
+                             -- Write index data to the mapped element array buffer
+                             let !eboOffs = gr * 6
+                                 !vboOffs = qaIndex ga
+                                 uw       = VSM.unsafeWrite eboMap
+                              in -- Unrolled version of
+                                 -- forM_ (zip [eboOffs..] [0, 1, 2, 0, 2, 3]) $ \(i, e) ->
+                                 --     VSM.write eboMap i (fromIntegral $ e + vboOffs)
+                                 do uw (eboOffs + 0) . fromIntegral $ vboOffs + 0
+                                    uw (eboOffs + 1) . fromIntegral $ vboOffs + 1
+                                    uw (eboOffs + 2) . fromIntegral $ vboOffs + 2
+                                    uw (eboOffs + 3) . fromIntegral $ vboOffs + 0
+                                    uw (eboOffs + 4) . fromIntegral $ vboOffs + 2
+                                    uw (eboOffs + 5) . fromIntegral $ vboOffs + 3
+                             return $! gr + 1 -- Next six EBO entries
+                         ) r a
+                       return n
+                   ) 0 attribs
+                 return True
+      )
+      ( \mf -> do traceS TLError $ "drawRenderBuffer - EBO mapping failure: " ++ show mf
+                  return False
+      )
 
 data QuadUV = QuadUVDefault
             | QuadUV {-# UNPACK #-} !Float -- UV Bottom Left
