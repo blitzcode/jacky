@@ -11,6 +11,7 @@ module QuadRendering ( withQuadRenderer
                      , QuadRenderBuffer
                      , drawQuad
                      , QuadUV(..)
+                     , gatherRenderStats
                        -- Re-exports from GLHelpers
                      , Transparency(..)
                        -- Re-exports from QuadRenderingAdHoc
@@ -32,10 +33,12 @@ import Control.Exception
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Control
+import Control.DeepSeq
 import Data.IORef
 import Foreign.Ptr
 import Foreign.ForeignPtr
 import Foreign.Storable
+import Text.Printf
 
 import Trace
 import GLHelpers
@@ -63,13 +66,15 @@ data QuadRenderer = QuadRenderer
       -- Shaders
     , qrShdProgTex     :: !GL.Program
     , qrShdProgColOnly :: !GL.Program
-      -- TODO: Add some rendering statistics
+      -- Rendering statistics
+    , qrRenderStats    :: !(IORef String)
     }
 
 -- Initialize / clean up all OpenGL resources for our renderer
 withQuadRenderer :: Int -> (QuadRenderer -> IO a) -> IO a
 withQuadRenderer qrMaxQuad f = do
     traceOnGLError $ Just "withQuadRenderer begin"
+    qrRenderStats <- newIORef ""
     -- VAO
     qrVAO <- GL.genObjectName
     GL.bindVertexArrayObject GL.$= Just qrVAO
@@ -202,7 +207,8 @@ drawRenderBuffer :: QuadRenderBuffer -> IO Bool
 drawRenderBuffer (QuadRenderBuffer { .. }) = do
     let QuadRenderer { .. } = qbQR
     GL.bindVertexArrayObject GL.$= Just qrVAO
-    attribs <- readIORef qbNumQuad >>= sortAttributes qbAttribs
+    numQuad <- readIORef qbNumQuad
+    attribs <- sortAttributes qbAttribs numQuad
     eboSucc <- fillEBO qrMaxTri attribs
     if not eboSucc
       then return False
@@ -250,9 +256,18 @@ drawRenderBuffer (QuadRenderBuffer { .. }) = do
             )
             (initialState, 0)
             attribs
+        -- Store statistics inside QuadRenderer record. Need to make sure the string has
+        -- been fully generated, no dependency on the rendering data should be kept
+        let statString = printf "Last drawRenderBuffer drawElementCalls: %i · numQuad: %i"
+                                (length attribs)
+                                numQuad
+         in statString `deepseq` writeIORef qrRenderStats statString
         -- Done
         disableVAOAndShaders
         return True
+
+gatherRenderStats :: QuadRenderer -> IO String
+gatherRenderStats = readIORef . qrRenderStats
 
 -- Sort and group attributes (for transparency and reduced state changes)
 sortAttributes :: VM.IOVector QuadRenderAttrib -> Int -> IO [[QuadRenderAttrib]]

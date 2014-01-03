@@ -245,7 +245,7 @@ gatherCacheStats (FontRenderer { .. }) = do
     kernCache                 <- readIORef frKernCache
     (numTex, wdhTex, ifmtTex) <- TA.getAtlasMemoryUsage frTexAtlas
     return $ printf
-        "Cached Glyphs: %i · KernPairs: %i | Atlas Textures: %i · %ix%i · %s"
+        "CachedGlyphs: %i · KernPairs: %i | AtlasTex: %i · %ix%i · %s"
         (HM.size glyphCache)
         (HM.size kernCache )
         numTex

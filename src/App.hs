@@ -266,7 +266,6 @@ processSMEvent ev =
         SMBytesReceived b -> modify' $ \s -> s { stStatBytesRecvAPI = stStatBytesRecvAPI s + b }
         _                 -> liftIO . traceS TLInfo $ show ev -- Trace all other messages in full
 
--- TODO: Add stats for QuadRenderer
 {-# NOINLINE traceStats #-}
 traceStats :: AppDraw ()
 traceStats = do
@@ -280,6 +279,7 @@ traceStats = do
             icStats        <- liftIO $ ImageCache.gatherCacheStats    envImageCache
             tcStats        <- liftIO $ TextureCache.gatherCacheStats  envTextureCache
             frStats        <- liftIO $ FontRendering.gatherCacheStats envFontRenderer
+            qrStats        <- liftIO $ gatherRenderStats              envQuadRenderer
             GCStats { .. } <- liftIO $ getGCStats
             -- Debug: write font renderer texture atlas textures to disk
             when envDumpFT2AtlasOnTrace $ liftIO $ debugDumpAtlas envFontRenderer "."
@@ -293,18 +293,17 @@ traceStats = do
                 fdBest           = case frameDeltas of [] -> 0; xs -> minimum xs
                 bytesToMB n      = fromIntegral n / 1024.0 / 1024.0 :: Double
             liftIO . traceS TLInfo $ printf
-                (    "Messages Total - SMTweet: %i | SMDelete: %i | Netw. Recv.: %.3fMB\n"
-                  ++ "Image Cache    - %s\nTexture Cache  - %s\nFont Rendering - %s\n"
+                (    "Image Cache    - %s\nTexture Cache  - %-64s"
+                  ++ "Font Rendering - %s\nQuad Rendering - %-64s"
                   ++ "Frametimes     - "
                   ++ "Mean: %.1fFPS/%.1fms | Worst: %.1fFPS/%.1fms | Best: %.1fFPS/%.1fms\n"
                   ++ "GC             - maxUsed: %.2fMB · curUsed: %.2fMB · peakAlloc: %iMB | "
                   ++ "mutCPU: %.2fs · mutWall: %.2fs · gcCPU: %.2fs · "
-                  ++ "gcWall: %.2fs · cpu: %.2fs · wall: %.2fs"
+                  ++ "gcWall: %.2fs · cpu: %.2fs · wall: %.2fs\n"
+                  ++ "Messages Total - SMTweet: %i | SMDelete: %i | Netw. Recv.: %.3fMB\n"
                 )
-                stStatTweetsReceived
-                stStatDelsReceived
-                (fromIntegral stStatBytesRecvAPI / 1024 / 1024 :: Double)
-                icStats tcStats frStats
+                icStats tcStats
+                frStats qrStats
                 (1.0 / fdMean ) (fdMean  * 1000)
                 (1.0 / fdWorst) (fdWorst * 1000)
                 (1.0 / fdBest ) (fdBest  * 1000)
@@ -317,6 +316,9 @@ traceStats = do
                 gcWallSeconds
                 cpuSeconds
                 wallSeconds
+                stStatTweetsReceived
+                stStatDelsReceived
+                (fromIntegral stStatBytesRecvAPI / 1024 / 1024 :: Double)
 
 run :: AppDraw ()
 run = do
