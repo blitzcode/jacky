@@ -5,6 +5,7 @@ module TextureAtlas ( TextureAtlas
                     , withTextureAtlas
                     , insertImage
                     , debugDumpAtlas
+                    , getAtlasMemoryUsage
                     ) where
 
 import qualified Graphics.Rendering.OpenGL as GL
@@ -176,4 +177,11 @@ debugDumpAtlas (TextureAtlas { .. }) dir =
                     taIFmt
                     taType
                     $ dir </> (printf "texture_atlas_%i_of_%i.png" i $ S.length textures)
+
+getAtlasMemoryUsage :: TextureAtlas -> IO ( Int                    -- Number of textures
+                                          , Int                    -- Dimensions
+                                          , GL.PixelInternalFormat -- Format
+                                          )
+getAtlasMemoryUsage (TextureAtlas { .. }) =
+    readIORef taTextures >>= \ts -> return (S.length ts, taTexWdh, taIFmt)
 
