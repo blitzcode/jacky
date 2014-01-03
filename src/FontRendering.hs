@@ -5,6 +5,7 @@ module FontRendering ( withFontRenderer
                      , FontRenderer
                      , drawTextBitmap
                      , drawText
+                     , gatherCacheStats
                        -- Wrap TextureAtlas exports
                      , debugDumpAtlas
                        -- Pass through (or wrap) some FT2 exports
@@ -26,6 +27,7 @@ import Data.IORef
 import Data.Bits
 import Data.Word
 import Data.Maybe
+import Text.Printf
 
 import qualified FT2Interface as FT2
 import qualified TextureAtlas as TA
@@ -236,4 +238,17 @@ drawTextBitmap x y face string = do
         ) (fromIntegral x, toEnum 0) string
     -- GL.depthMask GL.$= GL.Enabled
     GL.blend GL.$= GL.Disabled
+
+gatherCacheStats :: FontRenderer -> IO String
+gatherCacheStats (FontRenderer { .. }) = do
+    glyphCache                <- readIORef frGlyphCache
+    kernCache                 <- readIORef frKernCache
+    (numTex, wdhTex, ifmtTex) <- TA.getAtlasMemoryUsage frTexAtlas
+    return $ printf
+        "Cached Glyphs: %i · KernPairs: %i | Atlas Textures: %i · %ix%i · %s"
+        (HM.size glyphCache)
+        (HM.size kernCache )
+        numTex
+        wdhTex wdhTex
+        (show ifmtTex)
 

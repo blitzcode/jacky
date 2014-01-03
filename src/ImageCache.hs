@@ -339,8 +339,7 @@ gatherCacheStats ic = do
          ((0, 0, 0, 0) :: (Word64, Word64, Word64, Int))
          (LBM.toList entries)
     return $ printf
-        (  "Image Cache - "
-        ++ "Netw. Recv. Total: %.3fMB · Mem %.3fMB | "
+        (  "Netw. Recv. Total: %.3fMB · Mem %.3fMB | "
         ++ "Req: %i/%i · Dir: %i/%i | "
         ++ "Misses: %i · DiskHits: %i · MemHits: %i | "
         ++ "Fetching: %i · Fetched: %i · Error: %i"

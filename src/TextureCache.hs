@@ -37,7 +37,7 @@ withTextureCache :: Int -> ImageCache -> (TextureCache -> IO ()) -> IO ()
 withTextureCache maxCacheEntries tcImageCache = do
     bracket
         ( newIORef (LBM.empty maxCacheEntries) >>= \tcCacheEntries ->
-              return $ TextureCache {  .. }
+              return $ TextureCache { .. }
         )
         ( \tc -> do
              cacheEntries <- readIORef $ tcCacheEntries tc
@@ -95,7 +95,7 @@ gatherCacheStats tc = do
               )
               (0, 0, 0)
               dir
-    return $ printf "Texture Cache - Dir. Capacity: %i/%i | Mem: %3.fMB | Largest Image: %ix%i"
+    return $ printf "Dir. Capacity: %i/%i | Mem: %3.fMB | Largest Image: %ix%i"
                     (fst $ LBM.size cache)
                     (snd $ LBM.size cache)
                     (fromIntegral mem / 1024 / 1024 :: Double)

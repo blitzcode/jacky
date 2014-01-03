@@ -1,5 +1,5 @@
 
-{-# LANGUAGE PackageImports, OverloadedStrings #-}
+{-# LANGUAGE PackageImports, OverloadedStrings, RecordWildCards #-}
 
 module App ( Env(..)
            , State(..)
@@ -266,32 +266,26 @@ processSMEvent ev =
         SMBytesReceived b -> modify' $ \s -> s { stStatBytesRecvAPI = stStatBytesRecvAPI s + b }
         _                 -> liftIO . traceS TLInfo $ show ev -- Trace all other messages in full
 
--- TODO: Add stats for FontRendering and QuadRenderer
+-- TODO: Add stats for QuadRenderer
 {-# NOINLINE traceStats #-}
 traceStats :: AppDraw ()
 traceStats = do
-        time       <- gets stCurTick
+        Env   { .. } <- ask
+        State { .. } <- get
         -- Record frame time
-        modify' $ \s -> s { stFrameTimes = BS.push_ time $ stFrameTimes s }
+        modify' $ \s -> s { stFrameTimes = BS.push_ stCurTick stFrameTimes }
         -- Time to trace again?
-        lastSTrace <- gets stLastStatTrace
-        interval   <- asks envStatTraceInterval 
-        when (time - lastSTrace > interval) $ do
-            modify' $ \s -> s { stLastStatTrace = time }
-            ic         <- asks envImageCache
-            icStats    <- liftIO $ ImageCache.gatherCacheStats ic
-            tc         <- asks envTextureCache
-            tcStats    <- liftIO $ TextureCache.gatherCacheStats tc
-            numTweets  <- gets stStatTweetsReceived
-            numDels    <- gets stStatDelsReceived
-            frameTimes <- (takeWhile (\x -> time - x < interval) . BS.toList) <$> gets stFrameTimes
-            apiRecv    <- gets stStatBytesRecvAPI
-            gc         <- liftIO $ getGCStats
-            fr         <- asks envFontRenderer
-            dumpFT2    <- asks envDumpFT2AtlasOnTrace
+        when (stCurTick - stLastStatTrace > envStatTraceInterval) $ do
+            modify' $ \s -> s { stLastStatTrace = stCurTick }
+            icStats        <- liftIO $ ImageCache.gatherCacheStats    envImageCache
+            tcStats        <- liftIO $ TextureCache.gatherCacheStats  envTextureCache
+            frStats        <- liftIO $ FontRendering.gatherCacheStats envFontRenderer
+            GCStats { .. } <- liftIO $ getGCStats
             -- Debug: write font renderer texture atlas textures to disk
-            when dumpFT2 $ liftIO $ debugDumpAtlas fr "."
-            let frameDeltas      = case frameTimes of (x:xs) -> goFD x xs; _ -> []
+            when envDumpFT2AtlasOnTrace $ liftIO $ debugDumpAtlas envFontRenderer "."
+            let frameTimes       = takeWhile (\x -> stCurTick - x < envStatTraceInterval) .
+                                       BS.toList $ stFrameTimes
+                frameDeltas      = case frameTimes of (x:xs) -> goFD x xs; _ -> []
                 goFD prev (x:xs) = (prev - x) : goFD x xs
                 goFD _    []     = []
                 fdMean           = (sum frameDeltas / (fromIntegral $ length frameDeltas))
@@ -300,31 +294,29 @@ traceStats = do
                 bytesToMB n      = fromIntegral n / 1024.0 / 1024.0 :: Double
             liftIO . traceS TLInfo $ printf
                 (    "Messages Total - SMTweet: %i | SMDelete: %i | Netw. Recv.: %.3fMB\n"
-                  ++ "%s\n"
-                  ++ "%s\n"
-                  ++ "Frametimes - "
+                  ++ "Image Cache    - %s\nTexture Cache  - %s\nFont Rendering - %s\n"
+                  ++ "Frametimes     - "
                   ++ "Mean: %.1fFPS/%.1fms | Worst: %.1fFPS/%.1fms | Best: %.1fFPS/%.1fms\n"
-                  ++ "GC - maxUsed: %.2fMB · curUsed: %.2fMB · peakAlloc: %iMB | "
+                  ++ "GC             - maxUsed: %.2fMB · curUsed: %.2fMB · peakAlloc: %iMB | "
                   ++ "mutCPU: %.2fs · mutWall: %.2fs · gcCPU: %.2fs · "
                   ++ "gcWall: %.2fs · cpu: %.2fs · wall: %.2fs"
                 )
-                numTweets
-                numDels
-                (fromIntegral apiRecv / 1024 / 1024 :: Double)
-                icStats
-                tcStats
+                stStatTweetsReceived
+                stStatDelsReceived
+                (fromIntegral stStatBytesRecvAPI / 1024 / 1024 :: Double)
+                icStats tcStats frStats
                 (1.0 / fdMean ) (fdMean  * 1000)
                 (1.0 / fdWorst) (fdWorst * 1000)
                 (1.0 / fdBest ) (fdBest  * 1000)
-                (bytesToMB $ maxBytesUsed           gc)
-                (bytesToMB $ currentBytesUsed       gc)
-                (            peakMegabytesAllocated gc)
-                (mutatorCpuSeconds  gc)
-                (mutatorWallSeconds gc)
-                (gcCpuSeconds       gc)
-                (gcWallSeconds      gc)
-                (cpuSeconds         gc)
-                (wallSeconds        gc)
+                (bytesToMB $ maxBytesUsed)
+                (bytesToMB $ currentBytesUsed)
+                (            peakMegabytesAllocated)
+                mutatorCpuSeconds
+                mutatorWallSeconds
+                gcCpuSeconds
+                gcWallSeconds
+                cpuSeconds
+                wallSeconds
 
 run :: AppDraw ()
 run = do
