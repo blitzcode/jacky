@@ -98,7 +98,7 @@ takeFreeSlot (TextureGrid { .. }) = do
                                      tgIFmt
                                      tgType
                                      (tgTexWdh, tgTexWdh)
-                                     (TCFillBG tgBackground) -- TODO: Could skip that, we're 
+                                     (TCFillBG tgBackground) -- TODO: Could skip that, we're
                                                              --       clearing the slots
                                                              --       before use anyway
                                      False
@@ -136,7 +136,7 @@ insertImage :: Storable texel
 insertImage tg@(TextureGrid { .. }) w h img = do
     -- Check parameters and take a free slot
     when (w > tgMaxImgWdh || h > tgMaxImgHgt) $
-       error "insertImage - Image dimensions don't fit in grid slot" 
+        error "insertImage - Image dimensions don't fit in grid slot"
     when (w * h /= VS.length img) $
         error "insertImage - Image vector size mismatch"
     when (sizeOf (img VS.! 0) /= texelSize tgIFmt) $

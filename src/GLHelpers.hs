@@ -25,6 +25,7 @@ import qualified Graphics.Rendering.OpenGL.Raw as GLR
 import qualified "GLFW-b" Graphics.UI.GLFW as GLFW
 import Control.Applicative
 import Control.Monad
+import Control.Exception
 import Text.Printf
 import Data.Maybe
 import qualified Data.Vector.Storable as VS
@@ -159,55 +160,57 @@ newTexture2D :: GL.PixelFormat
              -> Bool
              -> IO GL.TextureObject
 newTexture2D fmt ifmt dtype (w, h) tc genMipMap tf clamp = do
-    -- Generate and bind texture object
-    tex <- GL.genObjectName
-    GL.textureBinding GL.Texture2D GL.$= Just tex
-    -- Might not conform to the default 32 bit alignment
-    GL.rowAlignment GL.Unpack GL.$= 1
-    -- Allocate / upload
-    --
-    -- TODO: This assumes NPOT / non-square texture support in
-    --       combination with auto generated MIP-maps
-    --
-    -- TODO: Make upload asynchronous using PBOs
-    --
-    -- TODO: Could use immutable textures through glTexStorage + glTexSubImage
-    --
-    let size   = GL.TextureSize2D (fromIntegral w) (fromIntegral h)
-        texImg = GL.texImage2D GL.Texture2D GL.NoProxy 0 ifmt size 0 . GL.PixelData fmt dtype
-     in case tc of
-            TCJustAllocate -> texImg nullPtr
-            TCFillBG bg    -> do
-                -- Check texel size
-                when (sizeOf bg /= texelSize ifmt) $
-                    error "newTexture2D - Background texel and OpenGL tex. spec. size mismatch"
-                withArray (replicate (w * h) bg) $ texImg
-            TCUpload img   -> do
-                -- Check vector size
-                let vsize = VS.length img * sizeOf (img VS.! 0)
-                 in unless (w * h * texelSize ifmt == vsize) $
-                        error "newTexture2D - Image vector and OpenGL tex. spec. size mismatch"
-                VS.unsafeWith img texImg
-    -- Set default texture sampler parameters
-    when (isJust tf) .
-        setTextureFiltering $ fromJust tf
-    when clamp
-        setTextureClampST
-    -- Call raw API MIP-map generation function, could also use
-    --
-    -- GL.generateMipmap GL.Texture2D GL.$= GL.Enabled
-    --
-    -- or
-    --
-    -- GLU.build2DMipmaps
-    --     GL.Texture2D
-    --     GL.RGBA'
-    --     (fromIntegral w)
-    --     (fromIntegral h)
-    --     (GL.PixelData GL.RGBA GL.UnsignedByte ptr)
-    --
-    when genMipMap $ GLR.glGenerateMipmap GLR.gl_TEXTURE_2D
-    return tex
+  bracketOnError
+    ( GL.genObjectName )
+    ( GL.deleteObjectName )
+    $ \tex -> do
+        GL.textureBinding GL.Texture2D GL.$= Just tex
+        -- Might not conform to the default 32 bit alignment
+        GL.rowAlignment GL.Unpack GL.$= 1
+        -- Allocate / upload
+        --
+        -- TODO: This assumes NPOT / non-square texture support in
+        --       combination with auto generated MIP-maps
+        --
+        -- TODO: Make upload asynchronous using PBOs
+        --
+        -- TODO: Could use immutable textures through glTexStorage + glTexSubImage
+        --
+        let size   = GL.TextureSize2D (fromIntegral w) (fromIntegral h)
+            texImg = GL.texImage2D GL.Texture2D GL.NoProxy 0 ifmt size 0 . GL.PixelData fmt dtype
+         in case tc of
+                TCJustAllocate -> texImg nullPtr
+                TCFillBG bg    -> do
+                    -- Check texel size
+                    when (sizeOf bg /= texelSize ifmt) $
+                        error "newTexture2D - Background texel and OpenGL tex. spec. size mismatch"
+                    withArray (replicate (w * h) bg) $ texImg
+                TCUpload img   -> do
+                    -- Check vector size
+                    let vsize = VS.length img * sizeOf (img VS.! 0)
+                     in unless (w * h * texelSize ifmt == vsize) $
+                            error "newTexture2D - Image vector and OpenGL tex. spec. size mismatch"
+                    VS.unsafeWith img texImg
+        -- Set default texture sampler parameters
+        when (isJust tf) .
+            setTextureFiltering $ fromJust tf
+        when clamp
+            setTextureClampST
+        -- Call raw API MIP-map generation function, could also use
+        --
+        -- GL.generateMipmap GL.Texture2D GL.$= GL.Enabled
+        --
+        -- or
+        --
+        -- GLU.build2DMipmaps
+        --     GL.Texture2D
+        --     GL.RGBA'
+        --     (fromIntegral w)
+        --     (fromIntegral h)
+        --     (GL.PixelData GL.RGBA GL.UnsignedByte ptr)
+        --
+        when genMipMap $ GLR.glGenerateMipmap GLR.gl_TEXTURE_2D
+        return tex
 
 saveTextureToPNG :: GL.TextureObject
                  -> GL.PixelFormat
