@@ -154,14 +154,14 @@ stringToGlyphs (FontRenderer { .. }) face string = do
                                         return . GlyphCacheEntry
                                             c metrics tex $ QuadUV u0 v0 u1 v1
                                   | otherwise -> do -- Make new texture
-                                        tex <- uploadTexture2D GL.Alpha
-                                                               GL.Alpha8
-                                                               gWidth
-                                                               gHeight
-                                                               bitmap
-                                                               True
-                                                               (Just TFMinMag)
-                                                               True
+                                        tex <- newTexture2D GL.Alpha
+                                                            GL.Alpha8
+                                                            GL.UnsignedByte
+                                                            (gWidth, gHeight)
+                                                            (TCUpload bitmap)
+                                                            True
+                                                            (Just TFMinMag)
+                                                            True
                                         return $ GlyphCacheEntry
                                             c metrics tex QuadUVDefault
                             -- Update cache

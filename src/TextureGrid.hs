@@ -1,61 +1,72 @@
 
 {-# LANGUAGE RecordWildCards, ExistentialQuantification, RankNTypes #-}
 
-module TextureAtlas ( TextureAtlas
-                    , withTextureAtlas
-                    , insertImage
-                    , debugDumpAtlas
-                    , getAtlasMemoryUsage
-                    ) where
-
+module TextureGrid ( {-TextureGrid
+                   , withTextureGrid
+                   , insertImage
+                   , debugDumpGrid
+                   , getGridMemoryUsage-}
+                   ) where
+{-
 import qualified Graphics.Rendering.OpenGL as GL
 import qualified Graphics.Rendering.OpenGL.Raw as GLR
 import Data.IORef
-import qualified Data.Sequence as S
 import qualified Data.Foldable as F
 import qualified Data.Vector.Storable as VS
 import Control.Monad
 import Control.Exception
 import Foreign.Storable
+import Foreign.Marshal.Array
 import System.Directory
 import System.FilePath
 import Text.Printf
 
 import GLHelpers
-import qualified RectPacker as RP
 
--- Pack multiple rectangular images into a set of OpenGL textures. Consider using
--- the simpler / faster TextureGrid if the images are very similar in size
+-- Pack multiple rectangular images into a set of OpenGL textures. Unlike TextureAtlas,
+-- this module supports deletion of inserted images, but only packs them into a regular
+-- grid instead of using more sophisticated kD tree based bin packing. It's best used to
+-- pack smaller images of similar size
 --
--- TODO: Support textures larger than the atlas size (separate list)
---       Texture deletion
+-- TODO: While deletion of an image frees up its slot in the grid, we never actually
+--       reduce the number of underlying grid textures
 
-data TextureAtlas = forall texel. Storable texel => TextureAtlas
-    { taBorder     :: !Int                    -- Number of border pixels around the packed images
-    , taTexWdh     :: !Int                    -- Width of the textures we're packing into
-    , taFmt        :: !GL.PixelFormat         -- Texture format
-    , taIFmt       :: !GL.PixelInternalFormat -- ..
-    , taType       :: !GL.DataType            -- ..
-    , taFiltering  :: !TextureFiltering       -- Default filtering specified for the texture object
-    , taBackground :: !texel                  -- Single texel for background filling
-    , taTextures   :: !(IORef (S.Seq (RP.RectPacker, GL.TextureObject))) -- Texture objs. / layout
+data TextureGrid = forall texel. Storable texel => TextureGrid
+    { tgBorder     :: !Int                    -- Number of border pixels around the packed images
+    , tgTexWdh     :: !Int                    -- Width of the textures we're packing into
+    , tgMaxImgWdh  :: !Int                    -- Maximum dimensions of images to be inserted
+    , tgMaxImgHgt  :: !Int                    -- ..
+    , tgFmt        :: !GL.PixelFormat         -- Texture format
+    , tgIFmt       :: !GL.PixelInternalFormat -- ..
+    , tgType       :: !GL.DataType            -- ..
+    , tgFiltering  :: !TextureFiltering       -- Default filtering specified for the texture object
+    , tgBackground :: !texel                  -- Single texel for background filling
+    , tgTextures   :: !(IORef (S.Seq (RP.RectPacker, GL.TextureObject))) -- Texture objs. / layout
     }
 
-withTextureAtlas :: Storable texel
-                 => Int
-                 -> Int
-                 -> GL.PixelFormat
-                 -> GL.PixelInternalFormat
-                 -> GL.DataType
-                 -> texel
-                 -> TextureFiltering
-                 -> (TextureAtlas -> IO a)
-                 -> IO a
-withTextureAtlas taTexWdh taBorder taFmt taIFmt taType taBackground taFiltering =
+withTextureGrid :: Storable texel
+                => Int
+                -> Int
+                -> (Int, Int)
+                -> GL.PixelFormat
+                -> GL.PixelInternalFormat
+                -> GL.DataType
+                -> texel
+                -> TextureFiltering
+                -> (TextureAtlas -> IO a)
+                -> IO a
+withTextureAtlas tgTexWdh
+                 tgBorder
+                 (tgMaxImgWdh, tgMaxImgHgt)
+                 tgFmt
+                 tgIFmt
+                 tgType
+                 tgBackground
+                 tgFiltering =
     bracket
-        ( do when (sizeOf taBackground /= texelSize taIFmt) $
-                 error "withTextureAtlas - Background texel / OpenGL texture format size mismatch"
-             newIORef S.empty >>= \taTextures -> return TextureAtlas { .. }
+        ( do when (sizeOf tgBackground /= texelSize tgIFmt) $
+                 error "withTextureGrid - Background texel / OpenGL texture format size mismatch"
+             newIORef S.empty >>= \tgTextures -> return TextureAtlas { .. }
         )
         ( \ta -> F.mapM_ (GL.deleteObjectName . snd) =<< readIORef (taTextures ta) )
 
@@ -73,7 +84,7 @@ insertImage :: Storable texel
                   , Float, Float     -- UV Bottom Left
                   , Float, Float     -- UV Top Right
                   )
-insertImage (TextureAtlas { .. }) w h img = do
+insertImage ta@(TextureAtlas { .. }) w h img = do
     -- Check image format
     when (w * h /= VS.length img) $
         error "insertImage - Image vector size mismatch"
@@ -98,14 +109,7 @@ insertImage (TextureAtlas { .. }) w h img = do
                         go (S.viewl xs) (xs' S.|> x)
             go S.EmptyL _ = -- We didn't find a texture with enough free space
                             do -- Make new texture and insert
-                               tex <- newTexture2D taFmt
-                                                   taIFmt
-                                                   taType
-                                                   (taTexWdh, taTexWdh)
-                                                   (TCFillBG taBackground)
-                                                   False
-                                                   (Just TFMinMag)
-                                                   True
+                               tex <- emptyTexture ta
                                let emptyRP                 = RP.empty taTexWdh taTexWdh
                                    (rp, Just (texX, texY)) = RP.pack wb hb emptyRP
                                return ( (rp, tex) S.<| textures -- Prepend original sequence
@@ -169,4 +173,4 @@ getAtlasMemoryUsage :: TextureAtlas -> IO ( Int                    -- Number of 
                                           )
 getAtlasMemoryUsage (TextureAtlas { .. }) =
     readIORef taTextures >>= \ts -> return (S.length ts, taTexWdh, taIFmt)
-
+-}

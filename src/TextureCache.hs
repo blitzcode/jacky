@@ -18,17 +18,10 @@ import ImageCache
 import qualified LRUBoundedMap as LBM
 import Trace
 import GLHelpers
+import TextureGrid
 
 -- OpenGL texture cache on top of the ImageCache module
---
--- TODO: Pack small textures into larger aggregate ones to reduce state changes. This
---       would be similar to what TextureAtlas provides, but a simple grid layout for a
---       set of textures of a fixed size (Twitter avatar images etc.) would support easy
---       removal / retiring of images
 
--- This is only a mutable structure so we can use the bracket pattern to free
--- all textures on shutdown. Otherwise, we could implement this part of the caching
--- system in a functionally pure way
 data TextureCache = TextureCache { tcCacheEntries :: IORef (LBM.Map B.ByteString GL.TextureObject)
                                  , tcImageCache   :: ImageCache
                                  }
@@ -58,12 +51,12 @@ withTextureCache maxCacheEntries tcImageCache = do
 --       current frame. Just put those textures in a list and delete them on the
 --       next request with a higher frame number
 fetchImage :: TextureCache -> Double -> B.ByteString -> IO (Maybe GL.TextureObject)
-fetchImage tc tick uri = do
-    cacheEntries <- readIORef $ tcCacheEntries tc
+fetchImage (TextureCache { .. }) tick uri = do
+    cacheEntries <- readIORef tcCacheEntries
     case LBM.lookup uri cacheEntries of
-        (newEntries, Just tex) -> writeIORef (tcCacheEntries tc) newEntries >> return (Just tex)
+        (newEntries, Just tex) -> writeIORef tcCacheEntries newEntries >> return (Just tex)
         (_,          Nothing ) -> do
-            hicFetch <- ImageCache.fetchImage (tcImageCache tc) tick uri
+            hicFetch <- ImageCache.fetchImage tcImageCache tick uri
             case hicFetch of
                 -- TODO: Might need to limit amount of texture uploads per-frame. We could
                 --       simply return Nothing after a certain amount of ms or MB
@@ -72,14 +65,21 @@ fetchImage tc tick uri = do
                     --       wrap this into a bracketOnError there would still
                     --       be plenty of spots where an error would leak data
                     --       or leave a data structure in a bad state
-                    tex <- uploadTexture2D GL.RGBA GL.RGBA8 w h img True (Just TFMinMag) True
+                    tex <- newTexture2D GL.RGBA
+                                        GL.RGBA8
+                                        GL.UnsignedByte
+                                        (w, h)
+                                        (TCUpload img)
+                                        True
+                                        (Just TFMinMag)
+                                        True
                     -- Insert into cache, delete any overflow
                     let (newEntries, delTex) = LBM.insert uri tex cacheEntries
                     case delTex of Just (_, obj) -> GL.deleteObjectName obj; _ -> return ()
                     -- Remove from image cache
-                    deleteImage (tcImageCache tc) uri
+                    deleteImage tcImageCache uri
                     -- Write back the cache directory and return
-                    writeIORef (tcCacheEntries tc) newEntries
+                    writeIORef tcCacheEntries newEntries
                     return $ Just tex
                 _ -> return Nothing
 
@@ -88,10 +88,10 @@ gatherCacheStats tc = do
     cache <- readIORef $ tcCacheEntries tc
     let dir = LBM.toList cache
     (mem, maxWdh, maxHgt) <-
-        foldM (\(mem', maxWdh', maxHgt') (_, tex) ->
-                  do GL.textureBinding GL.Texture2D GL.$= Just tex
-                     (w, h) <- getCurTex2DSize
-                     return (mem' + w * h * 4, max w maxWdh', max h maxHgt')
+        foldM ( \(mem', maxWdh', maxHgt') (_, tex) ->
+                   do GL.textureBinding GL.Texture2D GL.$= Just tex
+                      (w, h) <- getCurTex2DSize
+                      return (mem' + w * h * 4, max w maxWdh', max h maxHgt')
               )
               (0, 0, 0)
               dir

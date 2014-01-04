@@ -1,10 +1,11 @@
 
-{-# LANGUAGE PackageImports, LambdaCase #-}
+{-# LANGUAGE PackageImports, LambdaCase, ExistentialQuantification #-}
 
 module GLHelpers ( setup2D
                  , getCurTex2DSize
                  , getGLStrings
-                 , uploadTexture2D
+                 , TextureContents(..)
+                 , newTexture2D
                  , throwOnGLError
                  , traceOnGLError
                  , setTextureFiltering
@@ -30,6 +31,7 @@ import qualified Data.Vector.Storable as VS
 import qualified Data.Vector.Storable.Mutable as VSM
 import Foreign.Storable
 import Foreign.Ptr
+import Foreign.Marshal.Array
 import qualified Codec.Picture as JP
 
 import Trace
@@ -143,48 +145,50 @@ texelSize ifmt = case ifmt of
     GL.RGB'       -> 3; GL.RGB8       -> 3;
     _ -> 4 -- TODO: Just assume four components / float / 32bit integer for the rest
 
-uploadTexture2D :: Storable texel
-                => GL.PixelFormat
-                -> GL.PixelInternalFormat
-                -- TODO: Add GL.DataType paramter?
-                -> Int
-                -> Int
-                -> VS.Vector texel
-                -> Bool
-                -> Maybe TextureFiltering
-                -> Bool
-                -> IO GL.TextureObject
-uploadTexture2D fmt ifmt w h img genMipMap tf clamp = do
-    -- Check vector size
-    let vsize = VS.length img * sizeOf (img VS.! 0)
-     in unless (w * h * texelSize ifmt == vsize) $
-            error "uploadTexture2D - Image vector and OpenGL texture specification size mismatch"
+data TextureContents = TCJustAllocate
+                     | forall texel. Storable texel => TCFillBG texel
+                     | forall texel. Storable texel => TCUpload (VS.Vector texel)
+
+newTexture2D :: GL.PixelFormat
+             -> GL.PixelInternalFormat
+             -> GL.DataType
+             -> (Int, Int)
+             -> TextureContents
+             -> Bool
+             -> Maybe TextureFiltering
+             -> Bool
+             -> IO GL.TextureObject
+newTexture2D fmt ifmt dtype (w, h) tc genMipMap tf clamp = do
     -- Generate and bind texture object
     tex <- GL.genObjectName
     GL.textureBinding GL.Texture2D GL.$= Just tex
     -- Might not conform to the default 32 bit alignment
     GL.rowAlignment GL.Unpack GL.$= 1
-    -- Upload
-    VS.unsafeWith img $
-        -- TODO: This assumes NPOT / non-square texture support in
-        --       combination with auto generated MIP-maps
-        --
-        -- TODO: Make upload asynchronous using PBOs
-        --
-        -- TODO: Could use immutable textures through glTexStorage + glTexSubImage
-        GL.texImage2D
-            GL.Texture2D
-            GL.NoProxy
-            0
-            ifmt
-            ( GL.TextureSize2D (fromIntegral w)
-                               (fromIntegral h)
-            )
-            0
-            . GL.PixelData fmt GL.UnsignedByte
-    -- Set texture parameters
-    when (isJust tf) . setTextureFiltering $ fromJust tf
-    when clamp       $ setTextureClampST
+    -- Allocate / upload
+    --
+    -- TODO: This assumes NPOT / non-square texture support in
+    --       combination with auto generated MIP-maps
+    --
+    -- TODO: Make upload asynchronous using PBOs
+    --
+    -- TODO: Could use immutable textures through glTexStorage + glTexSubImage
+    --
+    let size   = GL.TextureSize2D (fromIntegral w) (fromIntegral h)
+        texImg = GL.texImage2D GL.Texture2D GL.NoProxy 0 ifmt size 0 . GL.PixelData fmt dtype
+     in case tc of
+            TCJustAllocate -> texImg nullPtr
+            TCFillBG bg    -> withArray (replicate (w * h) bg) $ texImg
+            TCUpload img   -> do
+                -- Check vector size
+                let vsize = VS.length img * sizeOf (img VS.! 0)
+                 in unless (w * h * texelSize ifmt == vsize) $
+                        error "uploadTexture2D - Image vector and OpenGL tex. spec. size mismatch"
+                VS.unsafeWith img texImg
+    -- Set default texture sampler parameters
+    when (isJust tf) .
+        setTextureFiltering $ fromJust tf
+    when clamp
+        setTextureClampST
     -- Call raw API MIP-map generation function, could also use
     --
     -- GL.generateMipmap GL.Texture2D GL.$= GL.Enabled
@@ -197,7 +201,8 @@ uploadTexture2D fmt ifmt w h img genMipMap tf clamp = do
     --     (fromIntegral w)
     --     (fromIntegral h)
     --     (GL.PixelData GL.RGBA GL.UnsignedByte ptr)
-    when genMipMap   $ GLR.glGenerateMipmap GLR.gl_TEXTURE_2D
+    --
+    when genMipMap $ GLR.glGenerateMipmap GLR.gl_TEXTURE_2D
     return tex
 
 saveTextureToPNG :: GL.TextureObject
