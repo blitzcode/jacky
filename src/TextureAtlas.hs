@@ -1,5 +1,5 @@
 
-{-# LANGUAGE RecordWildCards, ExistentialQuantification, RankNTypes #-}
+{-# LANGUAGE RecordWildCards, ExistentialQuantification #-}
 
 module TextureAtlas ( TextureAtlas
                     , withTextureAtlas
@@ -82,6 +82,8 @@ insertImage (TextureAtlas { .. }) w h img = do
     -- Find room for the image. This is somewhat cumbersome and slow O(n), but we should
     -- have a manageable number of atlas textures and insertion should generally succeed
     -- quickly
+    --
+    -- TODO: Add some exception safety here
     (textures', tex, texX, texY) <- readIORef taTextures >>= \textures ->
         let wb = w + taBorder * 2
             hb = h + taBorder * 2
@@ -104,7 +106,7 @@ insertImage (TextureAtlas { .. }) w h img = do
                                                    (taTexWdh, taTexWdh)
                                                    (TCFillBG taBackground)
                                                    False
-                                                   (Just TFMinMag)
+                                                   (Just taFiltering)
                                                    True
                                let emptyRP                 = RP.empty taTexWdh taTexWdh
                                    (rp, Just (texX, texY)) = RP.pack wb hb emptyRP
@@ -115,8 +117,7 @@ insertImage (TextureAtlas { .. }) w h img = do
     -- Write back texture atlas sequence
     -- TODO: Sort by free space, don't want to traverse a list of full textures every time
     writeIORef taTextures textures'
-    -- Upload texture data
-    -- TODO: Make upload asynchronous using PBOs
+    -- Upload texture data (TODO: Make upload asynchronous using PBOs)
     GL.textureBinding GL.Texture2D GL.$= Just tex
     GL.rowAlignment GL.Unpack GL.$= 1
     --

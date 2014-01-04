@@ -50,6 +50,7 @@ executable jacky
                     , RankNTypes
                     , ExistentialQuantification
                     , NamedFieldPuns
+                    , ViewPatterns
   build-depends:      base                 >=4.6
                     , containers           >=0.5
                     , attoparsec           >=0.10

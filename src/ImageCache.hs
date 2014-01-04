@@ -322,6 +322,7 @@ incCacheDiskHits ic = atomicModifyIORef' (icDiskHits ic) (\n -> (n + 1, ()))
 incCacheMemHits :: ImageCache -> IO ()
 incCacheMemHits ic = atomicModifyIORef' (icMemHits ic) (\n -> (n + 1, ()))
 
+-- TODO: Add statistics from TextureGrid
 gatherCacheStats :: ImageCache -> IO String
 gatherCacheStats ic = do
     bytesTransf <- readIORef $ icBytesTrans ic

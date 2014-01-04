@@ -177,12 +177,16 @@ newTexture2D fmt ifmt dtype (w, h) tc genMipMap tf clamp = do
         texImg = GL.texImage2D GL.Texture2D GL.NoProxy 0 ifmt size 0 . GL.PixelData fmt dtype
      in case tc of
             TCJustAllocate -> texImg nullPtr
-            TCFillBG bg    -> withArray (replicate (w * h) bg) $ texImg
+            TCFillBG bg    -> do
+                -- Check texel size
+                when (sizeOf bg /= texelSize ifmt) $
+                    error "newTexture2D - Background texel and OpenGL tex. spec. size mismatch"
+                withArray (replicate (w * h) bg) $ texImg
             TCUpload img   -> do
                 -- Check vector size
                 let vsize = VS.length img * sizeOf (img VS.! 0)
                  in unless (w * h * texelSize ifmt == vsize) $
-                        error "uploadTexture2D - Image vector and OpenGL tex. spec. size mismatch"
+                        error "newTexture2D - Image vector and OpenGL tex. spec. size mismatch"
                 VS.unsafeWith img texImg
     -- Set default texture sampler parameters
     when (isJust tf) .

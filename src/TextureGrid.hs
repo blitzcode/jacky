@@ -1,17 +1,24 @@
 
-{-# LANGUAGE RecordWildCards, ExistentialQuantification, RankNTypes #-}
+{-# LANGUAGE   RecordWildCards
+             , ExistentialQuantification
+             , LambdaCase
+             , ViewPatterns #-}
 
-module TextureGrid ( {-TextureGrid
+module TextureGrid ( TextureGrid
                    , withTextureGrid
                    , insertImage
+                   {-
                    , debugDumpGrid
-                   , getGridMemoryUsage-}
+                   , getGridMemoryUsage
+                   -}
+                   , freeSlot
+                   , GridSlotView(..)
+                   , GridSlot
                    ) where
-{-
+
 import qualified Graphics.Rendering.OpenGL as GL
 import qualified Graphics.Rendering.OpenGL.Raw as GLR
 import Data.IORef
-import qualified Data.Foldable as F
 import qualified Data.Vector.Storable as VS
 import Control.Monad
 import Control.Exception
@@ -41,8 +48,16 @@ data TextureGrid = forall texel. Storable texel => TextureGrid
     , tgType       :: !GL.DataType            -- ..
     , tgFiltering  :: !TextureFiltering       -- Default filtering specified for the texture object
     , tgBackground :: !texel                  -- Single texel for background filling
-    , tgTextures   :: !(IORef (S.Seq (RP.RectPacker, GL.TextureObject))) -- Texture objs. / layout
+    , tgTextures   :: !(IORef [GL.TextureObject]) -- Texture objects
+    , tgFreeSlots  :: !(IORef [GridSlot])         -- List of free grid slots
     }
+
+-- Use view patterns to prevent outside construction of GridSlots
+data GridSlotView = GridSlot !GL.TextureObject
+                             !Int   !Int   -- Texel XY
+                             !Float !Float -- UV Bottom Left
+                             !Float !Float -- UV Top Right
+newtype GridSlot = GridSlotC { viewGridSlot :: GridSlotView }
 
 withTextureGrid :: Storable texel
                 => Int
@@ -53,108 +68,112 @@ withTextureGrid :: Storable texel
                 -> GL.DataType
                 -> texel
                 -> TextureFiltering
-                -> (TextureAtlas -> IO a)
+                -> (TextureGrid -> IO a)
                 -> IO a
-withTextureAtlas tgTexWdh
-                 tgBorder
-                 (tgMaxImgWdh, tgMaxImgHgt)
-                 tgFmt
-                 tgIFmt
-                 tgType
-                 tgBackground
-                 tgFiltering =
+withTextureGrid tgTexWdh
+                tgBorder
+                (tgMaxImgWdh, tgMaxImgHgt)
+                tgFmt
+                tgIFmt
+                tgType
+                tgBackground
+                tgFiltering =
     bracket
         ( do when (sizeOf tgBackground /= texelSize tgIFmt) $
                  error "withTextureGrid - Background texel / OpenGL texture format size mismatch"
-             newIORef S.empty >>= \tgTextures -> return TextureAtlas { .. }
+             when (tgMaxImgWdh + 2 * tgBorder > tgTexWdh ||
+                   tgMaxImgHgt + 2 * tgBorder > tgTexWdh) $
+                 error "withTextureGrid - Image dimensions don't fit in texture"
+             tgTextures  <- newIORef []
+             tgFreeSlots <- newIORef []
+             return TextureGrid { .. }
         )
-        ( \ta -> F.mapM_ (GL.deleteObjectName . snd) =<< readIORef (taTextures ta) )
+        ( \tg -> GL.deleteObjectNames =<< readIORef (tgTextures tg) )
+
+-- Take free slot, allocate new texture if we're out
+takeFreeSlot :: TextureGrid -> IO GridSlot
+takeFreeSlot (TextureGrid { .. }) = do
+    (slot:freeSlots) <- readIORef tgFreeSlots >>= \case
+        [] -> do tex <- newTexture2D tgFmt
+                                     tgIFmt
+                                     tgType
+                                     (tgTexWdh, tgTexWdh)
+                                     (TCFillBG tgBackground) -- TODO: Could skip that, we're 
+                                                             --       clearing the slots
+                                                             --       before use anyway
+                                     False
+                                     (Just tgFiltering)
+                                     True
+                 let wb = tgMaxImgWdh + tgBorder * 2
+                     hb = tgMaxImgHgt + tgBorder * 2
+                     tw = fromIntegral tgTexWdh
+                  in return [ GridSlotC $ GridSlot
+                                  tex
+                                  x
+                                  y
+                                  (fromIntegral (x + tgBorder    ) / tw)
+                                  (fromIntegral (y + tgBorder    ) / tw)
+                                  (fromIntegral (x + tgBorder + tgMaxImgWdh) / tw)
+                                  (fromIntegral (y + tgBorder + tgMaxImgHgt) / tw)
+                            | y <- [0..(tgTexWdh `div` hb - 1)]
+                            , x <- [0..(tgTexWdh `div` wb - 1)]
+                            ]
+        xs -> return xs
+    writeIORef tgFreeSlots freeSlots
+    return slot
 
 -- Find / allocate an empty block inside one of the atlas textures and fill it with the
 -- passed image data
 insertImage :: Storable texel
-            => TextureAtlas
+            => TextureGrid
             -> Int
             -> Int
             -- TODO: Maybe just use 'Ptr texel'? Less safety, but there's no real reason
             --       the data needs to be in a vector, plus we can't use multi-component
             --       texels right now (3x Float, etc.)
             -> VS.Vector texel
-            -> IO ( GL.TextureObject -- Texture we inserted into
-                  , Float, Float     -- UV Bottom Left
-                  , Float, Float     -- UV Top Right
-                  )
-insertImage ta@(TextureAtlas { .. }) w h img = do
-    -- Check image format
+            -> IO GridSlot
+insertImage tg@(TextureGrid { .. }) w h img = do
+    -- Check parameters and take a free slot
+    when (w > tgMaxImgWdh || h > tgMaxImgHgt) $
+       error "insertImage - Image dimensions don't fit in grid slot" 
     when (w * h /= VS.length img) $
         error "insertImage - Image vector size mismatch"
-    when (sizeOf (img VS.! 0) /= texelSize taIFmt) $
+    when (sizeOf (img VS.! 0) /= texelSize tgIFmt) $
         error "insertImage - Texel size mismatch"
-    -- Find room for the image. This is somewhat cumbersome and slow O(n), but we should
-    -- have a manageable number of atlas textures and insertion should generally succeed
-    -- quickly
-    (textures', tex, texX, texY) <- readIORef taTextures >>= \textures ->
-        let wb = w + taBorder * 2
-            hb = h + taBorder * 2
-            go (x@(rp, tex) S.:< xs) xs' = -- Try to find empty block and mark it as used
-                case RP.pack wb hb rp of
-                    (rp', Just (texX, texY)) -> -- Success
-                      return
-                        ( ( xs' S.|>      -- Rebuild sequence so far
-                            (rp', tex)    -- Append updated texture atlas entry
-                          ) S.>< xs       -- Stop processing remainder, just append
-                        , tex, texX, texY -- Location of empty block
-                        )
-                    (_ , Nothing) -> -- Failure, leave everything unchanged and keep searching
-                        go (S.viewl xs) (xs' S.|> x)
-            go S.EmptyL _ = -- We didn't find a texture with enough free space
-                            do -- Make new texture and insert
-                               tex <- emptyTexture ta
-                               let emptyRP                 = RP.empty taTexWdh taTexWdh
-                                   (rp, Just (texX, texY)) = RP.pack wb hb emptyRP
-                               return ( (rp, tex) S.<| textures -- Prepend original sequence
-                                      , tex, texX, texY         -- Location of empty block
-                                      )
-        in  go (S.viewl textures) S.empty
-    -- Write back texture atlas sequence
-    -- TODO: Sort by free space, don't want to traverse a list of full textures every time
-    writeIORef taTextures textures'
-    -- Upload texture data
-    -- TODO: Make upload asynchronous using PBOs
+    slot@(viewGridSlot -> GridSlot tex x y _ _ _ _) <- takeFreeSlot tg
+    -- Upload texture data (TODO: Make upload asynchronous using PBOs)
     GL.textureBinding GL.Texture2D GL.$= Just tex
     GL.rowAlignment GL.Unpack GL.$= 1
-    --
-    -- TODO: Remove me (random fragments of debugging code)
-    --
-    -- , taStep       :: !(IORef Int)
-    -- newIORef 0 >>= \taStep ->
-    -- printf "(%i, %i) - %ix%i\n" (texX + taBorder) (texY + taBorder) w h
-    -- i <- readIORef taStep
-    -- withArray (replicate (w * h) (fromIntegral $ i * 7 :: Word8)) $
-    -- saveTextureToPNG tex taFmt taIFmt taType ("step_" ++ show i ++ ".png")
-    -- modifyIORef' taStep (+ 1)
-    --
+    -- Start by clearing the slot with the background color (TODO: Could be done faster)
+    let wb = tgMaxImgWdh + tgBorder * 2
+        hb = tgMaxImgHgt + tgBorder * 2
+     in withArray (replicate (wb * hb) tgBackground) $
+            GL.texSubImage2D
+                GL.Texture2D
+                0
+                (GL.TexturePosition2D (fromIntegral $ x - tgBorder)
+                                      (fromIntegral $ y - tgBorder))
+                (GL.TextureSize2D (fromIntegral wb) (fromIntegral hb))
+                . GL.PixelData tgFmt tgType
+    -- Upload image
     VS.unsafeWith img $
         GL.texSubImage2D
             GL.Texture2D
             0
-            (GL.TexturePosition2D (fromIntegral $ texX + taBorder)
-                                  (fromIntegral $ texY + taBorder))
-            (GL.TextureSize2D (fromIntegral w)
-                              (fromIntegral h))
-            . GL.PixelData taFmt taType
+            (GL.TexturePosition2D (fromIntegral x) (fromIntegral y))
+            (GL.TextureSize2D     (fromIntegral w) (fromIntegral h))
+            . GL.PixelData tgFmt tgType
     -- Call raw API MIP-map generation function
     -- TODO: MIP-map generation should be deferred, not every time a texture is touched
     GLR.glGenerateMipmap GLR.gl_TEXTURE_2D
-    -- Compute UV coordinates and return
-    let tw = fromIntegral taTexWdh
-     in return ( tex
-               , fromIntegral (texX + taBorder    ) / tw
-               , fromIntegral (texY + taBorder    ) / tw
-               , fromIntegral (texX + taBorder + w) / tw
-               , fromIntegral (texY + taBorder + h) / tw
-               )
+    return slot
 
+freeSlot :: TextureGrid -> GridSlot -> IO ()
+freeSlot tg slot = do
+    return ()
+
+{-
 debugDumpAtlas :: TextureAtlas -> FilePath -> IO ()
 debugDumpAtlas (TextureAtlas { .. }) dir =
     doesDirectoryExist dir >>= \exists -> when exists $
@@ -174,3 +193,4 @@ getAtlasMemoryUsage :: TextureAtlas -> IO ( Int                    -- Number of 
 getAtlasMemoryUsage (TextureAtlas { .. }) =
     readIORef taTextures >>= \ts -> return (S.length ts, taTexWdh, taIFmt)
 -}
+

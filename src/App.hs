@@ -43,6 +43,9 @@ import QuadRendering
 
 -- TODO: Shouldn't the Env / State records have all strict fields?
 
+-- TODO: There are too many 'error' calls throughout the application code, replace with
+--       Bool / Maybe / Either returns
+
 data Env = Env
     { envWindow              :: GLFW.Window
     , envGLFWEventsQueue     :: TQueue GLFWEvent
@@ -99,7 +102,7 @@ draw = do
                     ( split STop 100
                           ( fill FCWhite (TRBlend 0.5) Nothing
                           )
-                          ( do --drawAvatarTiles
+                          ( do drawAvatarTiles
                                layer $
                                    fontRenderingTest
                                center 200 100 $
