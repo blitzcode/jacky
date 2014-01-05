@@ -13,6 +13,7 @@ import Control.Exception
 import Control.Monad
 import Text.Printf
 import Data.IORef
+import Data.Word
 
 import ImageCache
 import qualified LRUBoundedMap as LBM
@@ -24,23 +25,35 @@ import TextureGrid
 
 data TextureCache = TextureCache { tcCacheEntries :: IORef (LBM.Map B.ByteString GL.TextureObject)
                                  , tcImageCache   :: ImageCache
+                                 , tcTexGrid      :: TextureGrid
                                  }
 
 withTextureCache :: Int -> ImageCache -> (TextureCache -> IO ()) -> IO ()
-withTextureCache maxCacheEntries tcImageCache = do
-    bracket
-        ( newIORef (LBM.empty maxCacheEntries) >>= \tcCacheEntries ->
-              return $ TextureCache { .. }
-        )
-        ( \tc -> do
-             cacheEntries <- readIORef $ tcCacheEntries tc
-             case LBM.valid cacheEntries of
-                 Just err -> traceS TLError $ "LRUBoundedMap: TextureCache:\n" ++ err
-                 Nothing  -> return ()
-             -- Shutdown
-             traceT TLInfo $ "Shutting down texture cache"
-             GL.deleteObjectNames . map snd . LBM.toList $ cacheEntries
-        )
+withTextureCache maxCacheEntries tcImageCache f = do
+    -- TODO: Don't hardcode all these parameters, make them arguments of withTextureCache
+    withTextureGrid 512
+                    1
+                    (128, 128)
+                    GL.RGBA
+                    GL.RGBA8
+                    GL.UnsignedByte
+                    (0 :: Word32)
+                    TFMinMag
+                    $ \tcTexGrid ->
+      bracket
+          ( newIORef (LBM.empty maxCacheEntries) >>= \tcCacheEntries ->
+                return $ TextureCache { .. }
+          )
+          ( \tc -> do
+               cacheEntries <- readIORef $ tcCacheEntries tc
+               case LBM.valid cacheEntries of
+                   Just err -> traceS TLError $ "LRUBoundedMap: TextureCache:\n" ++ err
+                   Nothing  -> return ()
+               -- Shutdown
+               traceT TLInfo $ "Shutting down texture cache"
+               GL.deleteObjectNames . map snd . LBM.toList $ cacheEntries
+          )
+          f
 
 -- Fetch an image from the texture cache, or forward the request to the image
 -- cache in case we don't have it. We need the tick for the image cache (keep

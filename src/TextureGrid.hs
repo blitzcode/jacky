@@ -29,6 +29,7 @@ import System.FilePath
 import Text.Printf
 
 import GLHelpers
+import Trace
 
 -- Pack multiple rectangular images into a set of OpenGL textures. Unlike TextureAtlas,
 -- this module supports deletion of inserted images, but only packs them into a regular
@@ -79,11 +80,11 @@ withTextureGrid tgTexWdh
                 tgBackground
                 tgFiltering =
     bracket
-        ( do when (sizeOf tgBackground /= texelSize tgIFmt) $
-                 error "withTextureGrid - Background texel / OpenGL texture format size mismatch"
+        ( do when (sizeOf tgBackground /= texelSize tgIFmt) $ traceAndThrow
+                 "withTextureGrid - Background texel / OpenGL texture format size mismatch"
              when (tgMaxImgWdh + 2 * tgBorder > tgTexWdh ||
-                   tgMaxImgHgt + 2 * tgBorder > tgTexWdh) $
-                 error "withTextureGrid - Image dimensions don't fit in texture"
+                   tgMaxImgHgt + 2 * tgBorder > tgTexWdh) $ traceAndThrow
+                 "withTextureGrid - Image dimensions don't fit in texture"
              tgTextures  <- newIORef []
              tgFreeSlots <- newIORef []
              return TextureGrid { .. }
@@ -136,11 +137,11 @@ insertImage :: Storable texel
 insertImage tg@(TextureGrid { .. }) w h img = do
     -- Check parameters and take a free slot
     when (w > tgMaxImgWdh || h > tgMaxImgHgt) $
-        error "insertImage - Image dimensions don't fit in grid slot"
+        traceAndThrow "insertImage - Image dimensions don't fit in grid slot"
     when (w * h /= VS.length img) $
-        error "insertImage - Image vector size mismatch"
+        traceAndThrow "insertImage - Image vector size mismatch"
     when (sizeOf (img VS.! 0) /= texelSize tgIFmt) $
-        error "insertImage - Texel size mismatch"
+        traceAndThrow "insertImage - Texel size mismatch"
     slot@(viewGridSlot -> GridSlot tex x y _ _ _ _) <- takeFreeSlot tg
     -- Upload texture data (TODO: Make upload asynchronous using PBOs)
     GL.textureBinding GL.Texture2D GL.$= Just tex
@@ -169,9 +170,9 @@ insertImage tg@(TextureGrid { .. }) w h img = do
     GLR.glGenerateMipmap GLR.gl_TEXTURE_2D
     return slot
 
+-- TODO: Check that we're not freeing the same slot multiple times
 freeSlot :: TextureGrid -> GridSlot -> IO ()
-freeSlot tg slot = do
-    return ()
+freeSlot tg slot = modifyIORef' (tgFreeSlots tg) (slot :)
 
 {-
 debugDumpAtlas :: TextureAtlas -> FilePath -> IO ()

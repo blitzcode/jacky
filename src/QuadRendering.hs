@@ -128,7 +128,7 @@ withQuadRenderer qrMaxQuad f = do
                 )
     -- Throw on error
     case r of
-        Nothing -> error "withQuadRenderer - Shader init failed"
+        Nothing -> traceAndThrow "withQuadRenderer - Shader init failed"
         Just r' -> return r'
 
 -- TODO: Write an Unbox instance for this and switch to an unboxed mutable vector

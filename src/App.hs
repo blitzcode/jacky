@@ -43,9 +43,6 @@ import QuadRendering
 
 -- TODO: Shouldn't the Env / State records have all strict fields?
 
--- TODO: There are too many 'error' calls throughout the application code, replace with
---       Bool / Maybe / Either returns
-
 data Env = Env
     { envWindow              :: GLFW.Window
     , envGLFWEventsQueue     :: TQueue GLFWEvent

@@ -23,6 +23,7 @@ import Text.Printf
 
 import GLHelpers
 import qualified RectPacker as RP
+import Trace
 
 -- Pack multiple rectangular images into a set of OpenGL textures. Consider using
 -- the simpler / faster TextureGrid if the images are very similar in size
@@ -53,8 +54,8 @@ withTextureAtlas :: Storable texel
                  -> IO a
 withTextureAtlas taTexWdh taBorder taFmt taIFmt taType taBackground taFiltering =
     bracket
-        ( do when (sizeOf taBackground /= texelSize taIFmt) $
-                 error "withTextureAtlas - Background texel / OpenGL texture format size mismatch"
+        ( do when (sizeOf taBackground /= texelSize taIFmt) $ traceAndThrow
+                 "withTextureAtlas - Background texel / OpenGL texture format size mismatch"
              newIORef S.empty >>= \taTextures -> return TextureAtlas { .. }
         )
         ( \ta -> F.mapM_ (GL.deleteObjectName . snd) =<< readIORef (taTextures ta) )
@@ -76,9 +77,9 @@ insertImage :: Storable texel
 insertImage (TextureAtlas { .. }) w h img = do
     -- Check image format
     when (w * h /= VS.length img) $
-        error "insertImage - Image vector size mismatch"
+        traceAndThrow "insertImage - Image vector size mismatch"
     when (sizeOf (img VS.! 0) /= texelSize taIFmt) $
-        error "insertImage - Texel size mismatch"
+        traceAndThrow "insertImage - Texel size mismatch"
     -- Find room for the image. This is somewhat cumbersome and slow O(n), but we should
     -- have a manageable number of atlas textures and insertion should generally succeed
     -- quickly

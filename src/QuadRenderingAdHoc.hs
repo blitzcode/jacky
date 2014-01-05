@@ -20,6 +20,7 @@ import Foreign.Storable
 import GLHelpers
 import GLImmediate
 import Shaders
+import Trace
 
 -- Inefficient / obsolete (just used for testing / development) immediate mode and ad-hoc
 -- drawing functions. QuadRendering re-exports everything from here, this only exists to
@@ -104,7 +105,7 @@ drawQuadAdHocVBO x1 y1 x2 y2 depth col trans tex = do
                     forM_ (zip [0..] [u, v]) $ \(c, f) ->
                         VSM.write vec (i * uvStride + c) f
        )
-       ( \mf -> error $ "drawQuadAdHocVBO - OpenGL mapping failure: " ++ show mf )
+       ( \mf -> traceAndThrow $ "drawQuadAdHocVBO - OpenGL mapping failure: " ++ show mf )
     -- Specify and enable vertex arrays
     GL.arrayPointer GL.VertexArray GL.$=
         GL.VertexArrayDescriptor
@@ -165,7 +166,7 @@ drawQuadAdHocVBOShader x1 y1 x2 y2 depth col trans tex = do
                          forM_ (zip [0..] [x, y, (-depth), r, g, b, a, u, v]) $
                              \(offs, f) -> VSM.write vec (i * totalStride + offs) f
        )
-       ( \mf -> error $ "drawQuadAdHocVBOShader - VBO mapping failure: " ++ show mf )
+       ( \mf -> traceAndThrow $ "drawQuadAdHocVBOShader - VBO mapping failure: " ++ show mf )
     -- Specify and enable vertex attribute arrays
     vtxAttrib <- setAttribArray 0 vtxStride totalStride vtxOffset
     colAttrib <- setAttribArray 1 colStride totalStride colOffset
@@ -182,12 +183,12 @@ drawQuadAdHocVBOShader x1 y1 x2 y2 depth col trans tex = do
              let vec = VSM.unsafeFromForeignPtr0 fp numidx :: VSM.IOVector GL.GLuint
              in  forM_ (zip [0..] [0, 1, 2, 0, 2, 3]) $ \(i, e) -> VSM.write vec i e
        )
-       ( \mf -> error $ "drawQuadAdHocVBOShader - EBO mapping failure: " ++ show mf )
+       ( \mf -> traceAndThrow $ "drawQuadAdHocVBOShader - EBO mapping failure: " ++ show mf )
     -- Create, compile and link shaders
     shdProg <- mkShaderProgam vsSrcBasic (if   isJust tex
                                           then fsSrcBasic
                                           else fsColOnlySrcBasic) >>= \case
-        Left  err -> error $ "drawQuadAdHocVBOShader - Shader error:\n " ++ err
+        Left  err -> traceAndThrow $ "drawQuadAdHocVBOShader - Shader error:\n " ++ err
         Right p   -> return p
     -- Set shader attributes and activate
     GL.attribLocation shdProg "in_pos" GL.$= vtxAttrib

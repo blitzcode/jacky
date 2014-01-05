@@ -5,7 +5,9 @@ module Trace ( withTrace
              , TraceLevel(..)
              , traceT
              , traceS
-             , traceB) where
+             , traceB
+             , traceAndThrow
+             ) where
 
 -- Execution tracing for multiple threads into file / stdout
 
@@ -106,4 +108,7 @@ traceS lvl msg = trace lvl (T.pack msg)
 
 traceB :: TraceLevel -> B.ByteString -> IO ()
 traceB lvl msg = trace lvl (E.decodeUtf8 msg)
+
+traceAndThrow :: String -> IO a
+traceAndThrow err = traceS TLError err >> (throwIO $ ErrorCall err)
 

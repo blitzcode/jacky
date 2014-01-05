@@ -25,6 +25,7 @@ import qualified Graphics.Rendering.OpenGL.Raw as GLR
 import qualified "GLFW-b" Graphics.UI.GLFW as GLFW
 import Control.Applicative
 import Control.Monad
+import Control.Monad.Error
 import Control.Exception
 import Text.Printf
 import Data.Maybe
@@ -160,13 +161,13 @@ newTexture2D :: GL.PixelFormat
              -> Bool
              -> IO GL.TextureObject
 newTexture2D fmt ifmt dtype (w, h) tc genMipMap tf clamp = do
-  bracketOnError
+  r <- bracketOnError
     ( GL.genObjectName )
     ( GL.deleteObjectName )
-    $ \tex -> do
-        GL.textureBinding GL.Texture2D GL.$= Just tex
+    $ \tex -> runErrorT $ do
+        liftIO $ GL.textureBinding GL.Texture2D GL.$= Just tex
         -- Might not conform to the default 32 bit alignment
-        GL.rowAlignment GL.Unpack GL.$= 1
+        liftIO $ GL.rowAlignment GL.Unpack GL.$= 1
         -- Allocate / upload
         --
         -- TODO: This assumes NPOT / non-square texture support in
@@ -179,23 +180,23 @@ newTexture2D fmt ifmt dtype (w, h) tc genMipMap tf clamp = do
         let size   = GL.TextureSize2D (fromIntegral w) (fromIntegral h)
             texImg = GL.texImage2D GL.Texture2D GL.NoProxy 0 ifmt size 0 . GL.PixelData fmt dtype
          in case tc of
-                TCJustAllocate -> texImg nullPtr
+                TCJustAllocate -> liftIO $ texImg nullPtr
                 TCFillBG bg    -> do
                     -- Check texel size
-                    when (sizeOf bg /= texelSize ifmt) $
-                        error "newTexture2D - Background texel and OpenGL tex. spec. size mismatch"
-                    withArray (replicate (w * h) bg) $ texImg
+                    when (sizeOf bg /= texelSize ifmt) $ throwError
+                        "newTexture2D - Background texel and OpenGL tex. spec. size mismatch"
+                    liftIO $ withArray (replicate (w * h) bg) $ texImg
                 TCUpload img   -> do
                     -- Check vector size
                     let vsize = VS.length img * sizeOf (img VS.! 0)
-                     in unless (w * h * texelSize ifmt == vsize) $
-                            error "newTexture2D - Image vector and OpenGL tex. spec. size mismatch"
-                    VS.unsafeWith img texImg
+                     in unless (w * h * texelSize ifmt == vsize) $ throwError
+                            "newTexture2D - Image vector and OpenGL tex. spec. size mismatch"
+                    liftIO $ VS.unsafeWith img texImg
         -- Set default texture sampler parameters
         when (isJust tf) .
-            setTextureFiltering $ fromJust tf
-        when clamp
-            setTextureClampST
+            liftIO . setTextureFiltering $ fromJust tf
+        when clamp $
+            liftIO setTextureClampST
         -- Call raw API MIP-map generation function, could also use
         --
         -- GL.generateMipmap GL.Texture2D GL.$= GL.Enabled
@@ -209,8 +210,11 @@ newTexture2D fmt ifmt dtype (w, h) tc genMipMap tf clamp = do
         --     (fromIntegral h)
         --     (GL.PixelData GL.RGBA GL.UnsignedByte ptr)
         --
-        when genMipMap $ GLR.glGenerateMipmap GLR.gl_TEXTURE_2D
+        when genMipMap . liftIO $ GLR.glGenerateMipmap GLR.gl_TEXTURE_2D
         return tex
+  case r of
+      Left err -> traceS TLError err >> return (GL.TextureObject 0)
+      Right t  -> return t
 
 saveTextureToPNG :: GL.TextureObject
                  -> GL.PixelFormat
