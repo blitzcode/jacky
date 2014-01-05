@@ -44,16 +44,17 @@ import QuadRendering
 -- TODO: Shouldn't the Env / State records have all strict fields?
 
 data Env = Env
-    { envWindow              :: GLFW.Window
-    , envGLFWEventsQueue     :: TQueue GLFWEvent
-    , envSMQueue             :: TBQueue StreamMessage
-    , envImageCache          :: ImageCache
-    , envTextureCache        :: TextureCache
-    , envTweetHistSize       :: Int
-    , envStatTraceInterval   :: Double
-    , envDumpFT2AtlasOnTrace :: Bool
-    , envFontRenderer        :: FontRenderer
-    , envQuadRenderer        :: QuadRenderer
+    { envWindow                  :: GLFW.Window
+    , envGLFWEventsQueue         :: TQueue GLFWEvent
+    , envSMQueue                 :: TBQueue StreamMessage
+    , envImageCache              :: ImageCache
+    , envTextureCache            :: TextureCache
+    , envTweetHistSize           :: Int
+    , envStatTraceInterval       :: Double
+    , envDumpFT2AtlasOnTrace     :: Bool
+    , envDumpTexCacheGridOnTrace :: Bool
+    , envFontRenderer            :: FontRenderer
+    , envQuadRenderer            :: QuadRenderer
     }
 
 data State = State
@@ -281,8 +282,9 @@ traceStats = do
             frStats        <- liftIO $ FontRendering.gatherCacheStats envFontRenderer
             qrStats        <- liftIO $ gatherRenderStats              envQuadRenderer
             GCStats { .. } <- liftIO $ getGCStats
-            -- Debug: write font renderer texture atlas textures to disk
-            when envDumpFT2AtlasOnTrace $ liftIO $ debugDumpAtlas envFontRenderer "."
+            -- Debug: write textures to disk
+            when envDumpFT2AtlasOnTrace     $ liftIO $ debugDumpAtlas envFontRenderer "."
+            when envDumpTexCacheGridOnTrace $ liftIO $ debugDumpGrid  envTextureCache "."
             let frameTimes       = takeWhile (\x -> stCurTick - x < envStatTraceInterval) .
                                        BS.toList $ stFrameTimes
                 frameDeltas      = case frameTimes of (x:xs) -> goFD x xs; _ -> []

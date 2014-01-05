@@ -267,31 +267,32 @@ main = do
                       -- Setup reader and state for main AppDraw monad
                       stCurTick <- getTick
                       let envInit = Env
-                              { envTweetHistSize       = foldr (\f r -> case f of
-                                                                  FlagTweetHistory n ->
-                                                                      fromMaybe r $ parseMaybe n
-                                                                  _ -> r)
-                                                               defTweetHistory flags
-                              , envStatTraceInterval   = foldr (\f r -> case f of
-                                                                  FlagStatTraceInterval n ->
-                                                                      fromMaybe r $ parseMaybe n
-                                                                  _ -> r)
-                                                               defStatTraceInterval flags
-                              , envDumpFT2AtlasOnTrace = FlagDumpFT2AtlasOnTrace `elem` flags
-                              , ..
-                              }
+                            { envTweetHistSize           = foldr (\f r -> case f of
+                                                                    FlagTweetHistory n ->
+                                                                        fromMaybe r $ parseMaybe n
+                                                                    _ -> r)
+                                                                 defTweetHistory flags
+                            , envStatTraceInterval       = foldr (\f r -> case f of
+                                                                    FlagStatTraceInterval n ->
+                                                                        fromMaybe r $ parseMaybe n
+                                                                    _ -> r)
+                                                                 defStatTraceInterval flags
+                            , envDumpFT2AtlasOnTrace     = FlagDumpFT2AtlasOnTrace     `elem` flags
+                            , envDumpTexCacheGridOnTrace = FlagDumpTexCacheGridOnTrace `elem` flags
+                            , ..
+                            }
                           stateInit = State
-                              { stTweetByID          = M.empty
-                              , stUILayoutRects      = []
-                              , stFrameTimes         = -- FPS History for stat trace interval
-                                                       BS.empty . round $
-                                                           60 * envStatTraceInterval envInit
-                              , stLastStatTrace      = stCurTick
-                              , stStatTweetsReceived = 0
-                              , stStatDelsReceived   = 0
-                              , stStatBytesRecvAPI   = 0
-                              , ..
-                              }
+                            { stTweetByID          = M.empty
+                            , stUILayoutRects      = []
+                            , stFrameTimes         = -- FPS History for stat trace interval
+                                                     BS.empty . round $
+                                                         60 * envStatTraceInterval envInit
+                            , stLastStatTrace      = stCurTick
+                            , stStatTweetsReceived = 0
+                            , stStatDelsReceived   = 0
+                            , stStatBytesRecvAPI   = 0
+                            , ..
+                            }
                       -- Enter main loop
                       void . flip runReaderT envInit . flip runStateT stateInit $ run
       traceS TLInfo "Clean Exit"

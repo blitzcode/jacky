@@ -34,6 +34,7 @@ data Flag = FlagOAuthFile String
           | FlagDisableKern
           | FlagQuadRBSize String
           | FlagDumpFT2AtlasOnTrace
+          | FlagDumpTexCacheGridOnTrace
             deriving (Eq, Show)
 
 defLogFolder, defImageCacheFolder, defTraceFn :: String
@@ -180,6 +181,10 @@ parseCmdLineOpt = do
                            ["dump-ft2-atlas-on-trace"]
                            (NoArg FlagDumpFT2AtlasOnTrace)
                            "dump the FreeType 2 texture atlas every trace interval"
+                  , Option []
+                           ["dump-texcache-grid-on-trace"]
+                           (NoArg FlagDumpTexCacheGridOnTrace)
+                           "dump the texture cache texture grid every trace interval"
                   , Option ['h']
                            ["help"]
                            (NoArg FlagHelp)

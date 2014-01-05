@@ -5,6 +5,8 @@ module TextureCache ( withTextureCache
                     , TextureCache
                     , TextureCache.fetchImage
                     , TextureCache.gatherCacheStats
+                      -- Wrap TextureGrid exports
+                    , debugDumpGrid
                     ) where
 
 import qualified Graphics.Rendering.OpenGL as GL
@@ -19,27 +21,28 @@ import ImageCache
 import qualified LRUBoundedMap as LBM
 import Trace
 import GLHelpers
-import TextureGrid
+import qualified TextureGrid as TG
 
 -- OpenGL texture cache on top of the ImageCache module
 
-data TextureCache = TextureCache { tcCacheEntries :: IORef (LBM.Map B.ByteString GL.TextureObject)
-                                 , tcImageCache   :: ImageCache
-                                 , tcTexGrid      :: TextureGrid
-                                 }
+data TextureCache = TextureCache
+    { tcCacheEntries :: !(IORef (LBM.Map B.ByteString GL.TextureObject))
+    , tcImageCache   :: !ImageCache
+    , tcTexGrid      :: !TG.TextureGrid
+    }
 
 withTextureCache :: Int -> ImageCache -> (TextureCache -> IO ()) -> IO ()
 withTextureCache maxCacheEntries tcImageCache f = do
     -- TODO: Don't hardcode all these parameters, make them arguments of withTextureCache
-    withTextureGrid 512
-                    1
-                    (128, 128)
-                    GL.RGBA
-                    GL.RGBA8
-                    GL.UnsignedByte
-                    (0 :: Word32)
-                    TFMinMag
-                    $ \tcTexGrid ->
+    TG.withTextureGrid 512
+                       1
+                       (128, 128)
+                       GL.RGBA
+                       GL.RGBA8
+                       GL.UnsignedByte
+                       (0 :: Word32)
+                       TFMinMag
+                       $ \tcTexGrid ->
       bracket
           ( newIORef (LBM.empty maxCacheEntries) >>= \tcCacheEntries ->
                 return $ TextureCache { .. }
@@ -109,7 +112,7 @@ gatherCacheStats tc = do
               (0, 0, 0)
               dir
     (numGridTex, numFreeSlots, gridTexWdh, (slotWdh, slotHgt), ifmt)
-        <- getGridMemoryUsage $ tcTexGrid tc
+        <- TG.getGridMemoryUsage $ tcTexGrid tc
     return $ printf ( "Dir. Capacity: %i/%i · MemImg: %3.fMB · LargestImg: %ix%i | " ++
                       "GridTex: %i x %ix%ix%s · %ix%i slots (free: %i)"
                     )
@@ -124,4 +127,7 @@ gatherCacheStats tc = do
                     slotWdh
                     slotHgt
                     numFreeSlots
+
+debugDumpGrid :: TextureCache -> FilePath -> IO ()
+debugDumpGrid tc = TG.debugDumpGrid (tcTexGrid tc)
 
