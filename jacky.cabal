@@ -51,6 +51,7 @@ executable jacky
                     , ExistentialQuantification
                     , NamedFieldPuns
                     , ViewPatterns
+                    , TupleSections
   build-depends:      base                 >=4.6
                     , containers           >=0.5
                     , attoparsec           >=0.10

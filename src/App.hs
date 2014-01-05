@@ -93,20 +93,23 @@ draw = do
             fill (FCBottomTopGradient (RGBA 0.2 0.2 0.2 1) (RGBA 0.4 0.4 1 1))
                  TRNone
                  Nothing
+                 QuadUVDefault
             layer $
                 split SBottom 16
-                    ( fill FCWhite (TRBlend 0.5) Nothing
+                    ( fill FCWhite (TRBlend 0.5) Nothing QuadUVDefault
                     )
                     ( split STop 100
-                          ( fill FCWhite (TRBlend 0.5) Nothing
+                          ( fill FCWhite (TRBlend 0.5) Nothing QuadUVDefault
                           )
                           ( do drawAvatarTiles
                                layer $
                                    fontRenderingTest
                                center 200 100 $
                                    layer $
-                                       fill (FCSolid $ RGBA 0 1 0 1) (TRBlend 0.75) Nothing
-                               return ()
+                                       fill (FCSolid $ RGBA 0 1 0 1)
+                                            (TRBlend 0.75)
+                                            Nothing
+                                            QuadUVDefault
                           )
                     )
 
@@ -167,7 +170,7 @@ drawAvatarTiles = do
     forM_ (zip tiles (M.toDescList tweets)) $ \((cx, cy, cw, ch), (_, tw)) -> do
         ce <- liftIO $ TextureCache.fetchImage tc tick (usrProfileImageURL . twUser $ tw)
         case ce of
-            Just tex -> do
+            Just (tex, u0, v0, u1, v1) -> do
                 {-
                 (w, h) <- getCurTex2DSize
 
@@ -180,10 +183,10 @@ drawAvatarTiles = do
                 -}
                 frame (rectFromXYWH (fromIntegral cx) (fromIntegral cy)
                                     (fromIntegral cw) (fromIntegral ch)
-                      ) $ fill FCWhite TRNone (Just tex)
+                      ) . fill FCWhite TRNone (Just tex) $ QuadUV u0 v0 u1 v1
             _ -> frame (rectFromXYWH (fromIntegral cx) (fromIntegral cy)
                                      (fromIntegral cw) (fromIntegral ch)
-                       ) $ fill (FCSolid (RGBA 1 0 1 1)) TRNone Nothing
+                       ) $ fill (FCSolid (RGBA 1 0 1 1)) TRNone Nothing QuadUVDefault
 
 -- Process all available events in both bounded and unbounded STM queues
 processAllEvents :: (MonadIO m) => Either (TQueue a) (TBQueue a) -> (a -> m ()) -> m ()

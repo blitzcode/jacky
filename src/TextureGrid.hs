@@ -12,6 +12,7 @@ module TextureGrid ( TextureGrid
                    , freeSlot
                    , GridSlotView(..)
                    , GridSlot
+                   , viewGridSlot
                    ) where
 
 import qualified Graphics.Rendering.OpenGL as GL
@@ -56,7 +57,9 @@ data GridSlotView = GridSlot !GL.TextureObject
                              !Int   !Int   -- Texel XY
                              !Float !Float -- UV Bottom Left
                              !Float !Float -- UV Top Right
+                    deriving (Eq)
 newtype GridSlot = GridSlotC { viewGridSlot :: GridSlotView }
+                   deriving (Eq)
 
 withTextureGrid :: Storable texel
                 => Int

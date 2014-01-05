@@ -164,8 +164,9 @@ fill :: MonadIO m
      => FillColor
      -> Transparency
      -> Maybe GL.TextureObject
+     -> QuadUV
      -> UIT m ()
-fill col trans tex = do
+fill col trans tex uv = do
     UIState { .. } <- ask
     liftIO $
         -- drawQuadAdHocVBOShader
@@ -179,7 +180,7 @@ fill col trans tex = do
                  col
                  trans
                  tex
-                 QuadUVDefault
+                 uv
 
 text :: MonadIO m
      => FontRenderer -- TODO: Keep font renderer inside the UI state?
