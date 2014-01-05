@@ -293,17 +293,20 @@ traceStats = do
                 fdBest           = case frameDeltas of [] -> 0; xs -> minimum xs
                 bytesToMB n      = fromIntegral n / 1024.0 / 1024.0 :: Double
             liftIO . traceS TLInfo $ printf
-                (    "Image Cache    - %s\nTexture Cache  - %-64s"
-                  ++ "Font Rendering - %s\nQuad Rendering - %-64s"
-                  ++ "Frametimes     - "
+                (    "Font Rendering - %-69s"
+                  ++ "Messages Total - SMTweet: %i | SMDelete: %i | Netw. Recv.: %.3fMB\n"
+                  ++ "Quad Rendering - %-69sFrametimes     - "
                   ++ "Mean: %.1fFPS/%.1fms | Worst: %.1fFPS/%.1fms | Best: %.1fFPS/%.1fms\n"
                   ++ "GC             - maxUsed: %.2fMB · curUsed: %.2fMB · peakAlloc: %iMB | "
                   ++ "mutCPU: %.2fs · mutWall: %.2fs · gcCPU: %.2fs · "
                   ++ "gcWall: %.2fs · cpu: %.2fs · wall: %.2fs\n"
-                  ++ "Messages Total - SMTweet: %i | SMDelete: %i | Netw. Recv.: %.3fMB\n"
+                  ++ "Image Cache    - %s\nTexture Cache  - %s"
                 )
-                icStats tcStats
-                frStats qrStats
+                frStats
+                stStatTweetsReceived
+                stStatDelsReceived
+                (fromIntegral stStatBytesRecvAPI / 1024 / 1024 :: Double)
+                qrStats
                 (1.0 / fdMean ) (fdMean  * 1000)
                 (1.0 / fdWorst) (fdWorst * 1000)
                 (1.0 / fdBest ) (fdBest  * 1000)
@@ -316,9 +319,8 @@ traceStats = do
                 gcWallSeconds
                 cpuSeconds
                 wallSeconds
-                stStatTweetsReceived
-                stStatDelsReceived
-                (fromIntegral stStatBytesRecvAPI / 1024 / 1024 :: Double)
+                icStats
+                tcStats
 
 run :: AppDraw ()
 run = do

@@ -7,10 +7,8 @@
 module TextureGrid ( TextureGrid
                    , withTextureGrid
                    , insertImage
-                   {-
                    , debugDumpGrid
                    , getGridMemoryUsage
-                   -}
                    , freeSlot
                    , GridSlotView(..)
                    , GridSlot
@@ -174,24 +172,31 @@ insertImage tg@(TextureGrid { .. }) w h img = do
 freeSlot :: TextureGrid -> GridSlot -> IO ()
 freeSlot tg slot = modifyIORef' (tgFreeSlots tg) (slot :)
 
-{-
-debugDumpAtlas :: TextureAtlas -> FilePath -> IO ()
-debugDumpAtlas (TextureAtlas { .. }) dir =
+debugDumpGrid :: TextureGrid -> FilePath -> IO ()
+debugDumpGrid (TextureGrid { .. }) dir =
     doesDirectoryExist dir >>= \exists -> when exists $
-        readIORef taTextures >>= \textures ->
-            forM_ (F.toList textures `zip` ([1..] :: [Int])) $ \((_, tex), i) -> do
+        readIORef tgTextures >>= \textures ->
+            forM_ (textures `zip` ([1..] :: [Int])) $ \(tex, i) -> do
                 saveTextureToPNG
                     tex
-                    taFmt
-                    taIFmt
-                    taType
-                    $ dir </> (printf "texture_atlas_%i_of_%i.png" i $ S.length textures)
+                    tgFmt
+                    tgIFmt
+                    tgType
+                    $ dir </> (printf "texture_grid_%i_of_%i.png" i $ length textures)
 
-getAtlasMemoryUsage :: TextureAtlas -> IO ( Int                    -- Number of textures
-                                          , Int                    -- Dimensions
-                                          , GL.PixelInternalFormat -- Format
-                                          )
-getAtlasMemoryUsage (TextureAtlas { .. }) =
-    readIORef taTextures >>= \ts -> return (S.length ts, taTexWdh, taIFmt)
--}
+getGridMemoryUsage :: TextureGrid -> IO ( Int                    -- Number of textures
+                                        , Int                    -- Number of free slots
+                                        , Int                    -- Texture dimensions
+                                        , (Int, Int)             -- Slot dimensions
+                                        , GL.PixelInternalFormat -- Format
+                                        )
+getGridMemoryUsage (TextureGrid { .. }) = do
+    textures  <- readIORef tgTextures
+    freeSlots <- readIORef tgFreeSlots
+    return ( length textures
+           , length freeSlots
+           , tgTexWdh
+           , (tgMaxImgWdh, tgMaxImgHgt)
+           , tgIFmt
+           )
 

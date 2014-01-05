@@ -108,10 +108,20 @@ gatherCacheStats tc = do
               )
               (0, 0, 0)
               dir
-    return $ printf "Dir. Capacity: %i/%i | Mem: %3.fMB | Largest Image: %ix%i"
+    (numGridTex, numFreeSlots, gridTexWdh, (slotWdh, slotHgt), ifmt)
+        <- getGridMemoryUsage $ tcTexGrid tc
+    return $ printf ( "Dir. Capacity: %i/%i · MemImg: %3.fMB · LargestImg: %ix%i | " ++
+                      "GridTex: %i x %ix%ix%s · %ix%i slots (free: %i)"
+                    )
                     (fst $ LBM.size cache)
                     (snd $ LBM.size cache)
                     (fromIntegral mem / 1024 / 1024 :: Double)
                     maxWdh
                     maxHgt
+                    numGridTex
+                    gridTexWdh gridTexWdh
+                    (show ifmt)
+                    slotWdh
+                    slotHgt
+                    numFreeSlots
 
