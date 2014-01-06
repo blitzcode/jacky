@@ -10,13 +10,14 @@ module QuadRendering ( withQuadRenderer
                      , withQuadRenderBuffer
                      , QuadRenderBuffer
                      , drawQuad
-                     , QuadUV(..)
                      , gatherRenderStats
                        -- Re-exports from GLHelpers
                      , Transparency(..)
-                       -- Re-exports from QuadRenderingAdHoc
+                       -- Re-exports from QuadTypes
                      , RGBA(..)
                      , FillColor(..)
+                     , QuadUV(..)
+                       -- Re-exports from QuadRenderingAdHoc
                      , drawQuadImmediate
                      , drawQuadAdHocVBO
                      , drawQuadAdHocVBOShader
@@ -43,6 +44,7 @@ import Text.Printf
 import Trace
 import GLHelpers
 import Shaders
+import QuadTypes
 import QuadRenderingAdHoc
 
 -- Module for efficient rendering of 2D quad primitives, used for UI elements and texture
@@ -319,13 +321,6 @@ fillEBO maxTri attribs = do
       ( \mf -> do traceS TLError $ "drawRenderBuffer - EBO mapping failure: " ++ show mf
                   return False
       )
-
-data QuadUV = QuadUVDefault
-            | QuadUV {-# UNPACK #-} !Float -- UV Bottom Left
-                     {-# UNPACK #-} !Float
-                     {-# UNPACK #-} !Float -- UV Top Right
-                     {-# UNPACK #-} !Float
-              deriving (Eq, Show)
 
 -- Record all data to render the specified quad into the passed render buffer
 drawQuad :: QuadRenderBuffer

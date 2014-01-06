@@ -1,9 +1,7 @@
 
 {-# LANGUAGE RecordWildCards, LambdaCase #-}
 
-module QuadRenderingAdHoc ( RGBA(..)
-                          , FillColor(..)
-                          , drawQuadImmediate
+module QuadRenderingAdHoc ( drawQuadImmediate
                           , drawQuadAdHocVBO
                           , drawQuadAdHocVBOShader
                           ) where
@@ -21,6 +19,7 @@ import GLHelpers
 import GLImmediate
 import Shaders
 import Trace
+import QuadTypes
 
 -- Inefficient / obsolete (just used for testing / development) immediate mode and ad-hoc
 -- drawing functions. QuadRendering re-exports everything from here, this only exists to
@@ -32,20 +31,6 @@ import Trace
 -- https://github.com/ocharles/blog/blob/master/code/2013-12-02-linear-example.hs
 -- http://www.arcadianvisions.com/blog/?p=224
 -- https://github.com/haskell-opengl/GLUT/blob/master/examples/Misc/SmoothOpenGL3.hs
-
-data RGBA = RGBA {-# UNPACK #-} !Float
-                 {-# UNPACK #-} !Float
-                 {-# UNPACK #-} !Float
-                 {-# UNPACK #-} !Float
-                 deriving (Eq, Show)
-
-data FillColor = FCWhite
-               | FCBlack
-               | FCSolid !RGBA
-               | FCBottomTopGradient !RGBA !RGBA
-               | FCLeftRightGradient !RGBA !RGBA
-               deriving (Eq, Show)
-
 
 drawQuadImmediate, drawQuadAdHocVBO, drawQuadAdHocVBOShader
     :: Float -> Float -> Float -> Float

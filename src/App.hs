@@ -101,7 +101,7 @@ draw = do
                     ( split STop 100
                           ( fill FCWhite (TRBlend 0.5) Nothing QuadUVDefault
                           )
-                          ( do drawAvatarTiles
+                          ( do --drawAvatarTiles
                                layer $
                                    fontRenderingTest
                                center 200 100 $
@@ -170,7 +170,7 @@ drawAvatarTiles = do
     forM_ (zip tiles (M.toDescList tweets)) $ \((cx, cy, cw, ch), (_, tw)) -> do
         ce <- liftIO $ TextureCache.fetchImage tc tick (usrProfileImageURL . twUser $ tw)
         case ce of
-            Just (tex, u0, v0, u1, v1) -> do
+            Just (tex, uv) -> do
                 {-
                 (w, h) <- getCurTex2DSize
 
@@ -183,7 +183,7 @@ drawAvatarTiles = do
                 -}
                 frame (rectFromXYWH (fromIntegral cx) (fromIntegral cy)
                                     (fromIntegral cw) (fromIntegral ch)
-                      ) . fill FCWhite TRNone (Just tex) $ QuadUV u0 v0 u1 v1
+                      ) $ fill FCWhite TRNone (Just tex) uv
             _ -> frame (rectFromXYWH (fromIntegral cx) (fromIntegral cy)
                                      (fromIntegral cw) (fromIntegral ch)
                        ) $ fill (FCSolid (RGBA 1 0 1 1)) TRNone Nothing QuadUVDefault

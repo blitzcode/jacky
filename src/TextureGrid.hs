@@ -13,6 +13,8 @@ module TextureGrid ( TextureGrid
                    , GridSlotView(..)
                    , GridSlot
                    , viewGridSlot
+                     -- Re-exports from QuadTypes
+                   , QuadUV(..)
                    ) where
 
 import qualified Graphics.Rendering.OpenGL as GL
@@ -29,6 +31,7 @@ import Text.Printf
 
 import GLHelpers
 import Trace
+import QuadTypes (QuadUV(..))
 
 -- Pack multiple rectangular images into a set of OpenGL textures. Unlike TextureAtlas,
 -- this module supports deletion of inserted images, but only packs them into a regular
@@ -54,9 +57,8 @@ data TextureGrid = forall texel. Storable texel => TextureGrid
 
 -- Use view patterns to prevent outside construction of GridSlots
 data GridSlotView = GridSlot !GL.TextureObject
-                             !Int   !Int   -- Texel XY
-                             !Float !Float -- UV Bottom Left
-                             !Float !Float -- UV Top Right
+                             !Int !Int -- Texel XY
+                             !QuadUV
                     deriving (Eq)
 newtype GridSlot = GridSlotC { viewGridSlot :: GridSlotView }
                    deriving (Eq)
@@ -113,10 +115,10 @@ takeFreeSlot (TextureGrid { .. }) = do
                                   tex
                                   x
                                   y
-                                  (fromIntegral (x + tgBorder    ) / tw)
-                                  (fromIntegral (y + tgBorder    ) / tw)
-                                  (fromIntegral (x + tgBorder + tgMaxImgWdh) / tw)
-                                  (fromIntegral (y + tgBorder + tgMaxImgHgt) / tw)
+                                  $ QuadUV (fromIntegral (x + tgBorder    ) / tw          )
+                                           (fromIntegral (y + tgBorder    ) / tw          )
+                                           (fromIntegral (x + tgBorder + tgMaxImgWdh) / tw)
+                                           (fromIntegral (y + tgBorder + tgMaxImgHgt) / tw)
                             | y <- [0..(tgTexWdh `div` hb - 1)]
                             , x <- [0..(tgTexWdh `div` wb - 1)]
                             ]
@@ -143,7 +145,7 @@ insertImage tg@(TextureGrid { .. }) w h img = do
         traceAndThrow "insertImage - Image vector size mismatch"
     when (sizeOf (img VS.! 0) /= texelSize tgIFmt) $
         traceAndThrow "insertImage - Texel size mismatch"
-    slot@(viewGridSlot -> GridSlot tex x y _ _ _ _) <- takeFreeSlot tg
+    slot@(viewGridSlot -> GridSlot tex x y _) <- takeFreeSlot tg
     -- Upload texture data (TODO: Make upload asynchronous using PBOs)
     GL.textureBinding GL.Texture2D GL.$= Just tex
     GL.rowAlignment GL.Unpack GL.$= 1

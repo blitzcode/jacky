@@ -51,15 +51,16 @@ data FontRenderer = FontRenderer
 withFontRenderer :: Bool -> Bool -> Bool -> (FontRenderer -> IO a) -> IO a
 withFontRenderer frDefForceAutohint frDefDisableKern frUseTexAtlas f =
     FT2.withFT2 $ \frFT2 -> -- We initialize our own FT2 library
-      TA.withTextureAtlas 512
-                          1
-                          GL.Alpha
-                          GL.Alpha8
-                          GL.UnsignedByte
-                          (0 :: Word8)
-                          TFMinMag
-                          $ \frTexAtlas ->
-        bracket ( do frGlyphCache <- newIORef HM.empty
+        TA.withTextureAtlas 512
+                              1
+                              GL.Alpha
+                              GL.Alpha8
+                              GL.UnsignedByte
+                              (0 :: Word8)
+                              TFMinMag
+                              $ \frTexAtlas ->
+            bracket
+                ( do frGlyphCache <- newIORef HM.empty
                      frKernCache  <- newIORef HM.empty
                      return FontRenderer { .. }
                 )
@@ -146,13 +147,13 @@ stringToGlyphs (FontRenderer { .. }) face string = do
                                         return $ GlyphCacheEntry
                                             c metrics (GL.TextureObject 0) QuadUVDefault
                                   | frUseTexAtlas -> do -- Insert into texture atlas
-                                        (tex, u0, v0, u1, v1) <-
+                                        (tex, uv) <-
                                             TA.insertImage frTexAtlas
                                                            gWidth
                                                            gHeight
                                                            bitmap
-                                        return . GlyphCacheEntry
-                                            c metrics tex $ QuadUV u0 v0 u1 v1
+                                        return $ GlyphCacheEntry
+                                            c metrics tex uv
                                   | otherwise -> do -- Make new texture
                                         tex <- newTexture2D GL.Alpha
                                                             GL.Alpha8
@@ -211,7 +212,7 @@ drawText fr qb x y face string =
         ) (fromIntegral x, toEnum 0) . reverse
 
 -- Very basic and slow text rendering. Have FT2 render all the glyphs and draw them
--- directly using glDrawPixels
+-- directly using glDrawPixels. Does not use the glyph cache
 drawTextBitmap :: Int -> Int -> FT2.Typeface -> String -> IO ()
 drawTextBitmap x y face string = do
     -- Our pixels are 8 bit, might not conform to the default 32 bit alignment

@@ -6,6 +6,8 @@ module TextureAtlas ( TextureAtlas
                     , insertImage
                     , debugDumpAtlas
                     , getAtlasMemoryUsage
+                      -- Re-exports from QuadTypes
+                    , QuadUV(..)
                     ) where
 
 import qualified Graphics.Rendering.OpenGL as GL
@@ -24,6 +26,7 @@ import Text.Printf
 import GLHelpers
 import qualified RectPacker as RP
 import Trace
+import QuadTypes (QuadUV(..))
 
 -- Pack multiple rectangular images into a set of OpenGL textures. Consider using
 -- the simpler / faster TextureGrid if the images are very similar in size
@@ -70,10 +73,7 @@ insertImage :: Storable texel
             --       the data needs to be in a vector, plus we can't use multi-component
             --       texels right now (3x Float, etc.)
             -> VS.Vector texel
-            -> IO ( GL.TextureObject -- Texture we inserted into
-                  , Float, Float     -- UV Bottom Left
-                  , Float, Float     -- UV Top Right
-                  )
+            -> IO (GL.TextureObject, QuadUV)
 insertImage (TextureAtlas { .. }) w h img = do
     -- Check image format
     when (w * h /= VS.length img) $
@@ -146,12 +146,12 @@ insertImage (TextureAtlas { .. }) w h img = do
     GLR.glGenerateMipmap GLR.gl_TEXTURE_2D
     -- Compute UV coordinates and return
     let tw = fromIntegral taTexWdh
-     in return ( tex
-               , fromIntegral (texX + taBorder    ) / tw
-               , fromIntegral (texY + taBorder    ) / tw
-               , fromIntegral (texX + taBorder + w) / tw
-               , fromIntegral (texY + taBorder + h) / tw
-               )
+     in return $ ( tex
+                 , QuadUV (fromIntegral (texX + taBorder    ) / tw)
+                          (fromIntegral (texY + taBorder    ) / tw)
+                          (fromIntegral (texX + taBorder + w) / tw)
+                          (fromIntegral (texY + taBorder + h) / tw)
+                 )
 
 debugDumpAtlas :: TextureAtlas -> FilePath -> IO ()
 debugDumpAtlas (TextureAtlas { .. }) dir =

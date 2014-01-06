@@ -1,5 +1,5 @@
 
-{-# LANGUAGE OverloadedStrings, RecordWildCards, ViewPatterns, TupleSections, LambdaCase #-}
+{-# LANGUAGE OverloadedStrings, RecordWildCards, ViewPatterns, LambdaCase #-}
 
 module TextureCache ( withTextureCache
                     , TextureCache
@@ -7,6 +7,8 @@ module TextureCache ( withTextureCache
                     , TextureCache.gatherCacheStats
                       -- Wrap TextureGrid exports
                     , debugDumpGrid
+                      -- Re-exports from QuadTypes
+                    , QuadUV(..)
                     ) where
 
 import qualified Graphics.Rendering.OpenGL as GL
@@ -22,6 +24,7 @@ import qualified LRUBoundedMap as LBM
 import Trace
 import GLHelpers
 import qualified TextureGrid as TG
+import QuadTypes
 
 -- OpenGL texture cache on top of the ImageCache module
 
@@ -47,28 +50,21 @@ withTextureCache maxCacheEntries tcImageCache f = do
                        (0 :: Word32)
                        TFMinMag
                        $ \tcTexGrid ->
-      bracket
-          ( newIORef (LBM.empty maxCacheEntries) >>= \tcCacheEntries ->
-                return $ TextureCache { .. }
-          )
-          ( \tc -> do
-               cacheEntries <- readIORef $ tcCacheEntries tc
-               case LBM.valid cacheEntries of
-                   Just err -> traceS TLError $ "LRUBoundedMap: TextureCache:\n" ++ err
-                   Nothing  -> return ()
-               -- Shutdown
-               traceT TLInfo $ "Shutting down texture cache"
-               mapM_ (\case TETexture tex -> GL.deleteObjectName tex; _ -> return ())
-                . map snd . LBM.toList $ cacheEntries
-          )
-          f
--- @@@
---
--- TODO: Fix this QuadUV thing, don't store the UVs in different ways all over the place,
---       don't use (0, 0, 1, 1) when we really mean QuadUVDefault, still avoid creating a
---       dependency on QuadRendering just for the QuadUV type
---
--- @@@
+        bracket
+            ( newIORef (LBM.empty maxCacheEntries) >>= \tcCacheEntries ->
+                  return $ TextureCache { .. }
+            )
+            ( \tc -> do
+                 cacheEntries <- readIORef $ tcCacheEntries tc
+                 case LBM.valid cacheEntries of
+                     Just err -> traceS TLError $ "LRUBoundedMap: TextureCache:\n" ++ err
+                     Nothing  -> return ()
+                 -- Shutdown
+                 traceT TLInfo $ "Shutting down texture cache"
+                 mapM_ (\case TETexture tex -> GL.deleteObjectName tex; _ -> return ())
+                  . map snd . LBM.toList $ cacheEntries
+            )
+            f
 
 -- Fetch an image from the texture cache, or forward the request to the image
 -- cache in case we don't have it. We need the tick for the image cache (keep
@@ -81,20 +77,16 @@ withTextureCache maxCacheEntries tcImageCache f = do
 fetchImage :: TextureCache
            -> Double
            -> B.ByteString
-           -> IO ( Maybe ( GL.TextureObject -- Texture we inserted into
-                         , Float, Float     -- UV Bottom Left
-                         , Float, Float     -- UV Top Right
-                         )
-                 )      
+           -> IO (Maybe (GL.TextureObject, QuadUV))
 fetchImage (TextureCache { .. }) tick uri = do
     cacheEntries <- readIORef tcCacheEntries
     case LBM.lookup uri cacheEntries of
         (newEntries, Just (TETexture tex)) -> do
             writeCache newEntries
-            return $ resDefaultUV tex
-        (newEntries, Just (TEGrid (TG.viewGridSlot -> TG.GridSlot tex _ _ u0 v0 u1 v1))) -> do
+            return $ Just (tex, QuadUVDefault)
+        (newEntries, Just (TEGrid (TG.viewGridSlot -> TG.GridSlot tex _ _ uv))) -> do
             writeCache newEntries
-            return $ Just (tex, u0, v0, u1, v1)
+            return $ Just (tex, uv)
         (_,          Nothing ) -> do
             hicFetch <- ImageCache.fetchImage tcImageCache tick uri
             case hicFetch of
@@ -123,10 +115,9 @@ fetchImage (TextureCache { .. }) tick uri = do
                     deleteImage tcImageCache uri
                     -- Write back the cache directory and return
                     writeCache newEntries
-                    return $ Just (tex, 0, 0, 1, 1)
+                    return $ Just (tex, QuadUVDefault)
                 _ -> return Nothing
     where writeCache   = writeIORef tcCacheEntries
-          resDefaultUV = Just . (, 0, 0, 1, 1)
 
 gatherCacheStats :: TextureCache -> IO String
 gatherCacheStats tc = do

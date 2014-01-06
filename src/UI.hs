@@ -30,7 +30,6 @@ import qualified "GLFW-b" Graphics.UI.GLFW as GLFW
 import Data.Tuple
 
 import QuadRendering
---import StateModify
 import FontRendering
 
 -- Drawing, layout and event handling for the user interface
@@ -53,6 +52,7 @@ import FontRendering
 --
 -- TODO: Can we reuse or cache the UI structure build up instead of completely redoing it
 --       every frame?
+
 data Rectangle = Rectangle { rcX1 :: !Float
                            , rcY1 :: !Float
                            , rcX2 :: !Float
