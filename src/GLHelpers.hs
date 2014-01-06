@@ -233,7 +233,7 @@ saveTextureToPNG tex fmt ifmt dtype fn = do
                 VSM.unsafeWith img $
                     GL.getTexImage GL.Texture2D 0 . GL.PixelData fmt dtype
                 JP.savePngImage fn . JP.ImageY8 . flipImage . JP.Image w h =<< VS.freeze img
-        4 -> -- Assume RGBA (TODO: Did not test this variant)
+        4 -> -- Assume RGBA
              do img <- VSM.new $ w * h * 4 :: IO (VSM.IOVector JP.Pixel8)
                 VSM.unsafeWith img $
                     GL.getTexImage GL.Texture2D 0 . GL.PixelData fmt dtype
