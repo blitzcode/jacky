@@ -102,8 +102,9 @@ draw = do
                     )
                     ( split STop 100
                           ( do fill FCWhite (TRBlend 0.5) Nothing QuadUVDefault
-                               layer $
-                                   text fr arial tweetText
+                               center 1000 50 $
+                                   layer $
+                                       text fr arial tweetText
                           )
                           ( do drawAvatarTiles
                                layer $

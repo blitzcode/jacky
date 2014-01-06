@@ -115,14 +115,14 @@ split side pos near far = do
 center :: Monad m => Float -> Float -> UIT m a -> UIT m a
 center w h f = do
     (Rectangle x1 y1 x2 y2) <- asks uisRect
-    let centerX = (x2 - x1) / 2
-        centerY = (y2 - y1) / 2
+    let centerX = x1 + (x2 - x1) / 2
+        centerY = y1 + (y2 - y1) / 2
         halfW   = w / 2
         halfH   = h / 2
-    frameAbsolute (Rectangle (centerX - halfW)
-                             (centerY - halfH)
-                             (centerX + halfW)
-                             (centerY + halfH)
+    frameAbsolute ( Rectangle (centerX - halfW)
+                              (centerY - halfH)
+                              (centerX + halfW)
+                              (centerY + halfH)
                   )
                   f
 
