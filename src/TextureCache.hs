@@ -132,24 +132,26 @@ fetchImage (TextureCache { .. }) tick uri = do
 gatherCacheStats :: TextureCache -> IO String
 gatherCacheStats tc = do
     cache <- readIORef $ tcCacheEntries tc
-    let dir = LBM.toList cache
-    (mem, maxWdh, maxHgt) <-
-        foldM ( \r@(mem', maxWdh', maxHgt') (_, entry) -> case entry of
+    let dir    = LBM.toList cache
+        dirLen = snd $ LBM.size cache
+    (mem, maxWdh, maxHgt, texCnt) <-
+        foldM ( \r@(mem', maxWdh', maxHgt', texCnt') (_, entry) -> case entry of
                     TETexture tex -> do
                         GL.textureBinding GL.Texture2D GL.$= Just tex
                         (w, h) <- getCurTex2DSize
-                        return (mem' + w * h * 4, max w maxWdh', max h maxHgt')
+                        return (mem' + w * h * 4, max w maxWdh', max h maxHgt', texCnt' + 1)
                     _ -> return r
               )
-              (0, 0, 0)
+              (0, 0, 0, 0)
               dir
     (numGridTex, numFreeSlots, gridTexWdh, (slotWdh, slotHgt), ifmt)
         <- TG.getGridMemoryUsage $ tcTexGrid tc
-    return $ printf ( "Dir. Capacity: %i/%i · MemImg: %3.fMB · LargestImg: %ix%i | " ++
-                      "GridTex: %i x %ix%ix%s · %ix%i slots (free: %i)"
+    return $ printf ( "Dir. Capacity: %i/%i (%.1f%% slotrefs) · MemImg: %3.fMB" ++
+                      " · LargestImg: %ix%i | GridTex: %i x %ix%ix%s · %ix%i slots (free: %i)"
                     )
                     (fst $ LBM.size cache)
                     (snd $ LBM.size cache)
+                    (fromIntegral ((dirLen - texCnt) * 100) / fromIntegral dirLen :: Float)
                     (fromIntegral mem / 1024 / 1024 :: Double)
                     maxWdh
                     maxHgt
