@@ -33,6 +33,7 @@ data Flag = FlagOAuthFile String
           | FlagForceAutohint
           | FlagDisableKern
           | FlagQuadRBSize String
+          | FlagTexturePackSize String
           | FlagDumpFT2AtlasOnTrace
           | FlagDumpTexCacheGridOnTrace
             deriving (Eq, Show)
@@ -55,6 +56,8 @@ defStatTraceInterval :: Double
 defStatTraceInterval = 10.0
 defQuadRBSize :: Int
 defQuadRBSize = 16384
+defTexturePackSize :: Int
+defTexturePackSize = 512
 
 parseCmdLineOpt :: (MonadError String m, MonadIO m) => m [Flag]
 parseCmdLineOpt = do
@@ -177,6 +180,11 @@ parseCmdLineOpt = do
                            (ReqArg FlagQuadRBSize "NUMBER")
                            ("quad capacity font / UI OpenGL render buf. (default: "
                                ++ show defQuadRBSize ++ ")")
+                  , Option []
+                           ["texture-pack-size"]
+                           (ReqArg FlagTexturePackSize "NUMBER")
+                           ("backing texture size for grid and atlas packing (default: "
+                               ++ show defTexturePackSize ++ ")")
                   , Option []
                            ["dump-ft2-atlas-on-trace"]
                            (NoArg FlagDumpFT2AtlasOnTrace)

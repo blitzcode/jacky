@@ -48,17 +48,17 @@ data FontRenderer = FontRenderer
     , frUseTexAtlas      :: !Bool
     }
 
-withFontRenderer :: Bool -> Bool -> Bool -> (FontRenderer -> IO a) -> IO a
-withFontRenderer frDefForceAutohint frDefDisableKern frUseTexAtlas f =
+withFontRenderer :: Bool -> Bool -> Bool -> Int -> (FontRenderer -> IO a) -> IO a
+withFontRenderer frDefForceAutohint frDefDisableKern frUseTexAtlas atlasTexSize f =
     FT2.withFT2 $ \frFT2 -> -- We initialize our own FT2 library
-        TA.withTextureAtlas 512
-                              1
-                              GL.Alpha
-                              GL.Alpha8
-                              GL.UnsignedByte
-                              (0 :: Word8)
-                              TFMinMag
-                              $ \frTexAtlas ->
+        TA.withTextureAtlas atlasTexSize
+                            1
+                            GL.Alpha
+                            GL.Alpha8
+                            GL.UnsignedByte
+                            (0 :: Word8)
+                            TFMinMag
+                            $ \frTexAtlas ->
             bracket
                 ( do frGlyphCache <- newIORef HM.empty
                      frKernCache  <- newIORef HM.empty

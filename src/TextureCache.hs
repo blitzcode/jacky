@@ -39,10 +39,10 @@ data TextureCache = TextureCache
     , tcTexGrid      :: !TG.TextureGrid
     }
 
-withTextureCache :: Int -> ImageCache -> (TextureCache -> IO ()) -> IO ()
-withTextureCache maxCacheEntries tcImageCache f = do
+withTextureCache :: Int -> Int -> ImageCache -> (TextureCache -> IO ()) -> IO ()
+withTextureCache maxCacheEntries gridTexSize tcImageCache f = do
     -- TODO: Don't hardcode all these parameters, make them arguments of withTextureCache
-    TG.withTextureGrid 512
+    TG.withTextureGrid gridTexSize
                        1
                        (96, 96)
                        GL.RGBA

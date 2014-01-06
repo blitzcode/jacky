@@ -249,16 +249,19 @@ main = do
               envGLFWEventsQueue <- newTQueueIO :: IO (TQueue GLFWEvent)
               let wndWdh = 1280
                   wndHgt = 644
-              withWindow wndWdh wndHgt "Twitter" envGLFWEventsQueue $ \envWindow ->
-                withTextureCache cacheSize envImageCache $ \envTextureCache ->
+               in withWindow wndWdh wndHgt "Twitter" envGLFWEventsQueue $ \envWindow ->
+                let texPackSize = foldr (\f r ->case f of
+                        FlagTexturePackSize n -> fromMaybe r $ parseMaybe n
+                        _ -> r) defTexturePackSize flags
+                in  withTextureCache cacheSize texPackSize envImageCache $ \envTextureCache ->
                   let maxQuad = foldr (\f r -> case f of
-                                                   FlagQuadRBSize n -> fromMaybe r $ parseMaybe n
-                                                   _ -> r
-                                      ) defQuadRBSize flags
+                          FlagQuadRBSize n -> fromMaybe r $ parseMaybe n
+                          _ -> r) defQuadRBSize flags
                   in withQuadRenderer maxQuad $ \envQuadRenderer ->
                     withFontRenderer (FlagForceAutohint `elem` flags)
                                      (FlagDisableKern   `elem` flags)
                                      True -- Use a texture atlas
+                                     texPackSize
                                      $ \envFontRenderer -> do
                       when (FlagFT2Test `elem` flags) $ debugPrintTest envFontRenderer
                       traceSystemInfo envFontRenderer
