@@ -15,6 +15,7 @@ import qualified Graphics.Rendering.OpenGL as GL
 import qualified Data.ByteString as B
 import Control.Exception
 import Control.Monad
+import Control.Applicative
 import Text.Printf
 import Data.IORef
 import Data.Word
@@ -43,7 +44,7 @@ withTextureCache maxCacheEntries tcImageCache f = do
     -- TODO: Don't hardcode all these parameters, make them arguments of withTextureCache
     TG.withTextureGrid 512
                        1
-                       (128, 128)
+                       (96, 96)
                        GL.RGBA
                        GL.RGBA8
                        GL.UnsignedByte
@@ -79,34 +80,41 @@ fetchImage :: TextureCache
            -> B.ByteString
            -> IO (Maybe (GL.TextureObject, QuadUV))
 fetchImage (TextureCache { .. }) tick uri = do
+    -- TODO: Add some exception safety to this function. It's somewhat tricky, as there
+    --       are several data structures being potentially updated (TextureCache, ImageCache
+    --       and TextureGrid) as well as resources being allocated
+    --
+    -- TODO: Might need to limit amount of texture uploads per-frame. We could simply return
+    --       Nothing after a certain amount of ms or MB
     cacheEntries <- readIORef tcCacheEntries
     case LBM.lookup uri cacheEntries of
+        -- Cache hit, texture
         (newEntries, Just (TETexture tex)) -> do
             writeCache newEntries
             return $ Just (tex, QuadUVDefault)
+        -- Cache hit, grid slot
         (newEntries, Just (TEGrid (TG.viewGridSlot -> TG.GridSlot tex _ _ uv))) -> do
             writeCache newEntries
             return $ Just (tex, uv)
-        (_,          Nothing ) -> do
+        -- Cache miss
+        (_, Nothing ) -> do
             hicFetch <- ImageCache.fetchImage tcImageCache tick uri
             case hicFetch of
-                -- TODO: Might need to limit amount of texture uploads per-frame. We could
-                --       simply return Nothing after a certain amount of ms or MB
-                Just (Fetched (ImageRes w h img)) -> {-# SCC textureUpload #-} do
-                    -- TODO: Some exception safety would be nice, but even if we
-                    --       wrap this into a bracketOnError there would still
-                    --       be plenty of spots where an error would leak data
-                    --       or leave a data structure in a bad state
-                    tex <- newTexture2D GL.RGBA
-                                        GL.RGBA8
-                                        GL.UnsignedByte
-                                        (w, h)
-                                        (TCUpload img)
-                                        True
-                                        (Just TFMinMag)
-                                        True
+                Just (Fetched (ImageRes w h img)) -> do
+                    -- Image cache hit. Small enough to insert into grid, or do we need to
+                    -- allocate a texture?
+                    entry <- if TG.isGridSized tcTexGrid w h
+                        then TEGrid    <$> TG.insertImage tcTexGrid w h img
+                        else TETexture <$> newTexture2D GL.RGBA
+                                                        GL.RGBA8
+                                                        GL.UnsignedByte
+                                                        (w, h)
+                                                        (TCUpload img)
+                                                        True
+                                                        (Just TFMinMag)
+                                                        True
                     -- Insert into cache, delete any overflow
-                    let (newEntries, delEntry) = LBM.insert uri (TETexture tex) cacheEntries
+                    let (newEntries, delEntry) = LBM.insert uri entry cacheEntries
                     case delEntry of
                         Just (_, TETexture delTex) -> GL.deleteObjectName delTex
                         Just (_, TEGrid    slot  ) -> TG.freeSlot tcTexGrid slot
@@ -115,9 +123,11 @@ fetchImage (TextureCache { .. }) tick uri = do
                     deleteImage tcImageCache uri
                     -- Write back the cache directory and return
                     writeCache newEntries
-                    return $ Just (tex, QuadUVDefault)
+                    return $ case entry of
+                        TETexture tex -> Just (tex, QuadUVDefault)
+                        TEGrid (TG.viewGridSlot -> TG.GridSlot tex _ _ uv) -> Just (tex, uv)
                 _ -> return Nothing
-    where writeCache   = writeIORef tcCacheEntries
+    where writeCache = writeIORef tcCacheEntries
 
 gatherCacheStats :: TextureCache -> IO String
 gatherCacheStats tc = do

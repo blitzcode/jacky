@@ -14,7 +14,7 @@ import Control.Monad.Reader
 import Control.Monad.State hiding (State)
 import Data.Monoid
 import Data.Int
--- import qualified Data.Text as T
+import qualified Data.Text as T
 import Text.Printf
 import qualified Data.Map.Strict as M
 import qualified Data.ByteString.Char8 as B8
@@ -85,7 +85,9 @@ draw = do
         GL.clear [GL.ColorBuffer, GL.DepthBuffer]
         GL.depthFunc GL.$= Just GL.Lequal
 
-    --tweetText <- (maybe "" (\(tw, _) -> T.unpack $ twText tw) . M.maxView) <$> gets stTweetByID
+    tweetText <- (maybe "" (\(tw, _) -> T.unpack $ twText tw) . M.maxView) <$> gets stTweetByID
+    fr        <- lift $ asks envFontRenderer
+    Just arial<- liftIO $ getLoadedTypeface fr "Arial Unicode MS" 16
     rc        <- liftIO $ rectFromWndFB window
     qr        <- asks envQuadRenderer
     void $ withQuadRenderBuffer qr $ \qb ->
@@ -99,9 +101,11 @@ draw = do
                     ( fill FCWhite (TRBlend 0.5) Nothing QuadUVDefault
                     )
                     ( split STop 100
-                          ( fill FCWhite (TRBlend 0.5) Nothing QuadUVDefault
+                          ( do fill FCWhite (TRBlend 0.5) Nothing QuadUVDefault
+                               layer $
+                                   text fr arial tweetText
                           )
-                          ( do --drawAvatarTiles
+                          ( do drawAvatarTiles
                                layer $
                                    fontRenderingTest
                                center 200 100 $

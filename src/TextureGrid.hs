@@ -10,6 +10,7 @@ module TextureGrid ( TextureGrid
                    , debugDumpGrid
                    , getGridMemoryUsage
                    , freeSlot
+                   , isGridSized
                    , GridSlotView(..)
                    , GridSlot
                    , viewGridSlot
@@ -95,10 +96,17 @@ withTextureGrid tgTexWdh
         ( \tg -> GL.deleteObjectNames =<< readIORef (tgTextures tg) )
 
 -- Take free slot, allocate new texture if we're out
-takeFreeSlot :: TextureGrid -> IO GridSlot
-takeFreeSlot (TextureGrid { .. }) = do
+--
+-- TODO: It's a bit clumsy that we're using the same GridSlot object in our free slot list
+--       and as the return from insertImage. The UV coordinates are really specific to the
+--       inserted image, not the actual slot. It's the reason takeFreeSlot needs to know
+--       about the dimensions of the image about to be inserted into the slot
+--
+takeFreeSlot :: TextureGrid -> Int -> Int -> IO GridSlot
+takeFreeSlot (TextureGrid { .. }) w h = do
     (slot:freeSlots) <- readIORef tgFreeSlots >>= \case
-        [] -> do tex <- newTexture2D tgFmt
+        [] -> do -- Allocate new texture, insert into list
+                 tex <- newTexture2D tgFmt
                                      tgIFmt
                                      tgType
                                      (tgTexWdh, tgTexWdh)
@@ -108,23 +116,31 @@ takeFreeSlot (TextureGrid { .. }) = do
                                      False
                                      (Just tgFiltering)
                                      True
+                 modifyIORef' tgTextures (tex :)
+                 -- Compute slot list for the new texture
                  let wb = tgMaxImgWdh + tgBorder * 2
                      hb = tgMaxImgHgt + tgBorder * 2
                      tw = fromIntegral tgTexWdh
-                  in return [ GridSlotC $ GridSlot
-                                  tex
-                                  x
-                                  y
-                                  $ QuadUV (fromIntegral (x + tgBorder    ) / tw          )
-                                           (fromIntegral (y + tgBorder    ) / tw          )
-                                           (fromIntegral (x + tgBorder + tgMaxImgWdh) / tw)
-                                           (fromIntegral (y + tgBorder + tgMaxImgHgt) / tw)
+                  in return [ let xwb = x * wb + tgBorder
+                                  yhb = y * hb + tgBorder
+                              in  GridSlotC $ GridSlot
+                                      tex
+                                      xwb
+                                      yhb
+                                      $ QuadUV (fromIntegral (xwb    ) / tw)
+                                               (fromIntegral (yhb    ) / tw)
+                                               (fromIntegral (xwb + w) / tw)
+                                               (fromIntegral (yhb + h) / tw)
                             | y <- [0..(tgTexWdh `div` hb - 1)]
                             , x <- [0..(tgTexWdh `div` wb - 1)]
                             ]
         xs -> return xs
     writeIORef tgFreeSlots freeSlots
     return slot
+
+isGridSized :: TextureGrid -> Int -> Int -> Bool
+isGridSized (TextureGrid { .. }) w h | (w > tgMaxImgWdh) || (h > tgMaxImgHgt) = False
+                                     | otherwise                              = True
 
 -- Find / allocate an empty block inside one of the atlas textures and fill it with the
 -- passed image data
@@ -139,13 +155,13 @@ insertImage :: Storable texel
             -> IO GridSlot
 insertImage tg@(TextureGrid { .. }) w h img = do
     -- Check parameters and take a free slot
-    when (w > tgMaxImgWdh || h > tgMaxImgHgt) $
+    when (not $ isGridSized tg w h) $
         traceAndThrow "insertImage - Image dimensions don't fit in grid slot"
     when (w * h /= VS.length img) $
         traceAndThrow "insertImage - Image vector size mismatch"
     when (sizeOf (img VS.! 0) /= texelSize tgIFmt) $
         traceAndThrow "insertImage - Texel size mismatch"
-    slot@(viewGridSlot -> GridSlot tex x y _) <- takeFreeSlot tg
+    slot@(viewGridSlot -> GridSlot tex x y _) <- takeFreeSlot tg w h
     -- Upload texture data (TODO: Make upload asynchronous using PBOs)
     GL.textureBinding GL.Texture2D GL.$= Just tex
     GL.rowAlignment GL.Unpack GL.$= 1
