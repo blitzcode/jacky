@@ -253,7 +253,12 @@ main = do
                 let texPackSize = foldr (\f r ->case f of
                         FlagTexturePackSize n -> fromMaybe r $ parseMaybe n
                         _ -> r) defTexturePackSize flags
-                in  withTextureCache cacheSize texPackSize envImageCache $ \envTextureCache ->
+                in  withTextureCache cacheSize
+                                     True -- Use texture grid packing
+                                     texPackSize
+                                     (80, 80) -- Twitter avatar images are smaller than this
+                                     envImageCache
+                                     $ \envTextureCache ->
                   let maxQuad = foldr (\f r -> case f of
                           FlagQuadRBSize n -> fromMaybe r $ parseMaybe n
                           _ -> r) defQuadRBSize flags

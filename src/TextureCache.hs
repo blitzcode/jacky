@@ -34,17 +34,28 @@ data TextureCacheEntry = TETexture !GL.TextureObject -- 'Large' texture, stored 
                        deriving (Eq)
 
 data TextureCache = TextureCache
-    { tcCacheEntries :: !(IORef (LBM.Map B.ByteString TextureCacheEntry))
-    , tcImageCache   :: !ImageCache
-    , tcTexGrid      :: !TG.TextureGrid
+    { tcCacheEntries   :: !(IORef (LBM.Map B.ByteString TextureCacheEntry))
+    , tcImageCache     :: !ImageCache
+    , tcTexGrid        :: !TG.TextureGrid
+    , tcUseTextureGrid :: !Bool
     }
 
-withTextureCache :: Int -> Int -> ImageCache -> (TextureCache -> IO ()) -> IO ()
-withTextureCache maxCacheEntries gridTexSize tcImageCache f = do
-    -- TODO: Don't hardcode all these parameters, make them arguments of withTextureCache
+withTextureCache :: Int
+                 -> Bool
+                 -> Int
+                 -> (Int, Int)
+                 -> ImageCache
+                 -> (TextureCache -> IO ())
+                 -> IO ()
+withTextureCache maxCacheEntries
+                 tcUseTextureGrid
+                 gridTexSize
+                 (smallTexWdh, smallTexHgt)
+                 tcImageCache
+                 f = do
     TG.withTextureGrid gridTexSize
                        1
-                       (96, 96)
+                       (smallTexWdh, smallTexHgt)
                        GL.RGBA
                        GL.RGBA8
                        GL.UnsignedByte
@@ -63,7 +74,7 @@ withTextureCache maxCacheEntries gridTexSize tcImageCache f = do
                  -- Shutdown
                  traceT TLInfo $ "Shutting down texture cache"
                  mapM_ (\case TETexture tex -> GL.deleteObjectName tex; _ -> return ())
-                  . map snd . LBM.toList $ cacheEntries
+                     . map snd . LBM.toList $ cacheEntries
             )
             f
 
@@ -103,16 +114,16 @@ fetchImage (TextureCache { .. }) tick uri = do
                 Just (Fetched (ImageRes w h img)) -> do
                     -- Image cache hit. Small enough to insert into grid, or do we need to
                     -- allocate a texture?
-                    entry <- if TG.isGridSized tcTexGrid w h
-                        then TEGrid    <$> TG.insertImage tcTexGrid w h img
-                        else TETexture <$> newTexture2D GL.RGBA
-                                                        GL.RGBA8
-                                                        GL.UnsignedByte
-                                                        (w, h)
-                                                        (TCUpload img)
-                                                        True
-                                                        (Just TFMinMag)
-                                                        True
+                    entry <- if   tcUseTextureGrid && TG.isGridSized tcTexGrid w h
+                             then TEGrid    <$> TG.insertImage tcTexGrid w h img
+                             else TETexture <$> newTexture2D GL.RGBA
+                                                             GL.RGBA8
+                                                             GL.UnsignedByte
+                                                             (w, h)
+                                                             (TCUpload img)
+                                                             True
+                                                             (Just TFMinMag)
+                                                             True
                     -- Insert into cache, delete any overflow
                     let (newEntries, delEntry) = LBM.insert uri entry cacheEntries
                     case delEntry of
@@ -133,7 +144,7 @@ gatherCacheStats :: TextureCache -> IO String
 gatherCacheStats tc = do
     cache <- readIORef $ tcCacheEntries tc
     let dir    = LBM.toList cache
-        dirLen = snd $ LBM.size cache
+        dirLen = fst $ LBM.size cache
     (mem, maxWdh, maxHgt, texCnt) <-
         foldM ( \r@(mem', maxWdh', maxHgt', texCnt') (_, entry) -> case entry of
                     TETexture tex -> do
