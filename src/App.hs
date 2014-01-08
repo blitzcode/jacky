@@ -64,6 +64,7 @@ data State = State
       -- Statistics
     , stFrameTimes         :: BS.BoundedSequence Double
     , stLastStatTrace      :: Double
+    , stLastEscPress       :: Double
     , stStatTweetsReceived :: Int
     , stStatDelsReceived   :: Int
     , stStatBytesRecvAPI   :: Int
@@ -222,8 +223,13 @@ processGLFWEvent ev =
                GLFW.setWindowShouldClose window True
         GLFWEventKey win k {- sc -} _ ks {- mk -} _ ->
            when (ks == GLFW.KeyState'Pressed) $ do
-               when (k == GLFW.Key'Escape) $
-                   liftIO $ GLFW.setWindowShouldClose win True
+               when (k == GLFW.Key'Escape) $ do
+                   lastPress <- gets stLastEscPress
+                   tick      <- gets stCurTick
+                   -- Only close when ESC has been pressed twice quickly
+                   when (tick - lastPress < 0.5) .
+                       liftIO $ GLFW.setWindowShouldClose win True
+                   modify' $ \s -> s { stLastEscPress = tick }
         GLFWEventWindowSize {- win -} _ w h -> do
             -- TODO: Window resizing blocks event processing,
             --       see https://github.com/glfw/glfw/issues/1

@@ -296,6 +296,7 @@ main = do
                                                      BS.empty . round $
                                                          60 * envStatTraceInterval envInit
                             , stLastStatTrace      = stCurTick
+                            , stLastEscPress       = -1
                             , stStatTweetsReceived = 0
                             , stStatDelsReceived   = 0
                             , stStatBytesRecvAPI   = 0
