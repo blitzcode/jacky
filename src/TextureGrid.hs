@@ -1,6 +1,5 @@
 
 {-# LANGUAGE   RecordWildCards
-             , ExistentialQuantification
              , LambdaCase
              , BangPatterns
              , ViewPatterns #-}
@@ -44,7 +43,7 @@ import QuadTypes (QuadUV(..))
 -- TODO: While deletion of an image frees up its slot in the grid, we never actually
 --       reduce the number of underlying grid textures
 
-data TextureGrid = forall texel. Storable texel => TextureGrid
+data TextureGrid = TextureGrid
     { tgBorder     :: !Int                    -- Number of border pixels around the packed images
     , tgTexWdh     :: !Int                    -- Width of the textures we're packing into
     , tgMaxImgWdh  :: !Int                    -- Maximum dimensions of images to be inserted
@@ -53,7 +52,6 @@ data TextureGrid = forall texel. Storable texel => TextureGrid
     , tgIFmt       :: !GL.PixelInternalFormat -- ..
     , tgType       :: !GL.DataType            -- ..
     , tgFiltering  :: !TextureFiltering       -- Default filtering specified for the texture object
-    , tgBackground :: !texel                  -- Single texel for background filling
     , tgTextures   :: !(IORef [GL.TextureObject]) -- Texture objects
     , tgFreeSlots  :: !(IORef [GridSlot])         -- List of free grid slots
     }
@@ -66,14 +64,12 @@ data GridSlotView = GridSlot !GL.TextureObject
 newtype GridSlot = GridSlotC { viewGridSlot :: GridSlotView }
                    deriving (Eq)
 
-withTextureGrid :: Storable texel
-                => Int
+withTextureGrid :: Int
                 -> Int
                 -> (Int, Int)
                 -> GL.PixelFormat
                 -> GL.PixelInternalFormat
                 -> GL.DataType
-                -> texel
                 -> TextureFiltering
                 -> (TextureGrid -> IO a)
                 -> IO a
@@ -83,12 +79,9 @@ withTextureGrid tgTexWdh
                 tgFmt
                 tgIFmt
                 tgType
-                tgBackground
                 tgFiltering =
     bracket
-        ( do when (sizeOf tgBackground /= texelSize tgIFmt) $ traceAndThrow
-                 "withTextureGrid - Background texel / OpenGL texture format size mismatch"
-             when (tgMaxImgWdh + 2 * tgBorder > tgTexWdh ||
+        ( do when (tgMaxImgWdh + 2 * tgBorder > tgTexWdh ||
                    tgMaxImgHgt + 2 * tgBorder > tgTexWdh) $ traceAndThrow
                  "withTextureGrid - Image dimensions don't fit in texture"
              tgTextures  <- newIORef []

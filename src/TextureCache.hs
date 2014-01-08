@@ -18,7 +18,6 @@ import Control.Monad
 import Control.Applicative
 import Text.Printf
 import Data.IORef
-import Data.Word
 
 import ImageCache
 import qualified LRUBoundedMap as LBM
@@ -59,7 +58,6 @@ withTextureCache maxCacheEntries
                        GL.RGBA
                        GL.RGBA8
                        GL.UnsignedByte
-                       (0 :: Word32)
                        TFMinMag
                        $ \tcTexGrid ->
         bracket
