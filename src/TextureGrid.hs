@@ -25,6 +25,7 @@ import qualified Data.Vector.Storable as VS
 import qualified Data.Vector.Storable.Mutable as VSM
 import Control.Monad
 import Control.Exception
+import Control.Applicative
 import Foreign.Storable
 import System.Directory
 import System.FilePath
@@ -96,14 +97,8 @@ withTextureGrid tgTexWdh
         ( \tg -> GL.deleteObjectNames =<< readIORef (tgTextures tg) )
 
 -- Take free slot, allocate new texture if we're out
---
--- TODO: It's a bit clumsy that we're using the same GridSlot object in our free slot list
---       and as the return from insertImage. The UV coordinates are really specific to the
---       inserted image, not the actual slot. It's the reason takeFreeSlot needs to know
---       about the dimensions of the image about to be inserted into the slot
---
-takeFreeSlot :: TextureGrid -> Int -> Int -> IO GridSlot
-takeFreeSlot (TextureGrid { .. }) w h = do
+takeFreeSlot :: TextureGrid -> IO GridSlot
+takeFreeSlot (TextureGrid { .. }) = do
     (slot:freeSlots) <- readIORef tgFreeSlots >>= \case
         [] -> do -- Allocate new texture, insert into list
                  tex <- newTexture2D tgFmt
@@ -120,23 +115,29 @@ takeFreeSlot (TextureGrid { .. }) w h = do
                  -- Compute slot list for the new texture
                  let wb = tgMaxImgWdh + tgBorder * 2
                      hb = tgMaxImgHgt + tgBorder * 2
-                     tw = fromIntegral tgTexWdh
                   in return [ let xwb = x * wb + tgBorder
                                   yhb = y * hb + tgBorder
                               in  GridSlotC $ GridSlot
                                       tex
                                       xwb
                                       yhb
-                                      $ QuadUV (fromIntegral (xwb    ) / tw)
-                                               (fromIntegral (yhb    ) / tw)
-                                               (fromIntegral (xwb + w) / tw)
-                                               (fromIntegral (yhb + h) / tw)
+                                      QuadUVDefault -- We compute UVs once we know the size
+                                                    -- of the image stored
                             | y <- [0..(tgTexWdh `div` hb - 1)]
                             , x <- [0..(tgTexWdh `div` wb - 1)]
                             ]
         xs -> return xs
     writeIORef tgFreeSlots freeSlots
     return slot
+
+computeSlotUV :: TextureGrid -> Int -> Int -> GridSlot -> GridSlot
+computeSlotUV tg w h (viewGridSlot -> GridSlot tex x y _) =
+    GridSlotC . GridSlot tex x y $
+        let tw = fromIntegral $ tgTexWdh tg
+        in  QuadUV (fromIntegral  x      / tw)
+                   (fromIntegral  y      / tw)
+                   (fromIntegral (x + w) / tw)
+                   (fromIntegral (y + h) / tw)
 
 isGridSized :: TextureGrid -> Int -> Int -> Bool
 isGridSized (TextureGrid { .. }) w h | (w > tgMaxImgWdh) || (h > tgMaxImgHgt) = False
@@ -161,7 +162,7 @@ insertImage tg@(TextureGrid { .. }) w h img = do
         traceAndThrow "insertImage - Image vector size mismatch"
     when (sizeOf (img VS.! 0) /= texelSize tgIFmt) $
         traceAndThrow "insertImage - Texel size mismatch"
-    slot@(viewGridSlot -> GridSlot tex slotX slotY _) <- takeFreeSlot tg w h
+    slot@(viewGridSlot -> GridSlot tex slotX slotY _) <- computeSlotUV tg w h <$> takeFreeSlot tg
     -- Upload texture data (TODO: Make upload asynchronous using PBOs)
     GL.textureBinding GL.Texture2D GL.$= Just tex
     GL.rowAlignment GL.Unpack GL.$= 1
