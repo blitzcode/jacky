@@ -2,6 +2,7 @@
 {-# LANGUAGE   RecordWildCards
              , ExistentialQuantification
              , LambdaCase
+             , BangPatterns
              , ViewPatterns #-}
 
 module TextureGrid ( TextureGrid
@@ -105,9 +106,7 @@ takeFreeSlot (TextureGrid { .. }) = do
                                      tgIFmt
                                      tgType
                                      (tgTexWdh, tgTexWdh)
-                                     (TCFillBG tgBackground) -- TODO: Could skip that, we're
-                                                             --       clearing the slots
-                                                             --       before use anyway
+                                     TCJustAllocate -- We're clearing the slots before use anyway
                                      False
                                      (Just tgFiltering)
                                      True
@@ -187,11 +186,11 @@ insertImage tg@(TextureGrid { .. }) w h img = do
           | y <- [(-tgBorder)..(tgMaxImgHgt + tgBorder - 1)]
           , x <- [(-tgBorder)..(tgMaxImgWdh + tgBorder - 1)]
           ]
-          $ \(x, y) -> let dstIdx = (x + tgBorder) + (y + tgBorder) * wb
-                           clampX = min (w - 1) (max 0 x)
-                           clampY = min (h - 1) (max 0 y)
-                           srcIdx = clampX + clampY * w
-                       in  VSM.write upload dstIdx $ img VS.! srcIdx
+          $ \(x, y) -> let !dstIdx = (x + tgBorder) + (y + tgBorder) * wb
+                           !clampX = min (w - 1) (max 0 x)
+                           !clampY = min (h - 1) (max 0 y)
+                           !srcIdx = clampX + clampY * w
+                       in  VSM.unsafeWrite upload dstIdx $ VS.unsafeIndex img srcIdx
     -- Upload
     VSM.unsafeWith upload $
         GL.texSubImage2D
