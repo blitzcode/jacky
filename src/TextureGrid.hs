@@ -22,10 +22,10 @@ import qualified Graphics.Rendering.OpenGL as GL
 import qualified Graphics.Rendering.OpenGL.Raw as GLR
 import Data.IORef
 import qualified Data.Vector.Storable as VS
+import qualified Data.Vector.Storable.Mutable as VSM
 import Control.Monad
 import Control.Exception
 import Foreign.Storable
-import Foreign.Marshal.Array
 import System.Directory
 import System.FilePath
 import Text.Printf
@@ -161,28 +161,44 @@ insertImage tg@(TextureGrid { .. }) w h img = do
         traceAndThrow "insertImage - Image vector size mismatch"
     when (sizeOf (img VS.! 0) /= texelSize tgIFmt) $
         traceAndThrow "insertImage - Texel size mismatch"
-    slot@(viewGridSlot -> GridSlot tex x y _) <- takeFreeSlot tg w h
+    slot@(viewGridSlot -> GridSlot tex slotX slotY _) <- takeFreeSlot tg w h
     -- Upload texture data (TODO: Make upload asynchronous using PBOs)
     GL.textureBinding GL.Texture2D GL.$= Just tex
     GL.rowAlignment GL.Unpack GL.$= 1
-    -- Start by clearing the slot with the background color (TODO: Could be done faster)
+    -- Copy the image inside a slot + border sized container and fill the surrounding
+    -- pixels by extruding the image, hopefully reducing bleeding artefacts
+    --
+    -- TODO: There are better ways to do this. We could just use texture arrays
+    --       (EXT_texture_array) or take care to generate our MIP-maps without bleeding
+    --       and do the rest (UV wrapping, etc.) inside the shader. We'd also need to
+    --       align grid slots at powers-of-two for full MIP-mapping quality
+    --
+    --       References:
+    --
+    --       http://0fps.wordpress.com/2013/07/09/texture-atlases-wrapping-and-mip-mapping/
+    --       http://http.download.nvidia.com/developer/NVTextureSuite/Atlas_Tools/
+    --           Texture_Atlas_Whitepaper.pdf
+    --
     let wb = tgMaxImgWdh + tgBorder * 2
         hb = tgMaxImgHgt + tgBorder * 2
-     in withArray (replicate (wb * hb) tgBackground) $
-            GL.texSubImage2D
-                GL.Texture2D
-                0
-                (GL.TexturePosition2D (fromIntegral $ x - tgBorder)
-                                      (fromIntegral $ y - tgBorder))
-                (GL.TextureSize2D (fromIntegral wb) (fromIntegral hb))
-                . GL.PixelData tgFmt tgType
-    -- Upload image
-    VS.unsafeWith img $
+    upload <- VSM.new $ wb * hb
+    forM_ [ (x, y)
+          | y <- [(-tgBorder)..(tgMaxImgHgt + tgBorder - 1)]
+          , x <- [(-tgBorder)..(tgMaxImgWdh + tgBorder - 1)]
+          ]
+          $ \(x, y) -> let dstIdx = (x + tgBorder) + (y + tgBorder) * wb
+                           clampX = min (w - 1) (max 0 x)
+                           clampY = min (h - 1) (max 0 y)
+                           srcIdx = clampX + clampY * w
+                       in  VSM.write upload dstIdx $ img VS.! srcIdx
+    -- Upload
+    VSM.unsafeWith upload $
         GL.texSubImage2D
             GL.Texture2D
             0
-            (GL.TexturePosition2D (fromIntegral x) (fromIntegral y))
-            (GL.TextureSize2D     (fromIntegral w) (fromIntegral h))
+            (GL.TexturePosition2D (fromIntegral $ slotX - tgBorder)
+                                  (fromIntegral $ slotY - tgBorder))
+            (GL.TextureSize2D (fromIntegral wb) (fromIntegral hb))
             . GL.PixelData tgFmt tgType
     -- Call raw API MIP-map generation function
     -- TODO: MIP-map generation should be deferred, not every time a texture is touched
