@@ -3,7 +3,7 @@
 
 module UI ( UIState
           , UIT
-          , Side(..)
+          , Split(..)
           , Rectangle(..)
           , rectFromWndFB
           , rectFromXYWH
@@ -86,10 +86,10 @@ rectFromWndFB wnd = do
 rectFromXYWH :: Float -> Float -> Float -> Float -> Rectangle
 rectFromXYWH x y w h = Rectangle x y (x + w) (y + h)
 
-data Side = SLeft | SRight | SBottom | STop
-            deriving (Show, Eq, Enum)
+data Split = SLeft | SRight | SBottom | STop | SCenterH | SCenterV
+             deriving (Show, Eq, Enum)
 
-splitRect :: Side -> Float -> Rectangle -> (Rectangle, Rectangle)
+splitRect :: Split -> Float -> Rectangle -> (Rectangle, Rectangle)
 splitRect side pos rc =
     let (Rectangle x1 y1 x2 y2) = rc
         splitV pos' =
@@ -101,19 +101,17 @@ splitRect side pos rc =
             , Rectangle  x1         (y1 + pos')  x2          y2
             )
     in  case side of
-            SLeft   ->        splitV            pos
-            SRight  -> swap $ splitV (x2 - x1 - pos)
-            SBottom ->        splitH            pos
-            STop    -> swap $ splitH (y2 - y1 - pos)
+            SLeft    ->        splitV            pos
+            SRight   -> swap $ splitV (x2 - x1 - pos)
+            SBottom  ->        splitH            pos
+            STop     -> swap $ splitH (y2 - y1 - pos)
+            -- Ignore position if we're asked to do a center split
+            SCenterH ->        splitH $ (y2 - y1) / 2
+            SCenterV ->        splitV $ (x2 - x1) / 2
 
-split :: (Applicative m, Monad m) => Side -> Maybe Float -> UIT m () -> UIT m () -> UIT m ()
-split side mbPos near far = do
-    rc@(Rectangle x1 y1 x2 y2) <- asks uisRect
-    let pos = case mbPos of Just x -> x
-                            -- No split position given, use center
-                            Nothing | side == SLeft || side == SRight -> (x2 - x1) / 2
-                                    | otherwise                       -> (y2 - y1) / 2
-        (rcNear, rcFar) = splitRect side pos rc
+split :: (Applicative m, Monad m) => Split -> Float -> UIT m () -> UIT m () -> UIT m ()
+split side pos near far = do
+    (rcNear, rcFar) <- splitRect side pos <$> asks uisRect
     frameAbsolute rcNear near
     frameAbsolute rcFar  far
 
