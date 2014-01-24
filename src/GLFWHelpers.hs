@@ -23,7 +23,8 @@ withWindow w h title tq =
              GLFW.windowHint $ GLFW.WindowHint'Decorated False
              Just window <- GLFW.createWindow w h title Nothing Nothing
              (x, _) <- GLFW.getWindowPos window
-             GLFW.setWindowPos window x 0
+             GLFW.setWindowPos window x 22 -- TODO: Height of OS menu bar, window would be under
+                                           --       it otherwise
              registerCallbacks window tq
              GLFW.makeContextCurrent $ Just window
              return window
