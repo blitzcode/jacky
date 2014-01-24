@@ -98,14 +98,18 @@ draw = do
                  Nothing
                  QuadUVDefault
             layer $
-                split SBottom 16
+                split SBottom (Just 16)
                     ( fill FCWhite (TRBlend 0.5) Nothing QuadUVDefault
                     )
-                    ( split STop 100
-                          ( do fill FCWhite (TRBlend 0.5) Nothing QuadUVDefault
-                               center 1000 50 $
-                                   layer $
-                                       text fr arial tweetText
+                    ( split STop (Just 100)
+                          ( split STop Nothing
+                                ( do fill FCWhite (TRBlend 0.5) Nothing QuadUVDefault
+                                     center 1000 15 $
+                                         layer $
+                                             text fr arial tweetText
+                                )
+                                ( do fill (FCSolid $ RGBA 1 0 0 1) TRNone Nothing QuadUVDefault
+                                )
                           )
                           ( do drawAvatarTiles
                                layer $
@@ -148,17 +152,17 @@ fontRenderingTest = do
                     GLR.glGenerateMipmap GLR.gl_TEXTURE_2D
     -}
 
-    split STop 40 (text fr helvetica "1234567890 !@#$%^&*()_+ aAbBcCdDeEfFgGhHiIjJkKlL")
-     $ split STop 40 (text fr verdana "Haskell is an advanced purely-functional programming language. An open-source product of more than twenty years of cutting-edge research, it allows rapid development of robust, concise")
-     $ split STop 40 (text fr futura "Ä Ö Ü 漢字, Le projet d’encyclopédie libre que vous pouvez améliorer - którą każdy może redagować.")
-     $ split STop 40 (text fr lucida "Καλώς ήλθατε στη Βικιπαίδεια - Заглавная страница - la enciclopedia de")
-     $ split STop 40 (text fr arial "العربية | Беларуская | Čeština | Ελληνικά | فارسی | 한국어 | עברית | ქართული | 日本語 | ไทย | 中文 | Українська | ᓃᔥᑕᒻᐹᔅᑌᒋᓂᑲᓐ")
-     $ split STop 40 (text fr arial "ウィキペディアへようこそ ウィキペディアは誰でも編集できるフリー百科事典です")
-     $ split STop 40 (text fr arial "努尔哈赤（1559年－1626年9月30日），爱新觉罗氏，出身建州左卫都指挥使世家旁系。努尔哈赤少年时曾以采参为生，常到抚顺关马市进行贸易活动。后因父")
-     $ split STop 40 (text fr helvetica "Text is available under the Creative Commons")
-     $ split STop 40 (text fr lucida "Image Cache - Netw. Recv. Total: 0.000MB · Mem 0.000MB | Req: 0/256")
-     $ split STop 40 (text fr futura "OpenGL - Vendor: NVIDIA Corporation · Renderer: NVIDIA GeForce 9400M OpenGL Engine")
-     $ split STop 40 (text fr verdana "2116223572217043619665288&15592418065293&162624180&926376&3026085652896529229233260323527332599276636529220986365232431424030240382135537117")
+    split STop (Just 40) (text fr helvetica "1234567890 !@#$%^&*()_+ aAbBcCdDeEfFgGhHiIjJkKlL")
+     $ split STop (Just 40) (text fr verdana "Haskell is an advanced purely-functional programming language. An open-source product of more than twenty years of cutting-edge research, it allows rapid development of robust, concise")
+     $ split STop (Just 40) (text fr futura "Ä Ö Ü 漢字, Le projet d’encyclopédie libre que vous pouvez améliorer - którą każdy może redagować.")
+     $ split STop (Just 40) (text fr lucida "Καλώς ήλθατε στη Βικιπαίδεια - Заглавная страница - la enciclopedia de")
+     $ split STop (Just 40) (text fr arial "العربية | Беларуская | Čeština | Ελληνικά | فارسی | 한국어 | עברית | ქართული | 日本語 | ไทย | 中文 | Українська | ᓃᔥᑕᒻᐹᔅᑌᒋᓂᑲᓐ")
+     $ split STop (Just 40) (text fr arial "ウィキペディアへようこそ ウィキペディアは誰でも編集できるフリー百科事典です")
+     $ split STop (Just 40) (text fr arial "努尔哈赤（1559年－1626年9月30日），爱新觉罗氏，出身建州左卫都指挥使世家旁系。努尔哈赤少年时曾以采参为生，常到抚顺关马市进行贸易活动。后因父")
+     $ split STop (Just 40) (text fr helvetica "Text is available under the Creative Commons")
+     $ split STop (Just 40) (text fr lucida "Image Cache - Netw. Recv. Total: 0.000MB · Mem 0.000MB | Req: 0/256")
+     $ split STop (Just 40) (text fr futura "OpenGL - Vendor: NVIDIA Corporation · Renderer: NVIDIA GeForce 9400M OpenGL Engine")
+     $ split STop (Just 40) (text fr verdana "2116223572217043619665288&15592418065293&162624180&926376&3026085652896529229233260323527332599276636529220986365232431424030240382135537117")
      $ return ()
 
 drawAvatarTiles :: UIT AppDraw ()

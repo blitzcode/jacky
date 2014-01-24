@@ -106,9 +106,14 @@ splitRect side pos rc =
             SBottom ->        splitH            pos
             STop    -> swap $ splitH (y2 - y1 - pos)
 
-split :: (Applicative m, Monad m) => Side -> Float -> UIT m () -> UIT m () -> UIT m ()
-split side pos near far = do
-    (rcNear, rcFar) <- splitRect side pos <$> asks uisRect
+split :: (Applicative m, Monad m) => Side -> Maybe Float -> UIT m () -> UIT m () -> UIT m ()
+split side mbPos near far = do
+    rc@(Rectangle x1 y1 x2 y2) <- asks uisRect
+    let pos = case mbPos of Just x -> x
+                            -- No split position given, use center
+                            Nothing | side == SLeft || side == SRight -> (x2 - x1) / 2
+                                    | otherwise                       -> (y2 - y1) / 2
+        (rcNear, rcFar) = splitRect side pos rc
     frameAbsolute rcNear near
     frameAbsolute rcFar  far
 
