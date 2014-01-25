@@ -6,6 +6,7 @@ module FontRendering ( withFontRenderer
                      , drawTextBitmap
                      , drawText
                      , gatherCacheStats
+                     , TextLayout(..)
                        -- Wrap TextureAtlas exports
                      , debugDumpAtlas
                        -- Pass through (or wrap) some FT2 exports
@@ -20,6 +21,7 @@ module FontRendering ( withFontRenderer
 import qualified Graphics.Rendering.OpenGL as GL
 import Control.Monad
 import Control.Exception
+import Control.Applicative
 import qualified Data.Vector.Storable as VS
 import qualified Data.HashMap.Strict as HM
 import Data.Hashable
@@ -169,12 +171,9 @@ stringToGlyphs (FontRenderer { .. }) face string = do
                             return (HM.insert key entry cache, entry : outGlyphs)
         ) (glyphCache, []) string
     writeIORef frGlyphCache glyphCache
-    return glyphs
+    return $ reverse glyphs
 
 -- Cached wrapper around FT2.getKerning
---
--- TODO: Combine this with stringToGlyphs so we have text layout cleanly
---       separated from drawing
 getKerning :: FontRenderer -> FT2.Typeface -> Char -> Char -> IO Float
 getKerning fr face left right =
     readIORef (frKernCache fr) >>= \kernCache ->
@@ -184,6 +183,63 @@ getKerning fr face left right =
                 Nothing -> do n <- FT2.getKerning face left right
                               writeIORef (frKernCache fr) $ HM.insert key n kernCache
                               return n
+
+data TextLayout = TLCenterHorz
+                | TLCenterVert
+                | TLAlignBottom -- Top alignment is the default
+                | TLWordWrap    -- Wrap text at word boundaries when leaving bounding rectangle
+                | TLClipRect    -- Drop glyphs positioned outside the bounding rectangle
+                  deriving (Show, Eq)
+
+-- Turn a string of text, a typeface, a bounding rectangle and some layout flags into
+-- a ready to render list of glyphs and position
+layoutText :: FontRenderer
+           -> String
+           -> FT2.Typeface
+           -> Float -> Float -> Float -> Float
+           -> [TextLayout]
+           -> IO [(Float, Float, Float, Float, GlyphCacheEntry)]
+layoutText fr string face@(FT2.Typeface { .. }) x1 y1 x2 y2 layout = do
+    -- Produce a list of glyphs and rectangles
+    glyphLines <- forM (map (words) . lines $ string) -- Break into lines / words, map over them
+      ( \line -> forM line $ \word ->
+          toGlyphs word >>= \wordGlyphs -> -- Glyph list for current word
+            ( \(xs, width, _) -> (width, reverse xs)) <$> -- Extract positioned glyphs and width
+                ( foldM -- Compute word-local positions for glyphs in current word
+                    ( \(xs, xoffs, prevc)
+                       entry@(GlyphCacheEntry c (FT2.GlyphMetrics { .. }) _ _) -> do
+                         kernHorz <- getKerning fr face prevc c -- Kerning pair
+                         let xs' | gWidth * gHeight /= 0 = xs -- Skip empty glyphs
+                                 | otherwise =
+                                     let gx1 = xoffs + fromIntegral gBearingX + kernHorz
+                                         gy1 = fromIntegral $ gBearingY - gHeight
+                                         gx2 = gx1 + fromIntegral gWidth
+                                         gy2 = gy1 + fromIntegral gHeight
+                                     in  (gx1, gy1, gx2, gy2, entry) : xs -- Build up glyph list
+                          in return ( xs'
+                                    , xoffs + gAdvanceHorz + kernHorz -- Advance pen position
+                                    , c                               -- Previous character
+                                    )
+                    ) ([], 0, toEnum 0) wordGlyphs
+              )
+      )
+      :: IO [ -- List of lines
+                [ -- List of words in line
+                    ( Float                                           -- Total width of word
+                    , [(Float, Float, Float, Float, GlyphCacheEntry)] -- List of glyphs in word
+                    )
+                ]
+            ]
+    -- We now have a list of lines and words made up of glyphs with word-local
+    -- coordinates. Compute a layout for them inside the target rectangle
+    [GlyphCacheEntry _ spaceGM _ _] <- toGlyphs " "
+    {-
+    forM (zip glyphLines [0..]) $ \(line, lineIdx) ->
+      let yoffs = lineIdx * tfHeight
+      in  forM line
+    -}
+    return []
+  where toGlyphs = stringToGlyphs fr face
 
 drawText :: FontRenderer -> QuadRenderBuffer -> Int -> Int -> FT2.Typeface -> String -> IO ()
 drawText fr qb x y face string =
@@ -203,13 +259,13 @@ drawText fr qb x y face string =
                            (fromIntegral y1)
                            (fromIntegral x2)
                            (fromIntegral y2)
-                           1
+                           1 -- TODO
                            FCBlack
                            TRSrcAlpha
                            (Just tex)
                            uv
               return (xoffs + gAdvanceHorz + kernHorz, c)
-        ) (fromIntegral x, toEnum 0) . reverse
+        ) (fromIntegral x, toEnum 0)
 
 -- Very basic and slow text rendering. Have FT2 render all the glyphs and draw them
 -- directly using glDrawPixels. Does not use the glyph cache
