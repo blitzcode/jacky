@@ -1,5 +1,5 @@
 
-{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE RecordWildCards, LambdaCase #-}
 
 module FontRendering ( withFontRenderer
                      , FontRenderer
@@ -29,6 +29,8 @@ import Data.IORef
 import Data.Bits
 import Data.Word
 import Data.Maybe
+import Data.List
+import Data.Function
 import Text.Printf
 
 import qualified FT2Interface as FT2
@@ -193,6 +195,9 @@ data TextLayout = TLCenterHorz
 
 -- Turn a string of text, a typeface, a bounding rectangle and some layout flags into
 -- a ready to render list of glyphs and position
+--
+-- TODO: Replace those four floats with a rectangle type, also do so in other modules
+--
 layoutText :: FontRenderer
            -> String
            -> FT2.Typeface
@@ -200,46 +205,81 @@ layoutText :: FontRenderer
            -> [TextLayout]
            -> IO [(Float, Float, Float, Float, GlyphCacheEntry)]
 layoutText fr string face@(FT2.Typeface { .. }) x1 y1 x2 y2 layout = do
-    -- Produce a list of glyphs and rectangles
-    glyphLines <- forM (map (words) . lines $ string) -- Break into lines / words, map over them
-      ( \line -> forM line $ \word ->
-          toGlyphs word >>= \wordGlyphs -> -- Glyph list for current word
-            ( \(xs, width, _) -> (width, reverse xs)) <$> -- Extract positioned glyphs and width
-                ( foldM -- Compute word-local positions for glyphs in current word
-                    ( \(xs, xoffs, prevc)
-                       entry@(GlyphCacheEntry c (FT2.GlyphMetrics { .. }) _ _) -> do
-                         kernHorz <- getKerning fr face prevc c -- Kerning pair
-                         let xs' | gWidth * gHeight /= 0 = xs -- Skip empty glyphs
-                                 | otherwise =
-                                     let gx1 = xoffs + fromIntegral gBearingX + kernHorz
-                                         gy1 = fromIntegral $ gBearingY - gHeight
-                                         gx2 = gx1 + fromIntegral gWidth
-                                         gy2 = gy1 + fromIntegral gHeight
-                                     in  (gx1, gy1, gx2, gy2, entry) : xs -- Build up glyph list
-                          in return ( xs'
-                                    , xoffs + gAdvanceHorz + kernHorz -- Advance pen position
-                                    , c                               -- Previous character
-                                    )
-                    ) ([], 0, toEnum 0) wordGlyphs
+    -- Convert input string into ["Line1Word1", "Line1Word2", "\n", "Line2Word1", "Line2Word2"]
+    let wordsAndCRs =
+            filter (/= " ") $
+            groupBy (\l r -> all id $ (/=) <$> [' ', '\n'] <*> [l, r]) string
+        toGlyphs = stringToGlyphs fr face
+    -- Convert words into lists of glyphs and rectangles
+    glyphs <- forM wordsAndCRs
+      ( \case
+          "\n" -> return Nothing -- Use Nothing to signify a newline
+          word -> toGlyphs word >>= \wordGlyphs -> -- Glyph list for current word
+            ( \(xs, width, _) -> Just (width, reverse xs)) <$> -- Extract positioned glyphs / width
+              ( foldM -- Compute word-local positions for glyphs in current word
+                  ( \(xs, xoffs, prevc)
+                     entry@(GlyphCacheEntry c (FT2.GlyphMetrics { .. }) _ _) -> do
+                       kernHorz <- getKerning fr face prevc c -- Kerning pair
+                       let xs' | gWidth * gHeight /= 0 = xs -- Skip empty glyphs
+                               | otherwise =
+                                   let gx1 = xoffs + fromIntegral gBearingX + kernHorz
+                                       gy1 = fromIntegral $ gBearingY - gHeight
+                                       gx2 = gx1 + fromIntegral gWidth
+                                       gy2 = gy1 + fromIntegral gHeight
+                                   in  (gx1, gy1, gx2, gy2, entry) : xs -- Build up glyph list
+                        in return ( xs'
+                                  , xoffs + gAdvanceHorz + kernHorz -- Advance pen position
+                                  , c                               -- Previous character
+                                  )
+                  ) ([], 0, toEnum 0) wordGlyphs
               )
       )
-      :: IO [ -- List of lines
-                [ -- List of words in line
-                    ( Float                                           -- Total width of word
-                    , [(Float, Float, Float, Float, GlyphCacheEntry)] -- List of glyphs in word
-                    )
-                ]
+      :: IO [ Maybe                                                 -- Word or Nothing (newline)
+                  ( Float                                           -- Total width of word
+                  , [(Float, Float, Float, Float, GlyphCacheEntry)] -- Rects + glyphs
+                  )
             ]
-    -- We now have a list of lines and words made up of glyphs with word-local
-    -- coordinates. Compute a layout for them inside the target rectangle
-    [GlyphCacheEntry _ spaceGM _ _] <- toGlyphs " "
-    {-
-    forM (zip glyphLines [0..]) $ \(line, lineIdx) ->
-      let yoffs = lineIdx * tfHeight
-      in  forM line
-    -}
+    [GlyphCacheEntry _ spaceGM _ _] <- toGlyphs " " -- Metrics for word separator (space)
+    let spaceAdv = FT2.gAdvanceHorz spaceGM
+        -- Compute horizontal word offsets, do word wrapping if requested & required
+        --              xoffs  width  rects + glyphs
+        wordLayout :: [(Float, Float, [(Float, Float, Float, Float, GlyphCacheEntry)])]
+        wordLayout = reverse . fst $ foldr
+            ( \word (xs, xoffs) -> case word of
+                Just (width, wordGlyphs) | wordWrap &&
+                                           (xoffs /= 0) &&              -- Don't wrap at beginning
+                                           (xoffs + width > rectWdh) -> -- Need to wrap?
+                                             ( (0, width, wordGlyphs) : xs
+                                             , 0
+                                             )
+                                         | otherwise -> -- Just append word + space
+                                             ( (xoffs, width, wordGlyphs) : xs
+                                             , xoffs + width + spaceAdv
+                                             )
+                Nothing | xoffs == 0 -> ((0, 0, []) : xs, 0) -- Empty line, need to add empty word
+                        | otherwise  -> (xs, 0)              -- End of line
+            )
+            ([], 0)
+            glyphs
+        wordWrap = TLWordWrap `elem` layout
+        rectWdh = x2 - x1
+        -- Convert list of positioned words into list of lines. We have a new line when
+        -- the xoffs of the word did not increase (equal for consecutive newlines)
+        wordLines = groupBy ((<) `on` (\(xoffs, _, _) -> xoffs)) wordLayout
+        -- Add total width to each line
+        widthLines = flip map wordLines $ \case
+            [] -> (0, []) -- Empty line, zero width
+            xs -> let (xoffs, width, _) = last xs in (xoffs + width, xs)
+        -- Vertical start offset for the text block
+        numLines = length wordLines
+        offsTextY | TLAlignBottom `elem` layout = y1 + fromIntegral tfHeight *
+                                                       fromIntegral (numLines - 1)
+                  | otherwise                   = y2 - fromIntegral tfHeight
+        -- Convert lines with word-local glyph positions into single list of glyphs
+        -- with absolute coordinates, clipped and aligned as specified 
+        --
+        -- TODO
     return []
-  where toGlyphs = stringToGlyphs fr face
 
 drawText :: FontRenderer -> QuadRenderBuffer -> Int -> Int -> FT2.Typeface -> String -> IO ()
 drawText fr qb x y face string =
@@ -268,7 +308,7 @@ drawText fr qb x y face string =
         ) (fromIntegral x, toEnum 0)
 
 -- Very basic and slow text rendering. Have FT2 render all the glyphs and draw them
--- directly using glDrawPixels. Does not use the glyph cache
+-- directly using glDrawPixels. Does not use the glyph and kerning cache
 drawTextBitmap :: Int -> Int -> FT2.Typeface -> String -> IO ()
 drawTextBitmap x y face string = do
     -- Our pixels are 8 bit, might not conform to the default 32 bit alignment
