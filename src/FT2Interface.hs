@@ -63,7 +63,7 @@ data Typeface = Typeface { tfHandle        :: !FT2FaceHandle
                          , tfReqHeight     :: !Int
                          , tfForceAutohint :: !Bool
                          , tfDisableKern   :: !Bool
-                         }
+                         } deriving (Show)
 
 -- Hash typefaces by their FT2 Face pointer. Note that this is a fairly poor hash as the
 -- allocations can be very close together
@@ -159,7 +159,7 @@ data GlyphMetrics = GlyphMetrics
     , gBearingY    :: !Int   --   relative to the current pen position
     , gWidth       :: !Int   -- Dimensions of glyph image
     , gHeight      :: !Int   -- ...
-    }
+    } deriving (Show)
 
 renderGlyph :: Typeface -> Char -> IO (GlyphMetrics, VS.Vector Word8)
 renderGlyph face c =

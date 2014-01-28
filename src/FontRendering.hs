@@ -82,6 +82,7 @@ withFontRenderer frDefForceAutohint frDefDisableKern frUseTexAtlas atlasTexSize 
 --               glyph metrics and texture information
 
 data GlyphCacheEntry = GlyphCacheEntry !Char !FT2.GlyphMetrics !GL.TextureObject !QuadUV
+                       deriving (Show)
 
 type GlyphCacheKey = Int
 
@@ -196,7 +197,13 @@ data TextLayout = TLCenterHorz
 -- Turn a string of text, a typeface, a bounding rectangle and some layout flags into
 -- a ready to render list of glyphs and position
 --
+-- TODO: Currently doesn't work, vertical positioning wrong, words in each line are reversed
+--
 -- TODO: Replace those four floats with a rectangle type, also do so in other modules
+--
+-- TODO: This is fairly slow, speed up
+--
+-- TODO: Break up into multiple functions, split pure and IO code
 --
 layoutText :: FontRenderer
            -> String
@@ -210,8 +217,9 @@ layoutText fr string face@(FT2.Typeface { .. }) x1 y1 x2 y2 layout = do
             filter (/= " ") $
             groupBy (\l r -> all id $ (/=) <$> [' ', '\n'] <*> [l, r]) string
         toGlyphs = stringToGlyphs fr face
+    --printf  "wordsAndCRs: %s\n" (show wordsAndCRs)
     -- Convert words into lists of glyphs and rectangles
-    glyphs <- forM wordsAndCRs
+    wordGlyphsAndCRs <- forM wordsAndCRs
       ( \case
           "\n" -> return Nothing -- Use Nothing to signify a newline
           word -> toGlyphs word >>= \wordGlyphs -> -- Glyph list for current word
@@ -220,7 +228,7 @@ layoutText fr string face@(FT2.Typeface { .. }) x1 y1 x2 y2 layout = do
                   ( \(xs, xoffs, prevc)
                      entry@(GlyphCacheEntry c (FT2.GlyphMetrics { .. }) _ _) -> do
                        kernHorz <- getKerning fr face prevc c -- Kerning pair
-                       let xs' | gWidth * gHeight /= 0 = xs -- Skip empty glyphs
+                       let xs' | gWidth * gHeight == 0 = xs -- Skip empty glyphs
                                | otherwise =
                                    let gx1 = xoffs + fromIntegral gBearingX + kernHorz
                                        gy1 = fromIntegral $ gBearingY - gHeight
@@ -239,6 +247,7 @@ layoutText fr string face@(FT2.Typeface { .. }) x1 y1 x2 y2 layout = do
                   , [(Float, Float, Float, Float, GlyphCacheEntry)] -- Rects + glyphs
                   )
             ]
+    --printf  "wordGlyphsAndCRs: %s\n" (show wordGlyphsAndCRs)
     [GlyphCacheEntry _ spaceGM _ _] <- toGlyphs " " -- Metrics for word separator (space)
     let spaceAdv = FT2.gAdvanceHorz spaceGM
         -- Compute horizontal word offsets, do word wrapping if requested & required
@@ -249,18 +258,18 @@ layoutText fr string face@(FT2.Typeface { .. }) x1 y1 x2 y2 layout = do
                 Just (width, wordGlyphs) | wordWrap &&
                                            (xoffs /= 0) &&              -- Don't wrap at beginning
                                            (xoffs + width > rectWdh) -> -- Need to wrap?
-                                             ( (0, width, wordGlyphs) : xs
-                                             , 0
-                                             )
+                                               ( (0, width, wordGlyphs) : xs
+                                               , width + spaceAdv
+                                               )
                                          | otherwise -> -- Just append word + space
-                                             ( (xoffs, width, wordGlyphs) : xs
-                                             , xoffs + width + spaceAdv
-                                             )
+                                               ( (xoffs, width, wordGlyphs) : xs
+                                               , xoffs + width + spaceAdv
+                                               )
                 Nothing | xoffs == 0 -> ((0, 0, []) : xs, 0) -- Empty line, need to add empty word
                         | otherwise  -> (xs, 0)              -- End of line
             )
             ([], 0)
-            glyphs
+            wordGlyphsAndCRs
         wordWrap = TLWordWrap `elem` layout
         rectWdh = x2 - x1
         -- Convert list of positioned words into list of lines. We have a new line when
@@ -269,20 +278,55 @@ layoutText fr string face@(FT2.Typeface { .. }) x1 y1 x2 y2 layout = do
         -- Add total width to each line
         widthLines = flip map wordLines $ \case
             [] -> (0, []) -- Empty line, zero width
-            xs -> let (xoffs, width, _) = last xs in (xoffs + width, xs)
+            xs -> -- Width of a line is the line-local offset of its last word plus its width
+                  let (xoffs, width, _) = last xs in (xoffs + width, xs)
         -- Vertical start offset for the text block
         numLines = length wordLines
-        offsTextY | TLAlignBottom `elem` layout = y1 + fromIntegral tfHeight *
+        textYOffs | TLAlignBottom `elem` layout = y1 + fromIntegral tfHeight *
                                                        fromIntegral (numLines - 1)
-                  | otherwise                   = y2 - fromIntegral tfHeight
+                  | TLCenterVert  `elem` layout = y2 -- TODO: Implement me
+                  | otherwise                   = y1 - fromIntegral tfHeight
         -- Convert lines with word-local glyph positions into single list of glyphs
-        -- with absolute coordinates, clipped and aligned as specified 
-        --
-        -- TODO
-    return []
+        -- with absolute coordinates, clipped and aligned as specified. The glyph order
+        -- does not match the input string, but that shouldn't matter for drawing
+        glyphs = snd $ foldr -- Fold over lines, maintaining a Y offset
+                   ( \(lineWdh, line) (lineYOffs, xs) ->
+                       let lineXOffs | centerHorz = x1 + rectWdh / 2 - lineWdh / 2
+                                     | otherwise  = x1
+                       in  ( lineYOffs - fromIntegral tfHeight
+                           , foldr -- Fold over words
+                               ( \(wordXOffs, _ {- wordWdh -}, word) xs' ->
+                                   foldr -- Fold over glyphs
+                                     ( \(gx1, gy1, gx2, gy2, gc) xs'' ->
+                                         ( gx1 + lineXOffs + wordXOffs
+                                         , gy1 + lineYOffs
+                                         , gx2 + lineXOffs + wordXOffs
+                                         , gy2 + lineYOffs
+                                         , gc
+                                         ) : xs'' -- TODO: Add clipping here
+                                     )
+                                     xs'
+                                     word
+                               )
+                               xs
+                               line
+                           )
+                   )
+                   (textYOffs, [])
+                   widthLines
+        centerHorz = TLCenterHorz `elem` layout
+    --printf  "wordLayout: %s\n" (show wordLayout)
+    --printf  "wordLayout: %s\n" (show wordLines)
+    --printf  "wordLayout: %s\n" (show widthLines)
+    --printf  "wordLayout: %s\n" (show glyphs)
+    return glyphs
 
 drawText :: FontRenderer -> QuadRenderBuffer -> Int -> Int -> FT2.Typeface -> String -> IO ()
-drawText fr qb x y face string =
+drawText fr qb x y face string = do
+    glyphs <- layoutText fr string face (fromIntegral x) (fromIntegral y) (fromIntegral x + 100) (fromIntegral y + 100) [TLWordWrap]
+    forM_ glyphs $ \(x1, y1, x2, y2, (GlyphCacheEntry _ _ tex uv)) ->
+        drawQuad qb x1 y1 x2 y2 1 FCBlack TRSrcAlpha (Just tex) uv
+    {-
     -- Render glyphs
     stringToGlyphs fr face string >>= foldM_
         ( \(xoffs, prevc) (GlyphCacheEntry c (FT2.GlyphMetrics { .. }) tex uv) -> do
@@ -306,6 +350,7 @@ drawText fr qb x y face string =
                            uv
               return (xoffs + gAdvanceHorz + kernHorz, c)
         ) (fromIntegral x, toEnum 0)
+    -}
 
 -- Very basic and slow text rendering. Have FT2 render all the glyphs and draw them
 -- directly using glDrawPixels. Does not use the glyph and kerning cache
