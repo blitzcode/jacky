@@ -189,11 +189,12 @@ text :: MonadIO m
      => FontRenderer -- TODO: Keep font renderer inside the UI state?
      -> Typeface
      -> String
+     -> [TextLayout]
      -> UIT m ()
-text fr face string = do
-    (Rectangle x1 y1 _ _) <- asks uisRect
-    qb                    <- asks uisQB
-    liftIO $ drawText fr qb (round x1) (round y1) face string
+text fr face string layout = do
+    UIState { .. } <- ask
+    let (Rectangle x1 y1 x2 y2) = uisRect
+    liftIO $ drawText fr uisQB face string x1 y1 x2 y2 uisDepth layout
 
 {-# INLINEABLE fill #-}
 --{-# INLINEABLE text #-}
