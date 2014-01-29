@@ -48,6 +48,8 @@ import QuadRendering
 -- TODO: Text layout is fairly slow, cache and / or speed up
 --
 -- TODO: Investigate kerning and grid fitting issues again, make sure we really got it right
+--
+-- TODO: Add scaling factor to draw text with a different size than what the font is set at
 
 data FontRenderer = FontRenderer
     { frFT2              :: !FT2.FT2Library
