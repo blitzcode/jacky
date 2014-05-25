@@ -17,6 +17,7 @@ import Data.List
 import qualified Data.Vector as V
 import Control.Monad.IO.Class
 import Control.Monad.State.Strict
+import Control.Monad.Trans.Resource
 import Control.Concurrent.STM
 import Control.Exception
 import Control.Applicative

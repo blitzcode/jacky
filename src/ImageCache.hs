@@ -24,6 +24,7 @@ import Data.IORef
 import Data.Typeable
 import Control.Concurrent.Async
 import Control.Concurrent.STM
+import Control.Monad.Trans.Resource (runResourceT)
 import Network.URI
 import qualified Data.Vector.Storable as VS
 import qualified Data.Vector.Storable.Mutable as VSM
@@ -31,7 +32,6 @@ import System.Directory
 import System.FilePath
 import Control.Monad
 import Control.Monad.IO.Class
-import Data.Conduit
 import Network.HTTP.Conduit
 import System.IO.Error
 import qualified Codec.Picture as JP
