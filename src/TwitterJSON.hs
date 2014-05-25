@@ -12,7 +12,8 @@ module TwitterJSON ( CreatedAtTime(..)
                    ) where
 
 import qualified Data.Text as T
-import Data.ByteString as B
+import qualified Data.Text.Encoding as TE
+import qualified Data.ByteString as B
 import Data.Int
 import Data.Aeson
 import Data.Time.Clock
@@ -62,14 +63,15 @@ instance FromJSON User where
         User <$> o .:  "id"
              <*> o .:  "name"
              <*> o .:  "screen_name"
-             <*> o .:? "url"
+             -- Workaround for recently removed FromJSON instance for ByteString
+             <*> (liftA TE.encodeUtf8 <$> o .:? "url")
              <*> o .:? "description"
              <*> o .:  "followers_count"
              <*> o .:  "statuses_count"
              <*> o .:  "created_at"
              <*> o .:  "verified"
-             <*> o .:  "lang"
-             <*> o .:  "profile_image_url"
+             <*> (TE.encodeUtf8 <$> o .: "lang"             )
+             <*> (TE.encodeUtf8 <$> o .: "profile_image_url")
     parseJSON _ = fail "Expected Object"
 
 data Tweet = Tweet { twCreatedAt             :: !CreatedAtTime
@@ -124,8 +126,8 @@ instance FromJSON Tweet where
               <*> o .:? "in_reply_to_status_id"
               <*> o .:? "in_reply_to_user_id"
               <*> o .:? "in_reply_to_screen_name"
-              <*> o .:? "filter_level"
-              <*> o .:  "lang"
+              <*> (liftA TE.encodeUtf8 <$> o .:? "filter_level")
+              <*> (      TE.encodeUtf8 <$> o .:  "lang"        )
               <*> o .:? "favorite_count"
               <*> o .:? "retweet_count"
               <*> o .:? "retweeted_status"
@@ -195,16 +197,16 @@ instance FromJSON StreamMessage where
                                          <*> val .: "reason"
                        | HM.member "warning" o ->
                          do val <- o .: "warning"
-                            SMWarning <$> val .:  "code"
-                                      <*> val .:  "message"
+                            SMWarning <$> (TE.encodeUtf8 <$> val .: "code"   )
+                                      <*> (TE.encodeUtf8 <$> val .: "message")
                                       <*> val .:? "user_id"
                                       <*> val .:? "percent_full"
                        | HM.member "event" o -> -- Event type object
                          do val <- o .: "event"
                             SMEvent <$> val .:? "target"
                                     <*> val .:? "source"
-                                    <*> val .:  "event"
-                                    <*> val .:? "target_object"
+                                    <*> (TE.encodeUtf8       <$> val .:  "event"        )
+                                    <*> (liftA TE.encodeUtf8 <$> val .:? "target_object")
                                     <*> val .:  "created_at"
                        -- We don't return SMParseError directly, instead we fail
                        -- and let the caller do the wrapping of the message
