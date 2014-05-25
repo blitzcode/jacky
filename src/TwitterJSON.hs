@@ -200,7 +200,7 @@ instance FromJSON StreamMessage where
                                       <*> val .:? "user_id"
                                       <*> val .:? "percent_full"
                        | HM.member "event" o -> -- Event type object
-                         do val <- o .: "warning"
+                         do val <- o .: "event"
                             SMEvent <$> val .:? "target"
                                     <*> val .:? "source"
                                     <*> val .:  "event"
