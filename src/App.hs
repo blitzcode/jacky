@@ -105,9 +105,9 @@ draw = do
             ( split STop 100
                 ( split SCenterH 0
                     ( do fill FCWhite (TRBlend 0.5) Nothing QuadUVDefault
-                         {-center 1000 15 $
+                         center 1000 15 $
                            layer $
-                             text fr arial tweetText-}
+                             text fr arial tweetText []
                     )
                     ( do split SLeft 100
                            ( do fill (FCSolid $ RGBA 1 0 0 1) TRNone Nothing QuadUVDefault
@@ -147,7 +147,7 @@ draw = do
                          $ return ()
                     )
                 )
-                ( do --drawAvatarTiles
+                ( do drawAvatarTiles
                      layer $
                        fontRenderingTest
                      center 200 100 $
