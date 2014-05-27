@@ -85,7 +85,7 @@ High-level module controlling OpenGL text layout and rendering. It relies on `FT
 
 ### FT2Interface, ft2_interface.c, ft2_interface.h
 
-Custom, very simple and lightweight but full-featured FreeType 2 bindings. Contains debug mode for dumping rendered glyphs / strings to the console.
+Custom, very simple and lightweight but fully-featured FreeType 2 bindings. Contains debug mode for dumping rendered glyphs / strings to the console.
 
 ![FT2 Console Test](https://raw.github.com/blitzcode/jacky/master/img/ft2_console_test.png)
 ![FT2 Console Test 2](https://raw.github.com/blitzcode/jacky/master/img/ft2_console_test_2.png)
@@ -104,7 +104,7 @@ Immediate mode OpenGL helper functions (for debugging, etc.).
 
 ### ImageCache
 
-Caching system (disk & memory) for image fetches over HTTP and from disk. Handles retrieving images from Twitter, memory caching with an optional disk cache, error handling / retrying, decompression / format conversion, request queues, avoiding double fetches, all concurrent, fast and robust. Internally uses `http-conduit`, our `LRUBoundedMap` and a pool of worker threads all synchronized using STM.
+Caching system (disk & memory) for image fetches over HTTP and from disk. Handles retrieving images from Twitter, memory caching with an optional disk cache, retiring of least used elements at capacity, error handling / retrying, decompression (with `JuicyPixels`) / format conversion, request queues, avoiding double fetches, all concurrent, fast and robust. Internally uses `http-conduit`, our `LRUBoundedMap` and a pool of worker threads all synchronized using STM.
 
 This was quite hard to get right, but it's very stable and fast now. All kinds of memory, connection and source image errors need to be handled and recovered from correctly, and the cache needs to purge the correct images when capacity is hit, all with potentially dozens of threads.
 
@@ -138,6 +138,8 @@ Inefficient / obsolete (just used for testing / development) immediate mode and 
 
 KDTree for finding a tight layout for a number of rectangles inside a larger bounding rectangle (bin packing). Useful for packing textures (fonts, lightmaps), UI elements, etc.
 
+![Tiles](https://raw.github.com/blitzcode/jacky/master/img/tiles.png)
+
 Supports online bin packing, uses a special optimization to keep KDTrees from degenerating:
 
 ```
@@ -162,6 +164,7 @@ already need four traversal steps for the next
 insertion. With this optimization, all the bottom
 rectangles get merged into a single space
 ```
+
 ### TextureAtlas
 
 Pack multiple rectangular images into a set of OpenGL textures. Consider using the simpler / faster `TextureGrid` if the images are very similar in size.
@@ -176,13 +179,17 @@ Example of a texture grid of 80x80 slots in a 512x512 texture with a one pixel b
 
 ![Texture Grid](https://raw.github.com/blitzcode/jacky/master/img/texture_grid.png)
 
+### TextureCache
+
+OpenGL texture cache on top of the `ImageCache` module. Handles creation of textures and uploading into stand-alone texture or a `TextureGrid`.
+
 ### Timing
 
 Provides `getTick` and `timeIt` helpers.
 
 ### Trace
 
-Tracing system to allow all threads to print nicely timestamped and categorized messages with verbosity levels and disk logging. ANSI colors are used for console output.
+Tracing system to allow all threads to print timestamped and categorized messages with verbosity levels and disk logging. ANSI colors (through `ansi-terminal`) are used for console output.
 
 Example trace:
 
