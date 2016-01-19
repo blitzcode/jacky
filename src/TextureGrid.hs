@@ -19,13 +19,12 @@ module TextureGrid ( TextureGrid
                    ) where
 
 import qualified Graphics.Rendering.OpenGL as GL
-import qualified Graphics.Rendering.OpenGL.Raw as GLR
+import qualified Graphics.GL as GLR
 import Data.IORef
 import qualified Data.Vector.Storable as VS
 import qualified Data.Vector.Storable.Mutable as VSM
 import Control.Monad
 import Control.Exception
-import Control.Applicative
 import Foreign.Storable
 import System.Directory
 import System.FilePath
@@ -195,7 +194,7 @@ insertImage tg@(TextureGrid { .. }) w h img = do
             . GL.PixelData tgFmt tgType
     -- Call raw API MIP-map generation function
     -- TODO: MIP-map generation should be deferred, not every time a texture is touched
-    GLR.glGenerateMipmap GLR.gl_TEXTURE_2D
+    GLR.glGenerateMipmap GLR.GL_TEXTURE_2D
     return slot
 
 -- TODO: Check that we're not freeing the same slot multiple times

@@ -11,7 +11,7 @@ module TextureAtlas ( TextureAtlas
                     ) where
 
 import qualified Graphics.Rendering.OpenGL as GL
-import qualified Graphics.Rendering.OpenGL.Raw as GLR
+import qualified Graphics.GL as GLR
 import Data.IORef
 import qualified Data.Sequence as S
 import qualified Data.Foldable as F
@@ -143,7 +143,7 @@ insertImage (TextureAtlas { .. }) w h img = do
             . GL.PixelData taFmt taType
     -- Call raw API MIP-map generation function
     -- TODO: MIP-map generation should be deferred, not every time a texture is touched
-    GLR.glGenerateMipmap GLR.gl_TEXTURE_2D
+    GLR.glGenerateMipmap GLR.GL_TEXTURE_2D
     -- Compute UV coordinates and return
     let tw = fromIntegral taTexWdh
      in return $ ( tex

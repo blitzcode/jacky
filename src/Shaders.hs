@@ -1,5 +1,5 @@
 
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings, FlexibleContexts #-}
 
 module Shaders ( vsSrcBasic
                , fsSrcBasic
@@ -11,14 +11,14 @@ module Shaders ( vsSrcBasic
                ) where
 
 import qualified Graphics.Rendering.OpenGL as GL
-import qualified Graphics.Rendering.OpenGL.Raw as GLR
+import qualified Graphics.GL as GLR
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.ByteString as B
 import Data.Either
 import Control.Exception
 import Control.Monad
-import Control.Monad.Error
+import Control.Monad.Except
 import Foreign.Ptr
 import Foreign.Storable
 import Foreign.Marshal.Array
@@ -34,7 +34,7 @@ mkShaderProgam vsSrc fsSrc =
     bracket        (GL.createShader GL.VertexShader  ) (GL.deleteObjectName) $ \shdVtx  ->
     bracket        (GL.createShader GL.FragmentShader) (GL.deleteObjectName) $ \shdFrag ->
     bracketOnError (GL.createProgram                 ) (GL.deleteObjectName) $ \shdProg -> do
-        r <- runErrorT $ do
+        r <- runExceptT $ do
                  compile shdVtx  vsSrc
                  compile shdFrag fsSrc
                  liftIO $ GL.attachShader shdProg shdVtx >> GL.attachShader shdProg shdFrag
@@ -92,7 +92,7 @@ setTextureShader tex tu prog uname = do
 setProjMatrixFromFFP :: GL.Program -> String -> IO ()
 setProjMatrixFromFFP prog uniform = do
     GL.UniformLocation loc <- GL.get $ GL.uniformLocation prog uniform
-    withArray ([1..16] :: [GL.GLfloat]) $ \ptr -> do GLR.glGetFloatv GLR.gl_PROJECTION_MATRIX ptr
+    withArray ([1..16] :: [GL.GLfloat]) $ \ptr -> do GLR.glGetFloatv GLR.GL_PROJECTION_MATRIX ptr
                                                      GLR.glUniformMatrix4fv loc 1 0 ptr
 
 -- Shader source for basic vertex and fragment shaders

@@ -4,7 +4,6 @@ module Timing ( getTick
               ) where
 
 import Data.Time.Clock
-import Control.Applicative
 import Control.Monad.IO.Class
 import System.IO.Unsafe
 

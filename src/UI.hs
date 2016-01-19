@@ -22,7 +22,6 @@ module UI ( UIState
           , Transparency(..)
           ) where
 
-import Control.Applicative
 import Control.Monad.Trans.Reader
 import Control.Monad.IO.Class
 import qualified Graphics.Rendering.OpenGL as GL

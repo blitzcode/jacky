@@ -6,7 +6,7 @@ module CmdLineOptDefinitions where -- Export everything
 import System.Console.GetOpt
 import System.Environment
 import Control.Monad.IO.Class
-import Control.Monad.Error
+import Control.Monad.Except
 
 -- Command line flag / option parsing, defaults
 

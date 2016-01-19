@@ -20,15 +20,13 @@ import Control.Monad.State.Strict
 import Control.Monad.Trans.Resource
 import Control.Concurrent.STM
 import Control.Exception
-import Control.Applicative
 import Control.Concurrent hiding (yield)
 import Text.Printf
+import Text.Read (readMaybe)
 import System.IO
 
 import TwitterJSON
 import Trace
-import ParseMaybe
-import StateModify
 
 -- Pick up Twitter status updates and related messages from a file or an HTTP connection
 -- and return the results as data structures from TwitterJSON
@@ -140,7 +138,7 @@ processStatuses uri oaClient oaCredential manager logFn appendLog smQueue retryA
                                                ++ "Header: " ++ show (responseHeaders res)
                       -- Are we approaching the rate limit?
                       case find ((== "x-rate-limit-remaining") . fst) (responseHeaders res) >>=
-                           parseMaybe . B8.unpack . snd :: Maybe Int of
+                           readMaybe . B8.unpack . snd :: Maybe Int of
                                Just n  -> when (n < 5) . liftIO . traceS TLWarn $ printf
                                               "Rate limit remaining for API '%s' at %i" uri n
                                Nothing -> return ()

@@ -8,7 +8,6 @@ module App ( Env(..)
            , mkUILayoutRects
            ) where
 
-import Control.Applicative
 import Control.Concurrent.STM
 import Control.Monad.Reader
 import Control.Monad.State hiding (State)
@@ -32,7 +31,6 @@ import qualified RectPacker as RP
 import qualified BoundedSequence as BS
 import GLHelpers
 import GLFWHelpers
-import StateModify
 import UI
 import FontRendering
 import QuadRendering

@@ -3,7 +3,8 @@
              , OverloadedStrings
              , LambdaCase
              , FlexibleContexts
-             , BangPatterns #-}
+             , BangPatterns
+             , ScopedTypeVariables #-}
 
 module QuadRendering ( withQuadRenderer
                      , QuadRenderer
@@ -28,7 +29,6 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Storable.Mutable as VSM
 import qualified Data.Vector.Mutable as VM
 import Data.List
-import Control.Applicative
 import Control.Monad
 import Control.Exception
 import Control.Monad.IO.Class
@@ -162,7 +162,7 @@ data QuadRenderBuffer = QuadRenderBuffer
 
 -- Prepare data structures and render when inner exits. This is meant to be called once or
 -- more per-frame. Runs its inner inside the base monad
-withQuadRenderBuffer :: (MonadBaseControl IO m, MonadIO m)
+withQuadRenderBuffer :: forall m a. (MonadBaseControl IO m, MonadIO m)
                      => QuadRenderer
                      -> (QuadRenderBuffer -> m a)
                      -> m (Maybe a) -- We return Nothing if mapping fails
@@ -185,7 +185,7 @@ withQuadRenderBuffer qbQR@(QuadRenderer { .. }) f = do
                              finally
                                  ( run $ do -- Run in outer base monad
                                        let qb = QuadRenderBuffer { .. }
-                                       r <- f qb
+                                       r <- (f qb)
                                        return $ Just (r, qb)
                                  )
                                  bindVAO -- Make sure we rebind our VAO, otherwise
@@ -194,7 +194,9 @@ withQuadRenderBuffer qbQR@(QuadRenderer { .. }) f = do
                 )
                 ( \mf -> do traceS TLError $
                                 "withQuadRenderBuffer - VBO mapping failure: " ++ show mf
-                            run $ return Nothing
+                            -- Looks like since the 1.0.0.0 change in monad-control we need
+                            -- some type annotations for this to work
+                            run $ (return Nothing :: m (Maybe (a, QuadRenderBuffer)))
                 )
     case r of
         Nothing       -> return Nothing

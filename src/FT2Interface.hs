@@ -14,7 +14,6 @@ module FT2Interface ( withFT2
                     , FT2Exception(..)
                     ) where
 
-import Control.Applicative
 import Control.Monad
 import Data.Typeable
 import Data.IORef
@@ -32,7 +31,7 @@ import Foreign.Storable
 import Foreign.Marshal.Array
 import Foreign.Marshal.Alloc
 import Foreign.Marshal.Utils
-import Foreign.ForeignPtr.Safe
+import Foreign.ForeignPtr
 
 import Trace
 
@@ -68,7 +67,7 @@ data Typeface = Typeface { tfHandle        :: !FT2FaceHandle
 -- Hash typefaces by their FT2 Face pointer. Note that this is a fairly poor hash as the
 -- allocations can be very close together
 instance Hashable Typeface where
-    hash = fromIntegral . ptrToIntPtr . tfHandle
+    hashWithSalt salt = (salt +) . fromIntegral . ptrToIntPtr . tfHandle
 
 data FT2Library = FT2Library { flLibrary   :: FT2LibraryHandle
                              , flTypefaces :: IORef [Typeface] -- So we can free them on exit

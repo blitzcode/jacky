@@ -37,7 +37,6 @@ import System.IO.Error
 import qualified Codec.Picture as JP
 import qualified Codec.Picture.Types as JPT
 import Control.Exception
-import Control.Applicative
 import Text.Printf
 
 import qualified LRUBoundedMap as LBM

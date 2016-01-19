@@ -22,7 +22,6 @@ module FontRendering ( withFontRenderer
 import qualified Graphics.Rendering.OpenGL as GL
 import Control.Monad
 import Control.Exception
-import Control.Applicative
 import qualified Data.Vector.Storable as VS
 import qualified Data.HashMap.Strict as HM
 import Data.Hashable

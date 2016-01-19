@@ -20,9 +20,9 @@ import qualified Data.ByteString.Char8 as B8
 import Data.Maybe
 import Data.List
 import Text.Printf
+import Text.Read (readMaybe)
 import qualified Data.Map.Strict as M
-import Control.Applicative
-import Control.Monad.Error
+import Control.Monad.Except
 import Control.Exception
 import Control.Concurrent hiding (yield)
 import Control.Concurrent.STM
@@ -42,7 +42,6 @@ import ImageCache
 import TextureCache
 import CfgFile
 import Trace
-import ParseMaybe
 import ProcessStatus
 import CmdLineOptDefinitions
 import qualified BoundedSequence as BS
@@ -158,7 +157,7 @@ main = do
     cacheFolder <- addTrailingPathSeparator <$> getAppUserDataDirectory defImageCacheFolder
     let imgCacheFolder flagsArg = foldr
          (\f r -> case f of FlagImageCacheFolder fldr -> fldr; _ -> r) cacheFolder flagsArg
-    res <- runErrorT $ do
+    res <- runExceptT $ do
         -- Process configuration / command line options
         flags <- parseCmdLineOpt
         when (FlagLogNetwork `elem` flags && FlagReplayLog `elem` flags) $
@@ -199,16 +198,16 @@ main = do
           createDirectoryIfMissing True logNetworkFolder
       -- Image cache concurrent fetches
       let concImgFetches = foldr (\f r -> case f of
-           FlagConcImgFetches n -> fromMaybe r $ parseMaybe n
+           FlagConcImgFetches n -> fromMaybe r $ readMaybe n
            _                    -> r)
            defConcImgFetches flags
       withSocketsDo $
         let managerConnCount = foldr (\f r -> case f of
-                FlagConKeepAlive n -> fromMaybe r $ parseMaybe n
+                FlagConKeepAlive n -> fromMaybe r $ readMaybe n
                 _                  -> r)
                 defConKeepAlive flags
             managerResponseTimeout = Just $ foldr (\f r -> case f of
-                FlagConTimeout n -> fromMaybe r $ parseMaybe n
+                FlagConTimeout n -> fromMaybe r $ readMaybe n
                 _                -> r)
                 defConTimeout flags
         in  withManagerSettings
@@ -237,7 +236,7 @@ main = do
                                                                    envSMQueue
            in withPSAsync $
             let cacheSize = foldr (\f r -> case f of
-                    FlagImgMemCacheSize n -> fromMaybe r $ parseMaybe n
+                    FlagImgMemCacheSize n -> fromMaybe r $ readMaybe n
                     _                     -> r)
                     defImgMemCacheSize flags
             in  withImageCache manager
@@ -251,7 +250,7 @@ main = do
                   wndHgt = 644
                in withWindow wndWdh wndHgt "Twitter" envGLFWEventsQueue $ \envWindow ->
                 let texPackSize = foldr (\f r ->case f of
-                        FlagTexturePackSize n -> fromMaybe r $ parseMaybe n
+                        FlagTexturePackSize n -> fromMaybe r $ readMaybe n
                         _ -> r) defTexturePackSize flags
                 in  withTextureCache cacheSize
                                      True -- Use texture grid packing
@@ -260,7 +259,7 @@ main = do
                                      envImageCache
                                      $ \envTextureCache ->
                   let maxQuad = foldr (\f r -> case f of
-                          FlagQuadRBSize n -> fromMaybe r $ parseMaybe n
+                          FlagQuadRBSize n -> fromMaybe r $ readMaybe n
                           _ -> r) defQuadRBSize flags
                   in withQuadRenderer maxQuad $ \envQuadRenderer ->
                     withFontRenderer (FlagForceAutohint `elem` flags)
@@ -277,12 +276,12 @@ main = do
                       let envInit = Env
                             { envTweetHistSize           = foldr (\f r -> case f of
                                                                     FlagTweetHistory n ->
-                                                                        fromMaybe r $ parseMaybe n
+                                                                        fromMaybe r $ readMaybe n
                                                                     _ -> r)
                                                                  defTweetHistory flags
                             , envStatTraceInterval       = foldr (\f r -> case f of
                                                                     FlagStatTraceInterval n ->
-                                                                        fromMaybe r $ parseMaybe n
+                                                                        fromMaybe r $ readMaybe n
                                                                     _ -> r)
                                                                  defStatTraceInterval flags
                             , envDumpFT2AtlasOnTrace     = FlagDumpFT2AtlasOnTrace     `elem` flags

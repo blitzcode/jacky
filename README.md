@@ -5,6 +5,10 @@ This program is a very much work-in-progress (about 50-75% done) Twitter 'newsre
 
 ![Main Debug](https://raw.github.com/blitzcode/jacky/master/img/main_debug.png)
 
+# Building
+
+A Makefile based build system (`src/old_Makefile`) was used for most of the development, but later replaced by a Cabal/Stack based one. What makes building this project a bit complex is the configure step of the `jacky.cabal` invoking the FreeType 2 Makefile in `src/freetype2/`. There's a also some C code (FT2 wrappers) build by Cabal directly.
+
 # Modules
 
 Incomplete list of the various modules which make up the client, including a brief explanation of their function, algorithm and data structure choices.

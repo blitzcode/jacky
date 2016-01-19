@@ -15,7 +15,6 @@ import qualified Graphics.Rendering.OpenGL as GL
 import qualified Data.ByteString as B
 import Control.Exception
 import Control.Monad
-import Control.Applicative
 import Text.Printf
 import Data.IORef
 

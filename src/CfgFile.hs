@@ -3,9 +3,9 @@
 
 module CfgFile (CfgMap, loadCfgFile) where
 
-import Data.Attoparsec.Char8
-import qualified Data.ByteString as B
-import qualified Data.ByteString.Char8 as B8
+import Data.Attoparsec.Text
+import qualified Data.Text as T
+import qualified Data.Text.IO as TI
 import qualified Data.Map as M
 import Control.Applicative
 import Control.Monad (void)
@@ -24,7 +24,7 @@ cfgParser = M.fromList <$> (many $ cfgLineParser <* endOfLine)
                                key <- takeTill (\c -> c == ' ' || c == '=')
                                void . skipWS $ char '='
                                value <- takeTill (== '\n')
-                               return (B8.unpack key, B8.unpack value)
+                               return (T.unpack key, T.unpack value)
           skipWS p        = skipSpace *> p <* skipSpace
           skipCmtAndEmpty = void . try . many
                                  $  char '#' *> takeTill (== '\n') *> char '\n' -- Comment
@@ -32,7 +32,7 @@ cfgParser = M.fromList <$> (many $ cfgLineParser <* endOfLine)
 
 loadCfgFile :: FilePath -> IO CfgMap
 loadCfgFile fn = do
-    contents <- B.readFile fn
+    contents <- TI.readFile fn
     case parseOnly cfgParser contents of
         Left  err -> error err
         Right m   -> return m

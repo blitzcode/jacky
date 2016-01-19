@@ -1,6 +1,3 @@
-
--- Note that we still use a Makefile for compilation
-
 name:                jacky
 version:             0.1.0.0
 synopsis:            Twitter Client
@@ -35,10 +32,10 @@ executable jacky
   include-dirs:     src/freetype2/include/
   cc-options:       -std=c99 -g -O3 -mtune=native -Wall -Wextra -Wno-unused-parameter
 
-  -- TODO: We could get rid of the first three libraries by configuring FT2 to build without them
+  -- FT2 static library and libs required by it
   -- TODO: We're currently loading the FT2 dylib, link statically
-  extra-libraries: z bz2 png12 freetype
-  extra-lib-dirs: /usr/X11/lib src/freetype2/objs/.libs/
+  extra-libraries: z bz2 freetype
+  extra-lib-dirs: src/freetype2/objs/.libs/
 
   default-language: Haskell2010
   other-extensions:   OverloadedStrings
@@ -50,9 +47,8 @@ executable jacky
                     , RecordWildCards
                     , RankNTypes
                     , ExistentialQuantification
-                    , NamedFieldPuns
                     , ViewPatterns
-  build-depends:      base                 >=4.6
+  build-depends:      base                 >=4.8
                     , containers           >=0.5
                     , attoparsec           >=0.10
                     , bytestring           >=0.10
@@ -74,17 +70,16 @@ executable jacky
                     , http-client          >=0.2.0.2
                     , JuicyPixels          >=3.1.2
                     , authenticate-oauth   >=1.4.0.8
-                    , attoparsec-conduit   >=1.0
                     , resourcet            >=0.4.9
-                    , conduit-extra        >=1.0
+                    , conduit-extra        >=1.1.0
                     , aeson                >=0.6
-                    , OpenGLRaw            >=1.4
+                    , OpenGLRaw            >=3.0.0.0
                     , time                 >=1.4
                     , ansi-terminal        >=0.6
                     , text                 >=0.11
                     , unordered-containers >=0.2
-                    , old-locale           >=1.0
                     , deepseq              >=1.3.0.1
                     , hashable             >=1.1.2.5
                     , monad-control        >=0.3.2.2
+                    , network-uri
 

@@ -1,13 +1,8 @@
 
-module StateModify ( modify'
-                   , withDiscardStateT
+module StateModify ( withDiscardStateT
                    ) where
 
 import Control.Monad.State.Strict
-
--- Strict modify
-modify' :: MonadState s m => (s -> s) -> m ()
-modify' f = get >>= (\x -> put $! f x)
 
 -- Like withState, but discarding the state changes made by the passed action (like
 -- ReaderT's local function)

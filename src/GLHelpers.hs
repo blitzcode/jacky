@@ -20,12 +20,11 @@ module GLHelpers ( setup2D
                  ) where
 
 import qualified Graphics.Rendering.OpenGL as GL
-import qualified Graphics.Rendering.OpenGL.Raw as GLR
+import qualified Graphics.GL as GLR
 -- import qualified Graphics.Rendering.OpenGL.GLU as GLU
 import qualified "GLFW-b" Graphics.UI.GLFW as GLFW
-import Control.Applicative
 import Control.Monad
-import Control.Monad.Error
+import Control.Monad.Except
 import Control.Exception
 import Text.Printf
 import Data.Maybe
@@ -164,7 +163,7 @@ newTexture2D fmt ifmt dtype (w, h) tc genMipMap tf clamp = do
   r <- bracketOnError
     ( GL.genObjectName )
     ( GL.deleteObjectName )
-    $ \tex -> runErrorT $ do
+    $ \tex -> runExceptT $ do
         liftIO $ GL.textureBinding GL.Texture2D GL.$= Just tex
         -- Might not conform to the default 32 bit alignment
         liftIO $ GL.rowAlignment GL.Unpack GL.$= 1
@@ -210,7 +209,7 @@ newTexture2D fmt ifmt dtype (w, h) tc genMipMap tf clamp = do
         --     (fromIntegral h)
         --     (GL.PixelData GL.RGBA GL.UnsignedByte ptr)
         --
-        when genMipMap . liftIO $ GLR.glGenerateMipmap GLR.gl_TEXTURE_2D
+        when genMipMap . liftIO $ GLR.glGenerateMipmap GLR.GL_TEXTURE_2D
         return tex
   case r of
       Left err -> traceS TLError err >> return (GL.TextureObject 0)

@@ -1,5 +1,5 @@
 
-{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE BangPatterns, FlexibleContexts #-}
 {-# OPTIONS_GHC -fno-full-laziness -funbox-strict-fields #-}
 
 module LRUBoundedMap ( Map
@@ -27,7 +27,6 @@ import Data.Bits
 import Data.Maybe
 import Data.Word
 import Data.List hiding (lookup, delete, null, insert)
-import Control.Applicative hiding (empty)
 import Control.Monad
 import Control.Monad.Writer
 import Control.DeepSeq (NFData(rnf))
@@ -198,13 +197,13 @@ insert kIns vIns m =
                         )
         go h k v s t@(Collision colh ch) =
             if   h == colh
-            then let traverse [] = [L k v tick] -- Append new leaf
-                     traverse (l@(L lk _ _):xs) =
+            then let trav [] = [L k v tick] -- Append new leaf
+                     trav (l@(L lk _ _):xs) =
                          if   lk == k
                          then L k v tick : xs -- Update value
-                         else l : traverse xs
-                     t' = Collision h $ traverse ch
-                 in (t', minMaxFromTrie t', length ch /= length (traverse ch))
+                         else l : trav xs
+                     t' = Collision h $ trav ch
+                 in (t', minMaxFromTrie t', length ch /= length (trav ch))
             else -- Expand collision into interior node
                  let (mint, maxt) = minMaxFromTrie t
                  in  go h k v s $
@@ -392,7 +391,7 @@ valid m =
              when (fst (size m) > mLimit m) $
                  tell "Size over the limit\n"
              allTicks <-
-               let traverse s minParent maxParent ticks t =
+               let trav s minParent maxParent ticks t =
                      case t of
                          Leaf h (L lk lv lt) ->
                              (: ticks) <$> checkKey h lk lv lt minParent maxParent
@@ -408,7 +407,7 @@ valid m =
                          Node minA maxA minB maxB a b -> do
                              let mint = min minA minB
                                  maxt = max maxA maxB
-                             when (s + 1 > bitSize (undefined :: Word)) $
+                             when (s + 1 > finiteBitSize (undefined :: Word)) $
                                  tell "Subkey shift too large during traversal\n"
                              when (mint < minParent || maxt > maxParent) $
                                  tell "Node min/max tick outside of parent interval\n"
@@ -425,7 +424,7 @@ valid m =
                                     Collision _ _ -> tell "Node with single Collision child\n"
                                     _             -> return ()
                              foldM (\xs (c, mint', maxt') ->
-                                       traverse (s + 1) mint' maxt' xs c
+                                       trav (s + 1) mint' maxt' xs c
                                    )
                                    ticks
                                    used
@@ -449,7 +448,7 @@ valid m =
                        when (fromMaybe v v' /= v) $
                            tell "Delete returned wrong value\n"
                        return tick
-               in  traverse 0 minBound maxBound [] $ mTrie m
+               in  trav 0 minBound maxBound [] $ mTrie m
              when (length allTicks /= mSize m) $
                  tell "Collection of all tick values used resulted in different size that mSize\n"
              unless (not . any (\x -> length x /= 1) . group . sort $ allTicks) $

@@ -20,7 +20,6 @@ import Data.Time.Clock
 import qualified Data.HashMap.Strict as HM
 import Data.Time
 import Control.Applicative
-import System.Locale (defaultTimeLocale)
 
 -- Data structures and parsers for dealing with data returned from the Twitter
 -- REST and streaming APIs
@@ -40,7 +39,7 @@ newtype CreatedAtTime = CreatedAtTime { fromCreatedAtTime :: UTCTime } deriving 
 
 instance FromJSON CreatedAtTime where
     parseJSON (String t) = {-# SCC parseCreatedAtTime #-} 
-        case parseTime defaultTimeLocale "%a %b %d %H:%M:%S %z %Y" $ T.unpack t of
+        case parseTimeM True defaultTimeLocale "%a %b %d %H:%M:%S %z %Y" $ T.unpack t of
             Just d -> pure $ CreatedAtTime d
             _      -> fail $ "Could not parse 'created at' time" ++ T.unpack t
     parseJSON _ = fail "CreatedAtTime: Not a string"
