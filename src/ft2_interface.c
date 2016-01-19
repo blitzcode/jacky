@@ -123,8 +123,8 @@ FT_Error debugPrintTest(FT_Library library)
 
     CHECK_ERROR(FT_New_Face(
             library,
-            //"/Library/Fonts/Futura.ttc",
-            "/System/Library/Fonts/HelveticaLight.ttf",
+            "/Library/Fonts/Futura.ttc",
+            //"/System/Library/Fonts/HelveticaLight.ttf",
             //"/System/Library/Fonts/LucidaGrande.ttc",
             0,
             &face));
