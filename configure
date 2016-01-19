@@ -1,5 +1,3 @@
 cd src/freetype2
-# TODO: Get those flags from GHC like in the Makefile
-env CFLAGS=-m32
-./configure 
+./configure --without-png
 make -j
