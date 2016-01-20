@@ -21,6 +21,7 @@ withWindow w h title tq =
              GLFW.windowHint $ GLFW.WindowHint'Resizable True
              -- GLFW.windowHint $ GLFW.WindowHint'Samples 4 -- 4x anti-aliasing
              GLFW.windowHint $ GLFW.WindowHint'Decorated False
+             modernOpenGL
              Just window <- GLFW.createWindow w h title Nothing Nothing
              (x, _) <- GLFW.getWindowPos window
              GLFW.setWindowPos window x 22 -- TODO: Height of OS menu bar, window would be under
@@ -32,6 +33,15 @@ withWindow w h title tq =
         ( \window -> do GLFW.destroyWindow window
                         GLFW.terminate
         )
+
+-- >2.1, no backwards compatibility on OS X
+-- http://www.glfw.org/faq.html#how-do-i-create-an-opengl-30-context
+modernOpenGL :: IO ()
+modernOpenGL = do
+    GLFW.windowHint $ GLFW.WindowHint'OpenGLProfile GLFW.OpenGLProfile'Core
+    GLFW.windowHint $ GLFW.WindowHint'OpenGLForwardCompat True
+    GLFW.windowHint $ GLFW.WindowHint'ContextVersionMajor 3
+    GLFW.windowHint $ GLFW.WindowHint'ContextVersionMinor 3
 
 highDPIScaleFactor :: GLFW.Window -> IO Double
 highDPIScaleFactor win = do

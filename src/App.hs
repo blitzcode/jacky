@@ -90,7 +90,8 @@ draw = do
     Just arial<- liftIO $ getLoadedTypeface fr "Arial Unicode MS" 16
     rc        <- liftIO $ rectFromWndFB window
     qr        <- asks envQuadRenderer
-    void $ withQuadRenderBuffer qr $ \qb ->
+    (w, h) <- liftIO $ GLFW.getFramebufferSize window
+    void $ withQuadRenderBuffer qr w h $ \qb ->
       runUI rc 1000 qb $ do
         fill (FCBottomTopGradient (RGBA 0.2 0.2 0.2 1) (RGBA 0.4 0.4 1 1))
              TRNone
@@ -273,7 +274,7 @@ processGLFWEvent ev =
             --       see https://github.com/glfw/glfw/issues/1
             liftIO $ traceS TLInfo $ printf "Window resized: %i x %i" w h
         GLFWEventFramebufferSize {- win -} _ w h -> do
-            liftIO $ setup2D w h
+            liftIO $ setupViewport w h
         {-
         GLFWEventMouseButton win bttn st mk -> do
             return ()
@@ -386,7 +387,7 @@ run = do
     liftIO $ do
         (w, h) <- GLFW.getFramebufferSize window
         -- GLFW.swapInterval 1
-        setup2D w h
+        setupViewport w h
     -- Load fonts
     fr <- asks envFontRenderer
     liftIO $ do

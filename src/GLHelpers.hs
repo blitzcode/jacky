@@ -1,7 +1,7 @@
 
 {-# LANGUAGE PackageImports, LambdaCase, ExistentialQuantification #-}
 
-module GLHelpers ( setup2D
+module GLHelpers ( setupViewport
                  , getCurTex2DSize
                  , getGLStrings
                  , TextureContents(..)
@@ -39,15 +39,8 @@ import Trace
 
 -- Various utility functions related to OpenGL
 
-setup2D :: Int -> Int -> IO ()
-setup2D w h = do
-    GL.viewport   GL.$= (GL.Position 0 0, GL.Size (fromIntegral w) (fromIntegral h))
-    GL.matrixMode GL.$= GL.Projection
-    GL.loadIdentity
-    -- GLU.ortho2D 0.0 (fromIntegral w) 0.0 (fromIntegral h)
-    GL.ortho 0 (fromIntegral w) 0 (fromIntegral h) 0 1000
-    -- Magic number working for NV & ATI
-    -- GL.translate (GL.Vector3 0.375 0.375 0.0 :: GL.Vector3 GL.GLfloat)
+setupViewport :: Int -> Int -> IO ()
+setupViewport w h = GL.viewport GL.$= (GL.Position 0 0, GL.Size (fromIntegral w) (fromIntegral h))
 
 getErrors :: Maybe String -> IO (Maybe String)
 getErrors context =
