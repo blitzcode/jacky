@@ -65,10 +65,10 @@ withFontRenderer frDefForceAutohint frDefDisableKern frUseTexAtlas atlasTexSize 
     FT2.withFT2 $ \frFT2 -> -- We initialize our own FT2 library
         TA.withTextureAtlas atlasTexSize
                             1
-                            GL.Alpha
-                            GL.Alpha8
+                            GL.RGBA
+                            GL.RGBA8
                             GL.UnsignedByte
-                            (0 :: Word8)
+                            (0 :: Word32)
                             TFMinMag
                             $ \frTexAtlas ->
             bracket
@@ -148,7 +148,16 @@ stringToGlyphs (FontRenderer { .. }) face string = do
     -- TODO: Use LRUBoundedMap to retire elements when we reach some memory consumption cap
     (glyphCache, glyphs) <- readIORef frGlyphCache >>= \glyphCache -> foldM
         (\(cache, outGlyphs) c ->
-            let key = mkGlyphCacheKey face c
+            let key              = mkGlyphCacheKey face c
+                -- TODO: There are no A8 textures in the OpenGL core profile, and it's
+                --       simpler to use a RGBA8 texture instead of having a custom shader
+                --       in QuadRendering to handle the replication from single-channel
+                --       R8 textures. Fix this properly
+                convertA8toRGBA8 = VS.map $ \a8 -> let a32 = fromIntegral a8 :: Word32
+                                                   in  (a32                  ) .|.
+                                                       (a32 `unsafeShiftL` 8 ) .|.
+                                                       (a32 `unsafeShiftL` 16) .|.
+                                                       (a32 `unsafeShiftL` 24)
             in  case HM.lookup key cache of
                     Just entry -> return (cache, entry : outGlyphs)
                     Nothing    ->
@@ -164,15 +173,15 @@ stringToGlyphs (FontRenderer { .. }) face string = do
                                             TA.insertImage frTexAtlas
                                                            gWidth
                                                            gHeight
-                                                           bitmap
+                                                           $ convertA8toRGBA8 bitmap
                                         return $ GlyphCacheEntry
                                             c metrics tex uv
                                   | otherwise -> do -- Make new texture
-                                        tex <- newTexture2D GL.Alpha
-                                                            GL.Alpha8
+                                        tex <- newTexture2D GL.RGBA
+                                                            GL.RGBA8
                                                             GL.UnsignedByte
                                                             (gWidth, gHeight)
-                                                            (TCUpload bitmap)
+                                                            (TCUpload $ convertA8toRGBA8 bitmap)
                                                             True
                                                             (Just TFMinMag)
                                                             True
