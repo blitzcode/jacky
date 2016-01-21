@@ -1,3 +1,7 @@
 cd src/freetype2
 ./configure --without-png
 make -j
+# Delete dylib so we're linking statically. The set install name prevents OS X from
+# finding the dylib at runtime when we run without installing FT2
+rm objs/.libs/libfreetype.dylib || true
+rm objs/.libs/libfreetype.6.dylib || true
