@@ -210,9 +210,8 @@ main = do
                 FlagConTimeout n -> fromMaybe r $ readMaybe n
                 _                -> r)
                 defConTimeout flags
-        in  withManagerSettings
-                 conduitManagerSettings { managerConnCount, managerResponseTimeout }
-                $ \manager -> liftIO $ do
+        in  newManager tlsManagerSettings { managerConnCount, managerResponseTimeout }
+                >>= \manager -> liftIO $ do
           -- Launch thread(s) for parsing status updates
           envSMQueue <- newTBQueueIO 1024 :: IO (TBQueue StreamMessage)
           let withPSAsync f =
