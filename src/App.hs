@@ -386,7 +386,7 @@ run = do
     window <- asks envWindow
     liftIO $ do
         (w, h) <- GLFW.getFramebufferSize window
-        -- GLFW.swapInterval 1
+        GLFW.swapInterval 0
         setupViewport w h
     -- Load fonts
     fr <- asks envFontRenderer
